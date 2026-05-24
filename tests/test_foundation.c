@@ -11,6 +11,8 @@
 #include "miku_rbtree.h"
 #include "miku_memory.h"
 
+extern void run_runtime_tests(void);
+
 void test_arena(void) {
     miku_arena_t *a = miku_arena_create(4096);
     mk_assert_not_null(a);
@@ -188,6 +190,8 @@ int main(void) {
     mk_run_test(test_base64);
     mk_run_test(test_rbtree);
     mk_run_test(test_memory_pool);
+
+    run_runtime_tests();
 
     return mk_test_summary();
 }

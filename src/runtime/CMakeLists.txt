@@ -1,6 +1,11 @@
 # Runtime library: coroutine scheduler, thread pool, I/O multiplexing, timer
 set(MIKU_RUNTIME_SOURCES
-    miku_runtime.c
+    miku_coroutine.c
+    miku_threadpool.c
+    miku_scheduler.c
+    miku_channel.c
+    miku_timer.c
+    miku_async.c
 )
 
 if(MIKU_LINUX)
