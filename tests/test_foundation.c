@@ -12,6 +12,7 @@
 #include "miku_memory.h"
 
 extern void run_runtime_tests(void);
+extern void run_protocol_tests(void);
 
 void test_arena(void) {
     miku_arena_t *a = miku_arena_create(4096);
@@ -192,6 +193,7 @@ int main(void) {
     mk_run_test(test_memory_pool);
 
     run_runtime_tests();
+    run_protocol_tests();
 
     return mk_test_summary();
 }

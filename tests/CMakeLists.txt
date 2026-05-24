@@ -1,12 +1,14 @@
-add_executable(miku_tests test_foundation.c test_runtime.c)
+add_executable(miku_tests test_foundation.c test_runtime.c test_protocol.c)
 
 target_include_directories(miku_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src/foundation
     ${CMAKE_SOURCE_DIR}/src/runtime
+    ${CMAKE_SOURCE_DIR}/src/protocol
 )
 
 target_link_libraries(miku_tests PRIVATE
+    miku_protocol
     miku_runtime
     miku_foundation
 )

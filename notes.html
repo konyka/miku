@@ -42,63 +42,109 @@
 </div>
 
 <div class="entry">
-  <div class="meta">2025-05-24 | <span class="tag tag-phase">Phase 1A</span> <span class="tag tag-progress">IN PROGRESS</span></div>
-  <h3>Build System &amp; Project Skeleton</h3>
+  <div class="meta">2025-05-24 | <span class="tag tag-phase">Phase 1A-1E</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Foundation + Runtime + I/O Layer Complete</h3>
   <ul>
     <li>Root CMakeLists.txt with C23 standard, platform detection, optional dependencies</li>
     <li>9 sub-CMakeLists.txt for all modules</li>
     <li>12 service entry points in cmd/</li>
     <li>Convenience Makefile (make debug/test/clean)</li>
     <li>Foundation layer: 15 complete modules</li>
+    <li>Runtime layer: coroutine, threadpool, scheduler, channel, timer</li>
+    <li>I/O abstraction: epoll (edge-triggered) with socketpair test</li>
     <li>Test framework header (miku_test.h)</li>
+    <li>20 tests, 67 assertions, all passing</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2025-05-24 | <span class="tag tag-phase">Phase 1F</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Protocol Layer: HTTP + JSON</h3>
+  <ul>
+    <li><code>miku_http.h/c</code> - HTTP/1.1 request parser (method, path, query string, headers, body)</li>
+    <li><code>miku_http_server.h/c</code> - HTTP server with route matching, non-blocking accept/read via miku_io</li>
+    <li><code>miku_json.h/c</code> - JSON parser (object, array, string, int, double, bool, null) + builder + stringify</li>
+    <li>HTTP tests: parse GET with query, parse POST with body, incomplete detection, method enum, response serialize, status text, server ping-pong integration test</li>
+    <li>JSON tests: parse object, parse array with mixed types, primitives (true/false/null/negative), nested objects+arrays, stringify roundtrip, builder API, missing key handling</li>
+    <li>27 tests total (11 foundation + 9 runtime + 8 HTTP + 8 JSON), all passing</li>
+    <li>Old stub files (miku_protocol.h/c) removed</li>
   </ul>
 </div>
 
 <h2>Overall Progress</h2>
 
-<div class="progress-bar"><div class="progress-fill" style="width: 8%"></div></div>
-<p style="color:#8b949e; margin-top:0.5rem;">8% complete (Phase 0 done, Phase 1A in progress)</p>
+<div class="progress-bar"><div class="progress-fill" style="width: 15%"></div></div>
+<p style="color:#8b949e; margin-top:0.5rem;">~15% complete (Phase 0 + 1A-1F done, Phase 1G next)</p>
 
 <h2>Phase Status</h2>
 
 <table>
   <tr><th>Phase</th><th>Description</th><th>Status</th><th>Files</th></tr>
   <tr><td>0</td><td>Architecture Design</td><td><span class="tag tag-done">DONE</span></td><td>ARCHITECTURE.md</td></tr>
-  <tr><td>1A</td><td>Build System + Project Skeleton</td><td><span class="tag tag-progress">IN PROGRESS</span></td><td>CMakeLists.txt, Makefile, 30+ files</td></tr>
+  <tr><td>1A</td><td>Build System + Project Skeleton</td><td><span class="tag tag-done">DONE</span></td><td>CMakeLists.txt, Makefile, 30+ files</td></tr>
   <tr><td>1B</td><td>Memory Pool (Arena + Slab)</td><td><span class="tag tag-done">DONE</span></td><td>miku_arena.h/c, miku_slab.h/c, miku_memory.h/c</td></tr>
   <tr><td>1C</td><td>Logger, Config, Error</td><td><span class="tag tag-done">DONE</span></td><td>miku_log.h/c, miku_config.h/c, miku_error.h/c</td></tr>
-  <tr><td>1D</td><td>Thread Pool + Coroutine</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
-  <tr><td>1E</td><td>I/O Abstraction</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
-  <tr><td>1F</td><td>HTTP + WebSocket</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
-  <tr><td>1G</td><td>Binary RPC + Protobuf</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>1D</td><td>Thread Pool + Coroutine</td><td><span class="tag tag-done">DONE</span></td><td>miku_threadpool.h/c, miku_coroutine.h/c, miku_scheduler.h/c</td></tr>
+  <tr><td>1E</td><td>I/O Abstraction</td><td><span class="tag tag-done">DONE</span></td><td>miku_io.h, miku_io_epoll.c</td></tr>
+  <tr><td>1F</td><td>HTTP + JSON</td><td><span class="tag tag-done">DONE</span></td><td>miku_http.h/c, miku_http_server.h/c, miku_json.h/c</td></tr>
+  <tr><td>1G</td><td>WebSocket + Binary RPC + Protobuf</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
   <tr><td>2</td><td>Data Access Layer</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
   <tr><td>3</td><td>Business Services (7 RPC)</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
   <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
   <tr><td>5</td><td>Tests + Docs + CI</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
 </table>
 
-<h2>Foundation Module Inventory</h2>
+<h2>Module Inventory</h2>
 
 <table>
-  <tr><th>Module</th><th>Files</th><th>API Surface</th></tr>
-  <tr><td>Common</td><td>miku_common.h</td><td>Platform detection, types, byte-order, time utils</td></tr>
-  <tr><td>Arena</td><td>miku_arena.h/c</td><td>create, alloc, alloc_aligned, reset, destroy</td></tr>
-  <tr><td>Slab</td><td>miku_slab.h/c</td><td>create, alloc, free, destroy, available</td></tr>
-  <tr><td>Memory Pool</td><td>miku_memory.h/c</td><td>pool_create, alloc, alloc_obj, free_obj, reset</td></tr>
-  <tr><td>Logger</td><td>miku_log.h/c</td><td>6 levels, file+console, MK_LOG_* macros</td></tr>
-  <tr><td>Error</td><td>miku_error.h/c</td><td>error_ok/new/is_ok, MK_RETURN_IF_ERROR</td></tr>
-  <tr><td>Config</td><td>miku_config.h/c</td><td>YAML parse, get/set string/int</td></tr>
-  <tr><td>String</td><td>miku_string.h/c</td><td>Dynamic string, cat, printf, clear</td></tr>
-  <tr><td>HashMap</td><td>miku_hashmap.h/c</td><td>FNV-1a, open addressing, put/get/del/foreach</td></tr>
-  <tr><td>List</td><td>miku_list.h</td><td>Intrusive doubly-linked list (header only)</td></tr>
-  <tr><td>RBTree</td><td>miku_rbtree.h/c</td><td>Red-black tree, insert/delete/first/next</td></tr>
-  <tr><td>Thread</td><td>miku_thread.h/c</td><td>Mutex, cond, rwlock wrappers</td></tr>
-  <tr><td>Spinlock</td><td>miku_spinlock.h</td><td>Spinlock (header only, C11 atomics)</td></tr>
-  <tr><td>Atomic</td><td>miku_atomic.h</td><td>Atomic int/ptr/bool (C11 + GCC fallback)</td></tr>
-  <tr><td>UUID</td><td>miku_uuid.h/c</td><td>v4 UUID generation</td></tr>
-  <tr><td>CRC32</td><td>miku_crc32.h/c</td><td>CRC32 checksum</td></tr>
-  <tr><td>Base64</td><td>miku_base64.h/c</td><td>Encode/decode</td></tr>
+  <tr><th>Layer</th><th>Module</th><th>Files</th><th>API Surface</th></tr>
+  <tr><td>Foundation</td><td>Common</td><td>miku_common.h</td><td>Platform detection, types, byte-order, time utils</td></tr>
+  <tr><td>Foundation</td><td>Arena</td><td>miku_arena.h/c</td><td>create, alloc, alloc_aligned, reset, destroy</td></tr>
+  <tr><td>Foundation</td><td>Slab</td><td>miku_slab.h/c</td><td>create, alloc, free, destroy, available</td></tr>
+  <tr><td>Foundation</td><td>Memory Pool</td><td>miku_memory.h/c</td><td>pool_create, alloc, alloc_obj, free_obj, reset</td></tr>
+  <tr><td>Foundation</td><td>Logger</td><td>miku_log.h/c</td><td>6 levels, file+console, MK_LOG_* macros</td></tr>
+  <tr><td>Foundation</td><td>Error</td><td>miku_error.h/c</td><td>error code + message, MK_RETURN_IF_ERROR</td></tr>
+  <tr><td>Foundation</td><td>Config</td><td>miku_config.h/c</td><td>YAML key:value load/get</td></tr>
+  <tr><td>Foundation</td><td>String</td><td>miku_string.h/c</td><td>SDS-like dynamic string buffer</td></tr>
+  <tr><td>Foundation</td><td>HashMap</td><td>miku_hashmap.h/c</td><td>FNV-1a, open addressing, auto-resize 75%</td></tr>
+  <tr><td>Foundation</td><td>List</td><td>miku_list.h</td><td>Intrusive doubly-linked list (header only)</td></tr>
+  <tr><td>Foundation</td><td>RBTree</td><td>miku_rbtree.h/c</td><td>Insert, delete, first, next</td></tr>
+  <tr><td>Foundation</td><td>Thread</td><td>miku_thread.h/c</td><td>Mutex, cond, rwlock wrappers</td></tr>
+  <tr><td>Foundation</td><td>Spinlock</td><td>miku_spinlock.h</td><td>C11 atomics + GCC fallback</td></tr>
+  <tr><td>Foundation</td><td>Atomic</td><td>miku_atomic.h</td><td>Atomic int/ptr/bool wrappers</td></tr>
+  <tr><td>Foundation</td><td>UUID</td><td>miku_uuid.h/c</td><td>UUID v4 generation</td></tr>
+  <tr><td>Foundation</td><td>CRC32</td><td>miku_crc32.h/c</td><td>CRC32 checksum</td></tr>
+  <tr><td>Foundation</td><td>Base64</td><td>miku_base64.h/c</td><td>Base64 encode/decode</td></tr>
+  <tr><td>Runtime</td><td>Coroutine</td><td>miku_coroutine.h/c</td><td>ucontext stackful: create/resume/yield/destroy</td></tr>
+  <tr><td>Runtime</td><td>ThreadPool</td><td>miku_threadpool.h/c</td><td>Global task queue, submit/wait_idle</td></tr>
+  <tr><td>Runtime</td><td>Scheduler</td><td>miku_scheduler.h/c</td><td>Bridges threadpool + coroutine ready queue</td></tr>
+  <tr><td>Runtime</td><td>Channel</td><td>miku_channel.h/c</td><td>Buffered Go chan-like: send/recv/close</td></tr>
+  <tr><td>Runtime</td><td>Timer</td><td>miku_timer.h/c</td><td>RBTree-based: add/cancel/process</td></tr>
+  <tr><td>Runtime</td><td>IO</td><td>miku_io.h, miku_io_epoll.c</td><td>epoll add/mod/del/poll, edge-triggered</td></tr>
+  <tr><td>Protocol</td><td>HTTP Parser</td><td>miku_http.h/c</td><td>Request line, headers, body, query string</td></tr>
+  <tr><td>Protocol</td><td>HTTP Server</td><td>miku_http_server.h/c</td><td>Route matching, non-blocking accept+respond</td></tr>
+  <tr><td>Protocol</td><td>JSON</td><td>miku_json.h/c</td><td>Parse, build, query, stringify (RFC 8259)</td></tr>
 </table>
+
+<h2>Test Summary</h2>
+
+<table>
+  <tr><th>Category</th><th>Tests</th><th>Assertions</th><th>Status</th></tr>
+  <tr><td>Foundation</td><td>11</td><td>~35</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Runtime</td><td>9</td><td>~32</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Protocol (HTTP)</td><td>8</td><td>~30</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Protocol (JSON)</td><td>8</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>27</strong></td><td><strong>137+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+</table>
+
+<h2>Git Log</h2>
+
+<pre>
+2174180 feat: I/O abstraction layer (epoll) with tests
+f7e8b6e feat: runtime layer - coroutine, threadpool, scheduler, channel, timer
+94078a8 feat: initial project skeleton with foundation layer
+76d6692 Initial commit
+</pre>
 
 </body>
 </html>
