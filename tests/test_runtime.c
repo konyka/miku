@@ -4,8 +4,12 @@
 #include "miku_scheduler.h"
 #include "miku_channel.h"
 #include "miku_timer.h"
+#include "miku_io.h"
 #include <unistd.h>
 #include <stdatomic.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 static atomic_int g_coro_counter;
 static miku_coro_t *g_yield_coro;
@@ -185,6 +189,41 @@ void test_timer_cancel(void) {
     miku_timer_destroy(tm);
 }
 
+static atomic_int g_io_read_count;
+
+static void io_read_cb(int fd, int events, void *data) {
+    (void)events;
+    (void)data;
+    char buf[64];
+    int n = read(fd, buf, sizeof(buf));
+    if (n > 0) atomic_fetch_add(&g_io_read_count, 1);
+}
+
+void test_io_basic(void) {
+    g_io_read_count = 0;
+    miku_io_t *io = miku_io_create();
+    mk_assert_not_null(io);
+    mk_assert(miku_io_fd(io) >= 0);
+
+    int sv[2];
+    int rc = socketpair(AF_UNIX, SOCK_STREAM, 0, sv);
+    mk_assert_int_eq(0, rc);
+    miku_set_nonblocking(sv[0]);
+    miku_set_nonblocking(sv[1]);
+
+    mk_assert_int_eq(0, miku_io_add(io, sv[0], MK_IO_READ, io_read_cb, NULL));
+
+    write(sv[1], "hello", 5);
+    int polled = miku_io_poll(io, 100);
+    mk_assert(polled >= 1);
+    mk_assert_int_eq(1, atomic_load(&g_io_read_count));
+
+    miku_io_del(io, sv[0]);
+    miku_io_destroy(io);
+    close(sv[0]);
+    close(sv[1]);
+}
+
 void run_runtime_tests(void) {
     printf("── Miku Runtime Tests ───────────────────\n\n");
 
@@ -195,5 +234,6 @@ void run_runtime_tests(void) {
     mk_run_test(test_channel_basic);
     mk_run_test(test_timer_basic);
     mk_run_test(test_timer_cancel);
+    mk_run_test(test_io_basic);
     mk_run_test(test_scheduler_basic);
 }
