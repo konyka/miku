@@ -11,7 +11,6 @@ target_include_directories(miku_discovery PUBLIC
 )
 
 target_link_libraries(miku_discovery PUBLIC
-    miku_runtime
     miku_foundation
 )
 

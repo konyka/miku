@@ -13,6 +13,7 @@
 
 extern void run_runtime_tests(void);
 extern void run_protocol_tests(void);
+extern void run_storage_tests(void);
 
 void test_arena(void) {
     miku_arena_t *a = miku_arena_create(4096);
@@ -194,6 +195,7 @@ int main(void) {
 
     run_runtime_tests();
     run_protocol_tests();
+    run_storage_tests();
 
     return mk_test_summary();
 }

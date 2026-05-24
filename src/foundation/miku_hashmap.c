@@ -2,10 +2,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define HM_EMPTY    0
+#define HM_OCCUPIED 1
+#define HM_DELETED  2
+
 typedef struct {
     char   *key;
     void   *val;
-    bool    occupied;
+    int     state;
 } miku_hm_entry_t;
 
 struct miku_hashmap_s {
@@ -29,9 +33,9 @@ static int hm_resize(miku_hashmap_t *map) {
     miku_hm_entry_t *ne = (miku_hm_entry_t *)calloc(newcap, sizeof(*ne));
     if (!ne) return -1;
     for (size_t i = 0; i < map->cap; i++) {
-        if (!map->entries[i].occupied) continue;
+        if (map->entries[i].state != HM_OCCUPIED) continue;
         uint64_t h = fnv1a(map->entries[i].key) & (newcap - 1);
-        while (ne[h].occupied) h = (h + 1) & (newcap - 1);
+        while (ne[h].state == HM_OCCUPIED) h = (h + 1) & (newcap - 1);
         ne[h] = map->entries[i];
     }
     free(map->entries);
@@ -55,7 +59,7 @@ miku_hashmap_t *miku_hashmap_create(size_t initial_cap, miku_free_fn val_free) {
 void miku_hashmap_destroy(miku_hashmap_t *map) {
     if (!map) return;
     for (size_t i = 0; i < map->cap; i++) {
-        if (map->entries[i].occupied) {
+        if (map->entries[i].state == HM_OCCUPIED) {
             free(map->entries[i].key);
             if (map->val_free && map->entries[i].val)
                 map->val_free(map->entries[i].val);
@@ -71,18 +75,29 @@ int miku_hashmap_put(miku_hashmap_t *map, const char *key, void *val) {
         if (hm_resize(map) != 0) return -1;
     }
     uint64_t h = fnv1a(key) & (map->cap - 1);
-    while (map->entries[h].occupied) {
-        if (strcmp(map->entries[h].key, key) == 0) {
-            if (map->val_free && map->entries[h].val)
-                map->val_free(map->entries[h].val);
-            map->entries[h].val = val;
-            return 0;
+    for (size_t i = 0; i < map->cap; i++) {
+        if (map->entries[h].state == HM_OCCUPIED) {
+            if (strcmp(map->entries[h].key, key) == 0) {
+                if (map->val_free && map->entries[h].val)
+                    map->val_free(map->entries[h].val);
+                map->entries[h].val = val;
+                return 0;
+            }
+        } else if (map->entries[h].state == HM_EMPTY) {
+            break;
         }
         h = (h + 1) & (map->cap - 1);
     }
+
+    h = fnv1a(key) & (map->cap - 1);
+    while (map->entries[h].state == HM_OCCUPIED) {
+        h = (h + 1) & (map->cap - 1);
+    }
+    if (map->entries[h].state == HM_DELETED) {
+    }
     map->entries[h].key = strdup(key);
     map->entries[h].val = val;
-    map->entries[h].occupied = true;
+    map->entries[h].state = HM_OCCUPIED;
     map->count++;
     return 0;
 }
@@ -91,8 +106,9 @@ void *miku_hashmap_get(const miku_hashmap_t *map, const char *key) {
     if (!map || !key) return NULL;
     uint64_t h = fnv1a(key) & (map->cap - 1);
     for (size_t i = 0; i < map->cap; i++) {
-        if (!map->entries[h].occupied) return NULL;
-        if (strcmp(map->entries[h].key, key) == 0)
+        if (map->entries[h].state == HM_EMPTY) return NULL;
+        if (map->entries[h].state == HM_OCCUPIED &&
+            strcmp(map->entries[h].key, key) == 0)
             return map->entries[h].val;
         h = (h + 1) & (map->cap - 1);
     }
@@ -103,12 +119,13 @@ int miku_hashmap_del(miku_hashmap_t *map, const char *key) {
     if (!map || !key) return -1;
     uint64_t h = fnv1a(key) & (map->cap - 1);
     for (size_t i = 0; i < map->cap; i++) {
-        if (!map->entries[h].occupied) return -1;
-        if (strcmp(map->entries[h].key, key) == 0) {
+        if (map->entries[h].state == HM_EMPTY) return -1;
+        if (map->entries[h].state == HM_OCCUPIED &&
+            strcmp(map->entries[h].key, key) == 0) {
             free(map->entries[h].key);
             if (map->val_free && map->entries[h].val)
                 map->val_free(map->entries[h].val);
-            map->entries[h].occupied = false;
+            map->entries[h].state = HM_DELETED;
             map->entries[h].key = NULL;
             map->entries[h].val = NULL;
             map->count--;
@@ -128,7 +145,7 @@ void miku_hashmap_foreach(const miku_hashmap_t *map,
                            void *ctx) {
     if (!map || !fn) return;
     for (size_t i = 0; i < map->cap; i++) {
-        if (map->entries[i].occupied)
+        if (map->entries[i].state == HM_OCCUPIED)
             fn(map->entries[i].key, map->entries[i].val, ctx);
     }
 }
