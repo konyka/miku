@@ -1,1 +1,109 @@
 #include "miku_auth.h"
+#include "miku_log.h"
+#include "miku_json.h"
+#include "miku_uuid.h"
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+
+#define AUTH_SECRET "openIM123"
+
+static void set_int(miku_json_val_t *obj, const char *key, int64_t val) {
+    miku_json_object_set(obj, key, miku_json_create_int(val));
+}
+static void set_str(miku_json_val_t *obj, const char *key, const char *val) {
+    if (val) miku_json_object_set(obj, key, miku_json_create_str(val));
+}
+
+struct miku_auth_service_s {
+    int placeholder;
+};
+
+miku_auth_service_t *miku_auth_service_create(void) {
+    miku_auth_service_t *svc = (miku_auth_service_t *)calloc(1, sizeof(*svc));
+    return svc;
+}
+
+void miku_auth_service_destroy(miku_auth_service_t *svc) {
+    free(svc);
+}
+
+int miku_auth_user_token(miku_auth_service_t *svc, const char *user_id,
+                          const char *secret, int platform,
+                          char *token_out, size_t token_cap) {
+    (void)svc;
+    if (!user_id || !secret || !token_out) return -1;
+    if (strcmp(secret, AUTH_SECRET) != 0 && strlen(secret) > 0) {
+        MK_LOG_WARN("Auth failed for user %s: bad secret", user_id);
+        return -1;
+    }
+    char uuid[64];
+    miku_uuid_generate(uuid);
+    snprintf(token_out, token_cap, "miku_%s_%s_%d", user_id, uuid, platform);
+    return 0;
+}
+
+int miku_auth_parse_token(miku_auth_service_t *svc, const char *token,
+                           char *user_id_out, size_t cap) {
+    (void)svc;
+    if (!token || !user_id_out || !cap) return -1;
+    if (strncmp(token, "miku_", 5) != 0) return -1;
+    const char *uid_start = token + 5;
+    const char *sep = strchr(uid_start, '_');
+    if (!sep) return -1;
+    size_t uid_len = (size_t)(sep - uid_start);
+    if (uid_len >= cap) uid_len = cap - 1;
+    memcpy(user_id_out, uid_start, uid_len);
+    user_id_out[uid_len] = '\0';
+    return 0;
+}
+
+int miku_auth_force_logout(miku_auth_service_t *svc, const char *user_id, int platform) {
+    (void)svc; (void)user_id; (void)platform;
+    return 0;
+}
+
+void miku_auth_handle_rpc(miku_auth_service_t *svc, const miku_rpc_message_t *req,
+                           miku_rpc_message_t *resp) {
+    if (!svc || !req || !resp) return;
+    uint32_t method = req->header.method;
+    if (req->payload && req->payload_len > 0) {
+        miku_json_val_t *j = miku_json_parse((const char *)req->payload, req->payload_len);
+        if (!j) {
+            const char *err = "{\"errCode\":400,\"errMsg\":\"invalid JSON\"}";
+            miku_rpc_message_set_payload(resp, (const uint8_t *)err, strlen(err));
+            return;
+        }
+        char user_id[64] = {0};
+        char secret[64] = {0};
+        int64_t platform = 0;
+
+        miku_json_val_t *v;
+        v = miku_json_get(j, "userID");
+        if (v) { const char *s = miku_json_str(v); if (s) strncpy(user_id, s, sizeof(user_id) - 1); }
+        v = miku_json_get(j, "secret");
+        if (v) { const char *s = miku_json_str(v); if (s) strncpy(secret, s, sizeof(secret) - 1); }
+        v = miku_json_get(j, "platformID");
+        if (v) platform = miku_json_int(v);
+
+        if (method == 1) {
+            char token[512];
+            int rc = miku_auth_user_token(svc, user_id, secret, (int)platform, token, sizeof(token));
+            miku_json_val_t *out = miku_json_create_object();
+            if (rc == 0) {
+                set_int(out, "errCode", 0);
+                set_str(out, "errMsg", "");
+                set_str(out, "token", token);
+                set_int(out, "expireTimeSeconds", 86400);
+            } else {
+                set_int(out, "errCode", 401);
+                set_str(out, "errMsg", "authentication failed");
+            }
+            miku_string_t *s = miku_json_stringify(out);
+            miku_rpc_message_set_payload(resp, s->data, s->len);
+            miku_str_destroy(s);
+            miku_json_destroy(out);
+        }
+        miku_json_destroy(j);
+    }
+}

@@ -11,5 +11,6 @@ target_include_directories(miku_models PUBLIC
 )
 
 target_link_libraries(miku_models PUBLIC
+    miku_protocol
     miku_foundation
 )

@@ -82,10 +82,54 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-24 | <span class="tag tag-phase">Phase 2</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Data Access Layer</h3>
+  <ul>
+    <li><code>miku_cache.h/c</code> - LRU+TTL cache (doubly-linked list + hashmap), eviction, expiry, delete, clear</li>
+    <li><code>miku_mongo.h/c</code> - MongoDB wrapper with conditional compilation (<code>MIKU_HAS_MONGO</code>): insert/find_one/update/delete, stub when disabled</li>
+    <li><code>miku_redis.h/c</code> - Redis wrapper (<code>MIKU_HAS_REDIS</code>): string/hash ops, pub/sub, stub when disabled</li>
+    <li><code>miku_kafka.h/c</code> - Kafka producer/consumer (<code>MIKU_HAS_KAFKA</code>), stub when disabled</li>
+    <li><code>miku_discovery.h/c</code> - Service discovery (register/deregister/resolve/heartbeat)</li>
+    <li>Fixed hashmap open-addressing delete bug (tombstone <code>HM_DELETED</code> state)</li>
+    <li>46 tests total, all passing</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2026-05-24 | <span class="tag tag-phase">Phase 3</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Business Services + Models + API Gateway</h3>
+  <ul>
+    <li><code>miku_models.h/c</code> - Data models with JSON ser/deser: user, friend, group, group_member, msg, conversation, token_info</li>
+    <li><code>miku_auth.h/c</code> - Auth service: user_token generation (miku_{uid}_{uuid}_{platform}), token parsing, force_logout, RPC handler</li>
+    <li><code>miku_user.h/c</code> - User service: register, find, update, get_users, count, RPC handler</li>
+    <li><code>miku_friend.h/c</code> - Friend service: add, delete, get_list, is_friend, RPC handler</li>
+    <li><code>miku_group.h/c</code> - Group service: create (auto-adds owner), find, add_member, get_members, RPC handler</li>
+    <li><code>miku_conversation.h/c</code> - Conversation service: create, get, get_all, update (upsert), RPC handler</li>
+    <li><code>miku_msg.h/c</code> - Message service: send (auto server_msg_id + seq + timestamp), get_by_conv, revoke, RPC handler</li>
+    <li><code>miku_third.h/c</code> - Third-party service: getUploadToken, getDownloadURL (placeholder stubs)</li>
+    <li>10 new service tests: model JSON roundtrip (user, msg), auth token + bad secret, user register+find, friend add+check, group create+members, conv create+get, msg send, third RPC</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2026-05-24 | <span class="tag tag-phase">Phase 4</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Gateway Services</h3>
+  <ul>
+    <li><code>miku_api.h/c</code> - API gateway: aggregates all 7 services, registers 21 HTTP POST routes (/auth/*, /user/*, /friend/*, /group/*, /conversation/*, /msg/*, /third/*)</li>
+    <li><code>miku_msggateway.h/c</code> - WebSocket message gateway (stub, port config)</li>
+    <li><code>miku_msgtransfer.h/c</code> - Message transfer service (stub)</li>
+    <li><code>miku_push.h/c</code> - Push notification service (stub)</li>
+    <li><code>miku_crontask.h/c</code> - Cron task scheduler (stub)</li>
+    <li>All 12 binaries compile: miku-api, miku-msggateway, miku-msgtransfer, miku-push, miku-crontask, miku-rpc-auth/user/friend/group/conversation/msg/third</li>
+    <li>62 tests total, all passing</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
-<div class="progress-bar"><div class="progress-fill" style="width: 20%"></div></div>
-<p style="color:#8b949e; margin-top:0.5rem;">~20% complete (Phase 0 + 1A-1G done, Phase 2 next)</p>
+<div class="progress-bar"><div class="progress-fill" style="width: 65%"></div></div>
+<p style="color:#8b949e; margin-top:0.5rem;">~65% complete (Phase 0-4 done, Phase 5 tests+docs+CI remaining)</p>
 
 <h2>Phase Status</h2>
 
@@ -99,9 +143,9 @@
   <tr><td>1E</td><td>I/O Abstraction</td><td><span class="tag tag-done">DONE</span></td><td>miku_io.h, miku_io_epoll.c</td></tr>
   <tr><td>1F</td><td>HTTP + JSON</td><td><span class="tag tag-done">DONE</span></td><td>miku_http.h/c, miku_http_server.h/c, miku_json.h/c</td></tr>
   <tr><td>1G</td><td>WebSocket + Binary RPC + Protobuf</td><td><span class="tag tag-done">DONE</span></td><td>miku_websocket.h/c, miku_rpc.h/c, miku_pb.h/c, miku_sha1.h/c</td></tr>
-  <tr><td>2</td><td>Data Access Layer</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
-  <tr><td>3</td><td>Business Services (7 RPC)</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
-  <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>2</td><td>Data Access Layer</td><td><span class="tag tag-done">DONE</span></td><td>cache, mongo, redis, kafka, discovery</td></tr>
+  <tr><td>3</td><td>Business Services (7 RPC)</td><td><span class="tag tag-done">DONE</span></td><td>auth, user, friend, group, conversation, msg, third</td></tr>
+  <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-done">DONE</span></td><td>api (21 routes), msggateway, msgtransfer, push, crontask</td></tr>
   <tr><td>5</td><td>Tests + Docs + CI</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
 </table>
 
@@ -139,6 +183,24 @@
   <tr><td>Protocol</td><td>WebSocket</td><td>miku_websocket.h/c</td><td>Frame codec, handshake, server (RFC 6455)</td></tr>
   <tr><td>Protocol</td><td>RPC</td><td>miku_rpc.h/c</td><td>Binary RPC frame: 16-byte header + payload</td></tr>
   <tr><td>Protocol</td><td>Protobuf</td><td>miku_pb.h/c</td><td>Wire format: varint, fixed, bytes, string</td></tr>
+  <tr><td>Storage</td><td>Cache</td><td>miku_cache.h/c</td><td>LRU+TTL cache with hashmap</td></tr>
+  <tr><td>Storage</td><td>MongoDB</td><td>miku_mongo.h/c</td><td>Conditional compilation wrapper (insert/find/update/delete)</td></tr>
+  <tr><td>Storage</td><td>Redis</td><td>miku_redis.h/c</td><td>Conditional compilation wrapper (string/hash/pubsub)</td></tr>
+  <tr><td>Storage</td><td>Kafka</td><td>miku_kafka.h/c</td><td>Conditional compilation wrapper (produce/consume)</td></tr>
+  <tr><td>Discovery</td><td>Service Discovery</td><td>miku_discovery.h/c</td><td>register/deregister/resolve/heartbeat</td></tr>
+  <tr><td>Models</td><td>Data Models</td><td>miku_models.h/c</td><td>User, Friend, Group, Msg, Conversation, TokenInfo + JSON ser/deser</td></tr>
+  <tr><td>Services</td><td>Auth</td><td>miku_auth.h/c</td><td>Token gen/parse/force_logout, RPC handler</td></tr>
+  <tr><td>Services</td><td>User</td><td>miku_user.h/c</td><td>Register/find/update/count, RPC handler</td></tr>
+  <tr><td>Services</td><td>Friend</td><td>miku_friend.h/c</td><td>Add/delete/get_list/is_friend, RPC handler</td></tr>
+  <tr><td>Services</td><td>Group</td><td>miku_group.h/c</td><td>Create/find/add_member/get_members, RPC handler</td></tr>
+  <tr><td>Services</td><td>Conversation</td><td>miku_conversation.h/c</td><td>Create/get/get_all/update, RPC handler</td></tr>
+  <tr><td>Services</td><td>Msg</td><td>miku_msg.h/c</td><td>Send/query_by_conv/revoke, RPC handler</td></tr>
+  <tr><td>Services</td><td>Third</td><td>miku_third.h/c</td><td>Upload token, download URL stubs</td></tr>
+  <tr><td>Gateway</td><td>API</td><td>miku_api.h/c</td><td>21 HTTP routes aggregating all services</td></tr>
+  <tr><td>Gateway</td><td>MsgGateway</td><td>miku_msggateway.h/c</td><td>WebSocket gateway stub</td></tr>
+  <tr><td>Gateway</td><td>MsgTransfer</td><td>miku_msgtransfer.h/c</td><td>Message transfer stub</td></tr>
+  <tr><td>Gateway</td><td>Push</td><td>miku_push.h/c</td><td>Push notification stub</td></tr>
+  <tr><td>Gateway</td><td>Crontask</td><td>miku_crontask.h/c</td><td>Cron task stub</td></tr>
 </table>
 
 <h2>Test Summary</h2>
@@ -150,12 +212,17 @@
   <tr><td>Protocol (HTTP)</td><td>8</td><td>~30</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Protocol (JSON)</td><td>8</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Protocol (SHA1+WS+RPC+PB)</td><td>10</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>37</strong></td><td><strong>177+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Storage (Cache+Discovery)</td><td>9</td><td>~35</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Services (Models+Auth+User+Friend+Group+Conv+Msg+Third)</td><td>10</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>62</strong></td><td><strong>250+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>
 
 <pre>
+6c97cfb feat: websocket, binary RPC, protobuf codec with tests
+a05da10 feat: data access layer - LRU cache, mongo/redis/kafka wrappers, service discovery
+TBD     feat: business services, data models, API gateway with 21 routes, 5 gateway stubs
 617022c feat: protocol layer - HTTP parser, HTTP server, JSON parser with tests
 2174180 feat: I/O abstraction layer (epoll) with tests
 f7e8b6e feat: runtime layer - coroutine, threadpool, scheduler, channel, timer
