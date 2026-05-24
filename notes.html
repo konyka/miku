@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Miku IM Server - Development Notes</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace; background: #0d1117; color: #c9d1d9; padding: 2rem; max-width: 1200px; margin: 0 auto; }
+  h1 { color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 0.5rem; margin-bottom: 1.5rem; }
+  h2 { color: #79c0ff; margin-top: 2rem; margin-bottom: 0.5rem; }
+  h3 { color: #d2a8ff; margin-top: 1.5rem; }
+  .entry { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 1rem 1.5rem; margin-bottom: 1rem; }
+  .entry .meta { color: #8b949e; font-size: 0.85rem; margin-bottom: 0.5rem; }
+  .tag { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 0.75rem; margin-right: 4px; }
+  .tag-phase { background: #1f6feb33; color: #58a6ff; }
+  .tag-done { background: #238636; color: #fff; }
+  .tag-progress { background: #d29922; color: #000; }
+  .tag-todo { background: #484f58; color: #c9d1d9; }
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+  th, td { padding: 0.5rem 1rem; text-align: left; border: 1px solid #30363d; }
+  th { background: #21262d; color: #79c0ff; }
+  td { background: #161b22; }
+  code { background: #1c2128; padding: 2px 6px; border-radius: 3px; font-size: 0.9em; color: #a5d6ff; }
+  pre { background: #1c2128; padding: 1rem; border-radius: 6px; overflow-x: auto; margin: 0.5rem 0; }
+  .progress-bar { width: 100%; height: 20px; background: #21262d; border-radius: 10px; overflow: hidden; }
+  .progress-fill { height: 100%; background: linear-gradient(90deg, #238636, #2ea043); transition: width 0.3s; }
+  ul { padding-left: 1.5rem; margin: 0.5rem 0; }
+  li { margin: 0.25rem 0; }
+</style>
+</head>
+<body>
+
+<h1>Miku IM Server - Development Notes</h1>
+
+<div class="entry">
+  <div class="meta">2025-05-24 | <span class="tag tag-phase">Phase 0</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Architecture Design Complete</h3>
+  <p>Completed full analysis of OpenIM Server (Go, 12 microservices, 100+ API endpoints, 47K LOC).
+     Designed C rewrite architecture with: Arena+Slab memory pools, work-stealing thread pool,
+     ucontext stackful coroutines, epoll/kqueue/IOCP cross-platform I/O, custom binary RPC with PB codec.</p>
+</div>
+
+<div class="entry">
+  <div class="meta">2025-05-24 | <span class="tag tag-phase">Phase 1A</span> <span class="tag tag-progress">IN PROGRESS</span></div>
+  <h3>Build System &amp; Project Skeleton</h3>
+  <ul>
+    <li>Root CMakeLists.txt with C23 standard, platform detection, optional dependencies</li>
+    <li>9 sub-CMakeLists.txt for all modules</li>
+    <li>12 service entry points in cmd/</li>
+    <li>Convenience Makefile (make debug/test/clean)</li>
+    <li>Foundation layer: 15 complete modules</li>
+    <li>Test framework header (miku_test.h)</li>
+  </ul>
+</div>
+
+<h2>Overall Progress</h2>
+
+<div class="progress-bar"><div class="progress-fill" style="width: 8%"></div></div>
+<p style="color:#8b949e; margin-top:0.5rem;">8% complete (Phase 0 done, Phase 1A in progress)</p>
+
+<h2>Phase Status</h2>
+
+<table>
+  <tr><th>Phase</th><th>Description</th><th>Status</th><th>Files</th></tr>
+  <tr><td>0</td><td>Architecture Design</td><td><span class="tag tag-done">DONE</span></td><td>ARCHITECTURE.md</td></tr>
+  <tr><td>1A</td><td>Build System + Project Skeleton</td><td><span class="tag tag-progress">IN PROGRESS</span></td><td>CMakeLists.txt, Makefile, 30+ files</td></tr>
+  <tr><td>1B</td><td>Memory Pool (Arena + Slab)</td><td><span class="tag tag-done">DONE</span></td><td>miku_arena.h/c, miku_slab.h/c, miku_memory.h/c</td></tr>
+  <tr><td>1C</td><td>Logger, Config, Error</td><td><span class="tag tag-done">DONE</span></td><td>miku_log.h/c, miku_config.h/c, miku_error.h/c</td></tr>
+  <tr><td>1D</td><td>Thread Pool + Coroutine</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>1E</td><td>I/O Abstraction</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>1F</td><td>HTTP + WebSocket</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>1G</td><td>Binary RPC + Protobuf</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>2</td><td>Data Access Layer</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>3</td><td>Business Services (7 RPC)</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>5</td><td>Tests + Docs + CI</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+</table>
+
+<h2>Foundation Module Inventory</h2>
+
+<table>
+  <tr><th>Module</th><th>Files</th><th>API Surface</th></tr>
+  <tr><td>Common</td><td>miku_common.h</td><td>Platform detection, types, byte-order, time utils</td></tr>
+  <tr><td>Arena</td><td>miku_arena.h/c</td><td>create, alloc, alloc_aligned, reset, destroy</td></tr>
+  <tr><td>Slab</td><td>miku_slab.h/c</td><td>create, alloc, free, destroy, available</td></tr>
+  <tr><td>Memory Pool</td><td>miku_memory.h/c</td><td>pool_create, alloc, alloc_obj, free_obj, reset</td></tr>
+  <tr><td>Logger</td><td>miku_log.h/c</td><td>6 levels, file+console, MK_LOG_* macros</td></tr>
+  <tr><td>Error</td><td>miku_error.h/c</td><td>error_ok/new/is_ok, MK_RETURN_IF_ERROR</td></tr>
+  <tr><td>Config</td><td>miku_config.h/c</td><td>YAML parse, get/set string/int</td></tr>
+  <tr><td>String</td><td>miku_string.h/c</td><td>Dynamic string, cat, printf, clear</td></tr>
+  <tr><td>HashMap</td><td>miku_hashmap.h/c</td><td>FNV-1a, open addressing, put/get/del/foreach</td></tr>
+  <tr><td>List</td><td>miku_list.h</td><td>Intrusive doubly-linked list (header only)</td></tr>
+  <tr><td>RBTree</td><td>miku_rbtree.h/c</td><td>Red-black tree, insert/delete/first/next</td></tr>
+  <tr><td>Thread</td><td>miku_thread.h/c</td><td>Mutex, cond, rwlock wrappers</td></tr>
+  <tr><td>Spinlock</td><td>miku_spinlock.h</td><td>Spinlock (header only, C11 atomics)</td></tr>
+  <tr><td>Atomic</td><td>miku_atomic.h</td><td>Atomic int/ptr/bool (C11 + GCC fallback)</td></tr>
+  <tr><td>UUID</td><td>miku_uuid.h/c</td><td>v4 UUID generation</td></tr>
+  <tr><td>CRC32</td><td>miku_crc32.h/c</td><td>CRC32 checksum</td></tr>
+  <tr><td>Base64</td><td>miku_base64.h/c</td><td>Encode/decode</td></tr>
+</table>
+
+</body>
+</html>
