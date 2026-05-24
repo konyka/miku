@@ -3,6 +3,9 @@ set(MIKU_PROTOCOL_SOURCES
     miku_http.c
     miku_http_server.c
     miku_json.c
+    miku_websocket.c
+    miku_rpc.c
+    miku_pb.c
 )
 
 add_library(miku_protocol STATIC ${MIKU_PROTOCOL_SOURCES})

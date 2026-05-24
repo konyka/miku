@@ -66,15 +66,26 @@
     <li><code>miku_json.h/c</code> - JSON parser (object, array, string, int, double, bool, null) + builder + stringify</li>
     <li>HTTP tests: parse GET with query, parse POST with body, incomplete detection, method enum, response serialize, status text, server ping-pong integration test</li>
     <li>JSON tests: parse object, parse array with mixed types, primitives (true/false/null/negative), nested objects+arrays, stringify roundtrip, builder API, missing key handling</li>
-    <li>27 tests total (11 foundation + 9 runtime + 8 HTTP + 8 JSON), all passing</li>
-    <li>Old stub files (miku_protocol.h/c) removed</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2025-05-24 | <span class="tag tag-phase">Phase 1G</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Protocol Layer: WebSocket + Binary RPC + Protobuf</h3>
+  <ul>
+    <li><code>miku_sha1.h/c</code> - SHA-1 hash (FIPS 180-4) for WebSocket handshake</li>
+    <li><code>miku_websocket.h/c</code> - WebSocket server (RFC 6455): frame encode/decode, handshake (Sec-WebSocket-Accept), accept+dispatch, ping/pong/close</li>
+    <li><code>miku_rpc.h/c</code> - Binary RPC frame protocol: 16-byte header (magic/version/type/seq/service/method) + varint payload length + payload</li>
+    <li><code>miku_pb.h/c</code> - Protobuf wire format codec: varint, svarint (zigzag), fixed32/64, bytes, string, bool; reader with skip support</li>
+    <li>10 new tests: SHA1 (abc, empty), WS frame encode+decode, WS masked frame, WS handshake, RPC header codec, RPC message roundtrip, PB varint+string+bool, PB svarint, PB fixed32/64</li>
+    <li>37 tests total, all passing</li>
   </ul>
 </div>
 
 <h2>Overall Progress</h2>
 
-<div class="progress-bar"><div class="progress-fill" style="width: 15%"></div></div>
-<p style="color:#8b949e; margin-top:0.5rem;">~15% complete (Phase 0 + 1A-1F done, Phase 1G next)</p>
+<div class="progress-bar"><div class="progress-fill" style="width: 20%"></div></div>
+<p style="color:#8b949e; margin-top:0.5rem;">~20% complete (Phase 0 + 1A-1G done, Phase 2 next)</p>
 
 <h2>Phase Status</h2>
 
@@ -87,7 +98,7 @@
   <tr><td>1D</td><td>Thread Pool + Coroutine</td><td><span class="tag tag-done">DONE</span></td><td>miku_threadpool.h/c, miku_coroutine.h/c, miku_scheduler.h/c</td></tr>
   <tr><td>1E</td><td>I/O Abstraction</td><td><span class="tag tag-done">DONE</span></td><td>miku_io.h, miku_io_epoll.c</td></tr>
   <tr><td>1F</td><td>HTTP + JSON</td><td><span class="tag tag-done">DONE</span></td><td>miku_http.h/c, miku_http_server.h/c, miku_json.h/c</td></tr>
-  <tr><td>1G</td><td>WebSocket + Binary RPC + Protobuf</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
+  <tr><td>1G</td><td>WebSocket + Binary RPC + Protobuf</td><td><span class="tag tag-done">DONE</span></td><td>miku_websocket.h/c, miku_rpc.h/c, miku_pb.h/c, miku_sha1.h/c</td></tr>
   <tr><td>2</td><td>Data Access Layer</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
   <tr><td>3</td><td>Business Services (7 RPC)</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
   <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-todo">TODO</span></td><td>-</td></tr>
@@ -124,6 +135,10 @@
   <tr><td>Protocol</td><td>HTTP Parser</td><td>miku_http.h/c</td><td>Request line, headers, body, query string</td></tr>
   <tr><td>Protocol</td><td>HTTP Server</td><td>miku_http_server.h/c</td><td>Route matching, non-blocking accept+respond</td></tr>
   <tr><td>Protocol</td><td>JSON</td><td>miku_json.h/c</td><td>Parse, build, query, stringify (RFC 8259)</td></tr>
+  <tr><td>Foundation</td><td>SHA1</td><td>miku_sha1.h/c</td><td>SHA-1 hash (FIPS 180-4)</td></tr>
+  <tr><td>Protocol</td><td>WebSocket</td><td>miku_websocket.h/c</td><td>Frame codec, handshake, server (RFC 6455)</td></tr>
+  <tr><td>Protocol</td><td>RPC</td><td>miku_rpc.h/c</td><td>Binary RPC frame: 16-byte header + payload</td></tr>
+  <tr><td>Protocol</td><td>Protobuf</td><td>miku_pb.h/c</td><td>Wire format: varint, fixed, bytes, string</td></tr>
 </table>
 
 <h2>Test Summary</h2>
@@ -134,12 +149,14 @@
   <tr><td>Runtime</td><td>9</td><td>~32</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Protocol (HTTP)</td><td>8</td><td>~30</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Protocol (JSON)</td><td>8</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>27</strong></td><td><strong>137+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Protocol (SHA1+WS+RPC+PB)</td><td>10</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>37</strong></td><td><strong>177+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>
 
 <pre>
+617022c feat: protocol layer - HTTP parser, HTTP server, JSON parser with tests
 2174180 feat: I/O abstraction layer (epoll) with tests
 f7e8b6e feat: runtime layer - coroutine, threadpool, scheduler, channel, timer
 94078a8 feat: initial project skeleton with foundation layer

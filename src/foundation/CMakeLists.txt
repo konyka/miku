@@ -13,6 +13,7 @@ set(MIKU_FOUNDATION_SOURCES
     miku_uuid.c
     miku_crc32.c
     miku_base64.c
+    miku_sha1.c
 )
 
 add_library(miku_foundation STATIC ${MIKU_FOUNDATION_SOURCES})

@@ -2,6 +2,10 @@
 #include "miku_http.h"
 #include "miku_http_server.h"
 #include "miku_json.h"
+#include "miku_websocket.h"
+#include "miku_rpc.h"
+#include "miku_pb.h"
+#include "miku_sha1.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -362,6 +366,252 @@ void test_json_roundtrip(void) {
     miku_json_destroy(obj);
 }
 
+/* ── SHA1 Tests ─────────────────────────────── */
+
+void test_sha1_basic(void) {
+    const char *input = "abc";
+    uint8_t digest[20];
+    miku_sha1(digest, (const uint8_t *)input, strlen(input));
+    uint8_t expected[] = {
+        0xA9, 0x99, 0x3E, 0x36, 0x47, 0x06, 0x81, 0x6A, 0xBA, 0x3E,
+        0x25, 0x71, 0x78, 0x50, 0xC2, 0x6C, 0x9C, 0xD0, 0xD8, 0x9D
+    };
+    mk_assert(memcmp(digest, expected, 20) == 0);
+}
+
+void test_sha1_empty(void) {
+    uint8_t digest[20];
+    miku_sha1(digest, (const uint8_t *)"", 0);
+    uint8_t expected[] = {
+        0xDA, 0x39, 0xA3, 0xEE, 0x5E, 0x6B, 0x4B, 0x0D, 0x32, 0x55,
+        0xBF, 0xEF, 0x95, 0x60, 0x18, 0x90, 0xAF, 0xD8, 0x07, 0x09
+    };
+    mk_assert(memcmp(digest, expected, 20) == 0);
+}
+
+/* ── WebSocket Frame Tests ──────────────────── */
+
+void test_ws_frame_encode_decode(void) {
+    miku_ws_frame_t f;
+    memset(&f, 0, sizeof(f));
+    f.fin = true;
+    f.opcode = MK_WS_TEXT;
+    f.masked = false;
+    const char *msg = "Hello";
+    f.payload = (uint8_t *)msg;
+    f.payload_len = 5;
+
+    uint8_t buf[64];
+    size_t out_len = 0;
+    int rc = miku_ws_frame_encode(&f, buf, sizeof(buf), &out_len);
+    mk_assert_int_eq(0, rc);
+    mk_assert(out_len == 7);
+
+    mk_assert((buf[0] & 0x80) != 0);
+    mk_assert((buf[0] & 0x0F) == 0x01);
+    mk_assert((buf[1] & 0x80) == 0);
+    mk_assert((buf[1] & 0x7F) == 5);
+    mk_assert(memcmp(buf + 2, "Hello", 5) == 0);
+
+    miku_ws_frame_t f2;
+    memset(&f2, 0, sizeof(f2));
+    size_t consumed = 0;
+    rc = miku_ws_frame_decode(&f2, buf, out_len, &consumed);
+    mk_assert(rc > 0);
+    mk_assert_int_eq((int)MK_WS_TEXT, (int)f2.opcode);
+    mk_assert_true(f2.fin);
+    mk_assert_false(f2.masked);
+    mk_assert_int_eq(5, (int)f2.payload_len);
+    mk_assert(memcmp(f2.payload, "Hello", 5) == 0);
+    free(f2.payload);
+}
+
+void test_ws_frame_masked(void) {
+    miku_ws_frame_t f;
+    memset(&f, 0, sizeof(f));
+    f.fin = true;
+    f.opcode = MK_WS_BINARY;
+    f.masked = true;
+    f.masking_key[0] = 0x37;
+    f.masking_key[1] = 0xfa;
+    f.masking_key[2] = 0x21;
+    f.masking_key[3] = 0x3d;
+    uint8_t data[] = {0x01, 0x02, 0x03, 0x04};
+    f.payload = data;
+    f.payload_len = 4;
+
+    uint8_t buf[64];
+    size_t out_len = 0;
+    mk_assert_int_eq(0, miku_ws_frame_encode(&f, buf, sizeof(buf), &out_len));
+    mk_assert((buf[1] & 0x80) != 0);
+
+    miku_ws_frame_t f2;
+    memset(&f2, 0, sizeof(f2));
+    size_t consumed = 0;
+    int rc = miku_ws_frame_decode(&f2, buf, out_len, &consumed);
+    mk_assert(rc > 0);
+    mk_assert_int_eq((int)MK_WS_BINARY, (int)f2.opcode);
+    mk_assert_int_eq(4, (int)f2.payload_len);
+    mk_assert(memcmp(f2.payload, data, 4) == 0);
+    free(f2.payload);
+}
+
+void test_ws_handshake(void) {
+    const char *key = "dGhlIHNhbXBsZSBub25jZQ==";
+    char accept[64];
+    int rc = miku_ws_handshake(key, accept, sizeof(accept));
+    mk_assert_int_eq(0, rc);
+    mk_assert_str_eq("s3pPLMBiTxaQ9kYGzzhZRbK+xOo=", accept);
+}
+
+/* ── Binary RPC Tests ───────────────────────── */
+
+void test_rpc_header_codec(void) {
+    miku_rpc_header_t hdr;
+    miku_rpc_header_init(&hdr, MK_RPC_CALL, 42, 1001, 7);
+    mk_assert_int_eq((int)MK_RPC_MAGIC, (int)hdr.magic);
+    mk_assert_int_eq(1, (int)hdr.version);
+    mk_assert_int_eq((int)MK_RPC_CALL, (int)hdr.msg_type);
+    mk_assert_int_eq(42, (int)hdr.seq);
+    mk_assert_int_eq(1001, (int)hdr.service);
+    mk_assert_int_eq(7, (int)hdr.method);
+
+    uint8_t buf[16];
+    mk_assert_int_eq(16, miku_rpc_header_encode(&hdr, buf));
+
+    miku_rpc_header_t hdr2;
+    mk_assert_int_eq(16, miku_rpc_header_decode(&hdr2, buf));
+    mk_assert_int_eq((int)MK_RPC_MAGIC, (int)hdr2.magic);
+    mk_assert_int_eq(42, (int)hdr2.seq);
+    mk_assert_int_eq(1001, (int)hdr2.service);
+    mk_assert_int_eq(7, (int)hdr2.method);
+}
+
+void test_rpc_message_roundtrip(void) {
+    miku_rpc_message_t *msg = miku_rpc_message_create(MK_RPC_CALL, 1, 100, 5);
+    mk_assert_not_null(msg);
+
+    const char *payload = "{\"userID\":\"alice\"}";
+    miku_rpc_message_set_payload(msg, (const uint8_t *)payload, strlen(payload));
+
+    uint8_t *encoded = NULL;
+    size_t enc_len = 0;
+    mk_assert_int_eq(0, miku_rpc_message_encode(msg, &encoded, &enc_len));
+    mk_assert_not_null(encoded);
+    mk_assert(enc_len == MK_RPC_HDR_SIZE + 4 + strlen(payload));
+
+    miku_rpc_message_t *decoded = miku_rpc_message_decode(encoded, enc_len);
+    mk_assert_not_null(decoded);
+    mk_assert_int_eq((int)MK_RPC_CALL, (int)decoded->header.msg_type);
+    mk_assert_int_eq(1, (int)decoded->header.seq);
+    mk_assert_int_eq(100, (int)decoded->header.service);
+    mk_assert_int_eq(5, (int)decoded->header.method);
+    mk_assert_int_eq((int)strlen(payload), (int)decoded->payload_len);
+    mk_assert(memcmp(decoded->payload, payload, strlen(payload)) == 0);
+
+    free(encoded);
+    miku_rpc_message_destroy(decoded);
+    miku_rpc_message_destroy(msg);
+}
+
+/* ── Protobuf Codec Tests ───────────────────── */
+
+void test_pb_varint_roundtrip(void) {
+    miku_pb_buf_t *buf = miku_pb_buf_create(64);
+    mk_assert_not_null(buf);
+
+    miku_pb_write_varint(buf, 1, 150);
+    miku_pb_write_string(buf, 2, "testing");
+    miku_pb_write_bool(buf, 3, true);
+
+    miku_pb_reader_t r;
+    miku_pb_reader_init(&r, buf->data, buf->len);
+
+    uint32_t field;
+    miku_pb_wire_t wt;
+
+    mk_assert_true(miku_pb_read_field(&r, &field, &wt));
+    mk_assert_int_eq(1, (int)field);
+    mk_assert_int_eq((int)MK_PB_VARINT, (int)wt);
+    uint64_t val;
+    mk_assert_true(miku_pb_read_varint(&r, &val));
+    mk_assert_int_eq(150, (int)val);
+
+    mk_assert_true(miku_pb_read_field(&r, &field, &wt));
+    mk_assert_int_eq(2, (int)field);
+    const uint8_t *str_data;
+    size_t str_len;
+    mk_assert_true(miku_pb_read_bytes(&r, &str_data, &str_len));
+    mk_assert_int_eq(7, (int)str_len);
+    mk_assert(memcmp(str_data, "testing", 7) == 0);
+
+    mk_assert_true(miku_pb_read_field(&r, &field, &wt));
+    mk_assert_int_eq(3, (int)field);
+    uint64_t bval;
+    mk_assert_true(miku_pb_read_varint(&r, &bval));
+    mk_assert_int_eq(1, (int)bval);
+
+    miku_pb_buf_destroy(buf);
+}
+
+void test_pb_svarint_roundtrip(void) {
+    miku_pb_buf_t *buf = miku_pb_buf_create(64);
+    mk_assert_not_null(buf);
+
+    miku_pb_write_svarint(buf, 1, -1);
+    miku_pb_write_svarint(buf, 2, 42);
+    miku_pb_write_svarint(buf, 3, -100);
+
+    miku_pb_reader_t r;
+    miku_pb_reader_init(&r, buf->data, buf->len);
+
+    uint32_t field;
+    miku_pb_wire_t wt;
+    int64_t val;
+
+    mk_assert_true(miku_pb_read_field(&r, &field, &wt));
+    mk_assert_true(miku_pb_read_svarint(&r, &val));
+    mk_assert_int_eq(-1, (int)val);
+
+    mk_assert_true(miku_pb_read_field(&r, &field, &wt));
+    mk_assert_true(miku_pb_read_svarint(&r, &val));
+    mk_assert_int_eq(42, (int)val);
+
+    mk_assert_true(miku_pb_read_field(&r, &field, &wt));
+    mk_assert_true(miku_pb_read_svarint(&r, &val));
+    mk_assert_int_eq(-100, (int)val);
+
+    miku_pb_buf_destroy(buf);
+}
+
+void test_pb_fixed_roundtrip(void) {
+    miku_pb_buf_t *buf = miku_pb_buf_create(64);
+    mk_assert_not_null(buf);
+
+    miku_pb_write_fixed32(buf, 1, 0xDEADBEEF);
+    miku_pb_write_fixed64(buf, 2, 0xCAFEBABEDEADBEEFULL);
+
+    miku_pb_reader_t r;
+    miku_pb_reader_init(&r, buf->data, buf->len);
+
+    uint32_t field;
+    miku_pb_wire_t wt;
+
+    mk_assert_true(miku_pb_read_field(&r, &field, &wt));
+    mk_assert_int_eq((int)MK_PB_FIXED32, (int)wt);
+    uint32_t f32;
+    mk_assert_true(miku_pb_read_fixed32(&r, &f32));
+    mk_assert_int_eq((int)0xDEADBEEF, (int)f32);
+
+    mk_assert_true(miku_pb_read_field(&r, &field, &wt));
+    mk_assert_int_eq((int)MK_PB_FIXED64, (int)wt);
+    uint64_t f64;
+    mk_assert_true(miku_pb_read_fixed64(&r, &f64));
+    mk_assert(f64 == 0xCAFEBABEDEADBEEFULL);
+
+    miku_pb_buf_destroy(buf);
+}
+
 void run_protocol_tests(void) {
     printf("── Miku Protocol Tests ───────────────────\n\n");
 
@@ -383,4 +633,16 @@ void run_protocol_tests(void) {
     mk_run_test(test_json_build_and_query);
     mk_run_test(test_json_get_missing);
     mk_run_test(test_json_roundtrip);
+
+    printf("\n");
+    mk_run_test(test_sha1_basic);
+    mk_run_test(test_sha1_empty);
+    mk_run_test(test_ws_frame_encode_decode);
+    mk_run_test(test_ws_frame_masked);
+    mk_run_test(test_ws_handshake);
+    mk_run_test(test_rpc_header_codec);
+    mk_run_test(test_rpc_message_roundtrip);
+    mk_run_test(test_pb_varint_roundtrip);
+    mk_run_test(test_pb_svarint_roundtrip);
+    mk_run_test(test_pb_fixed_roundtrip);
 }
