@@ -1,0 +1,81 @@
+# Miku IM Server - Full Configuration Example
+# Copy to config/ and customize for your deployment.
+
+# Network binding address (0.0.0.0 = all interfaces)
+listenIP: 0.0.0.0
+
+# API gateway (HTTP, REST)
+api:
+  port: 10002
+  prometheus:
+    enable: true
+    port: 20100
+
+# WebSocket message gateway
+msggateway:
+  port: 10001
+  wsPort: 10001
+  maxConnections: 4096
+  prometheus:
+    enable: true
+    port: 20101
+
+# RPC service ports (internal, cluster-only)
+rpc:
+  auth:
+    port: 10100
+  user:
+    port: 10110
+  friend:
+    port: 10120
+  msg:
+    port: 10130
+  group:
+    port: 10150
+  conversation:
+    port: 10180
+  third:
+    port: 10200
+
+# Message transfer pipeline
+msgtransfer:
+  topic: "miku_msg_transfer"
+  consumers: 2
+
+# Push notification service
+push:
+  enable: true
+  fcm:
+    serviceAccount: ""
+
+# Scheduled tasks
+crontask:
+  enable: true
+
+---
+# mongodb.yml
+# uri: "mongodb://localhost:27017"
+# database: "miku"
+# poolSize: 10
+
+---
+# redis.yml
+# address: "localhost:6379"
+# password: ""
+# db: 0
+# poolSize: 10
+
+---
+# kafka.yml
+# brokers: "localhost:9092"
+# topic: "miku_msg_transfer"
+# groupId: "miku-msgtransfer"
+
+---
+# log.yml
+# level: info        # debug, info, warn, error, fatal, trace
+# output: file       # stdout, file, both
+# file: /var/log/miku/miku.log
+# rotation:
+#   maxBytes: 10485760   # 10MB
+#   maxFiles: 5

@@ -413,6 +413,21 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 23</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Production Deployment Artifacts</h3>
+  <ul>
+    <li><strong>deploy/systemd/</strong>: install.sh generates systemd unit files for all 12 services (api, msggateway, msgtransfer, push, crontask, 7 RPC), auto-creates miku user, daemon-reload</li>
+    <li><strong>deploy/docker/docker-compose.yml</strong>: Full 12-service stack with resource limits, dependency ordering, bridge network</li>
+    <li><strong>deploy/k8s/deployment.yaml</strong>: ConfigMap + API gateway + WS gateway deployments with readiness/liveness probes, Prometheus scrape annotations, ClusterIP services</li>
+    <li><strong>deploy/k8s/rpc-services.yaml</strong>: All 7 RPC service deployments + ClusterIP services (auth:user:friend:group:conv:msg:third)</li>
+    <li><strong>config/miku-example.yml</strong>: Fully documented config example with all sections (api, msggateway, RPC ports, msgtransfer, push, crontask, mongodb, redis, kafka, log rotation)</li>
+    <li><strong>Dockerfile</strong>: Updated with ARG-based feature toggles (ENABLE_MONGO, ENABLE_REDIS, ENABLE_KAFKA, ENABLE_S3, ENABLE_TLS), all service ports exposed</li>
+    <li><strong>Makefile</strong>: Added docker-tls, docker-compose-up, docker-compose-down targets</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries; 103 routes</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -449,6 +464,7 @@
   <tr><td>20</td><td>TLS Support (OpenSSL)</td><td><span class="tag tag-done">DONE</span></td><td>Conditional TLS, miku_http_server_set_tls()</td></tr>
   <tr><td>21</td><td>Log Rotation + Prometheus Metrics</td><td><span class="tag tag-done">DONE</span></td><td>Size-based log rotation, GET /admin/metrics</td></tr>
   <tr><td>22</td><td>ARCHITECTURE.md Rewrite + Benchmark Script</td><td><span class="tag tag-done">DONE</span></td><td>Full doc rewrite (13 sections), scripts/bench.sh</td></tr>
+  <tr><td>23</td><td>Production Deployment Artifacts</td><td><span class="tag tag-done">DONE</span></td><td>systemd, docker-compose, k8s manifests, config example, Dockerfile update</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -534,7 +550,8 @@
 <h2>Git Log</h2>
 
 <pre>
-TBD     docs: ARCHITECTURE.md rewrite (13 sections, all 21 phases), scripts/bench.sh
+TBD     feat: production deployment (systemd, docker-compose, k8s, config example, Dockerfile update)
+d0fbdee docs: ARCHITECTURE.md rewrite (13 sections, phases 0-21), scripts/bench.sh
 3449f17 feat: log rotation, Prometheus metrics endpoint
 b56a830 feat: optional TLS support via OpenSSL
 d9f5a4e ci: GitHub Actions CI pipeline

@@ -1,0 +1,22 @@
+[Unit]
+Description=Miku IM WebSocket Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=miku
+Group=miku
+ExecStart=/usr/local/bin/miku-msggateway -c /etc/miku
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=131072
+
+WorkingDirectory=/etc/miku
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=miku-msggateway
+
+[Install]
+WantedBy=multi-user.target

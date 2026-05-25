@@ -43,8 +43,17 @@ dev-ws: build
 docker:
 	docker build -t miku:latest .
 
+docker-tls:
+	docker build --build-arg ENABLE_TLS=ON -t miku:latest .
+
 docker-run:
-	docker run --rm -p 10002:10002 -p 10003:10003 miku:latest
+	docker run --rm -p 10002:10002 miku:latest
+
+docker-compose-up:
+	docker-compose -f deploy/docker/docker-compose.yml up -d
+
+docker-compose-down:
+	docker-compose -f deploy/docker/docker-compose.yml down
 
 count:
 	@echo "=== Lines of Code ==="

@@ -1,0 +1,22 @@
+[Unit]
+Description=Miku IM API Gateway
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=miku
+Group=miku
+ExecStart=/usr/local/bin/miku-api -c /etc/miku -h 0.0.0.0 -p 10002
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+WorkingDirectory=/etc/miku
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=miku-api
+
+[Install]
+WantedBy=multi-user.target

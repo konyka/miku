@@ -1,0 +1,356 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-rpc-auth
+  labels:
+    app: miku
+    svc: rpc-auth
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: miku
+      svc: rpc-auth
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: rpc-auth
+    spec:
+      containers:
+        - name: miku-rpc-auth
+          image: miku:latest
+          command: ["miku-rpc-auth"]
+          args: ["-c", "/etc/miku"]
+          ports:
+            - containerPort: 10100
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: "1", memory: 128Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-rpc-auth
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: rpc-auth
+  ports:
+    - port: 10100
+      targetPort: 10100
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-rpc-user
+  labels:
+    app: miku
+    svc: rpc-user
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: miku
+      svc: rpc-user
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: rpc-user
+    spec:
+      containers:
+        - name: miku-rpc-user
+          image: miku:latest
+          command: ["miku-rpc-user"]
+          args: ["-c", "/etc/miku"]
+          ports:
+            - containerPort: 10110
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: "1", memory: 128Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-rpc-user
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: rpc-user
+  ports:
+    - port: 10110
+      targetPort: 10110
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-rpc-friend
+  labels:
+    app: miku
+    svc: rpc-friend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: miku
+      svc: rpc-friend
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: rpc-friend
+    spec:
+      containers:
+        - name: miku-rpc-friend
+          image: miku:latest
+          command: ["miku-rpc-friend"]
+          args: ["-c", "/etc/miku"]
+          ports:
+            - containerPort: 10120
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: "1", memory: 128Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-rpc-friend
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: rpc-friend
+  ports:
+    - port: 10120
+      targetPort: 10120
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-rpc-group
+  labels:
+    app: miku
+    svc: rpc-group
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: miku
+      svc: rpc-group
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: rpc-group
+    spec:
+      containers:
+        - name: miku-rpc-group
+          image: miku:latest
+          command: ["miku-rpc-group"]
+          args: ["-c", "/etc/miku"]
+          ports:
+            - containerPort: 10150
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: "1", memory: 128Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-rpc-group
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: rpc-group
+  ports:
+    - port: 10150
+      targetPort: 10150
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-rpc-conversation
+  labels:
+    app: miku
+    svc: rpc-conversation
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: miku
+      svc: rpc-conversation
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: rpc-conversation
+    spec:
+      containers:
+        - name: miku-rpc-conversation
+          image: miku:latest
+          command: ["miku-rpc-conversation"]
+          args: ["-c", "/etc/miku"]
+          ports:
+            - containerPort: 10180
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: "1", memory: 128Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-rpc-conversation
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: rpc-conversation
+  ports:
+    - port: 10180
+      targetPort: 10180
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-rpc-msg
+  labels:
+    app: miku
+    svc: rpc-msg
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: miku
+      svc: rpc-msg
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: rpc-msg
+    spec:
+      containers:
+        - name: miku-rpc-msg
+          image: miku:latest
+          command: ["miku-rpc-msg"]
+          args: ["-c", "/etc/miku"]
+          ports:
+            - containerPort: 10130
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits:   { cpu: "1", memory: 256Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-rpc-msg
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: rpc-msg
+  ports:
+    - port: 10130
+      targetPort: 10130
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-rpc-third
+  labels:
+    app: miku
+    svc: rpc-third
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: miku
+      svc: rpc-third
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: rpc-third
+    spec:
+      containers:
+        - name: miku-rpc-third
+          image: miku:latest
+          command: ["miku-rpc-third"]
+          args: ["-c", "/etc/miku"]
+          ports:
+            - containerPort: 10200
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits:   { cpu: "1", memory: 128Mi }
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-rpc-third
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: rpc-third
+  ports:
+    - port: 10200
+      targetPort: 10200

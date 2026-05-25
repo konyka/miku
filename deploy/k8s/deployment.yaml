@@ -1,0 +1,180 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: miku-config
+  labels:
+    app: miku
+data:
+  share.yml: |
+    listenIP: 0.0.0.0
+    api:
+      port: 10002
+      prometheus:
+        enable: true
+        port: 20100
+    msggateway:
+      port: 10001
+      wsPort: 10001
+    rpc:
+      auth:         { port: 10100 }
+      user:         { port: 10110 }
+      friend:       { port: 10120 }
+      msg:          { port: 10130 }
+      group:        { port: 10150 }
+      conversation: { port: 10180 }
+      third:        { port: 10200 }
+    msgtransfer:
+      topic: "miku_msg_transfer"
+      consumers: 2
+    push:
+      enable: true
+    crontask:
+      enable: true
+  log.yml: |
+    level: info
+    output: file
+    file: /var/log/miku/miku.log
+    rotation:
+      maxBytes: 10485760
+      maxFiles: 5
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-api
+  labels:
+    app: miku
+    svc: api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: miku
+      svc: api
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: api
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "20100"
+        prometheus.io/path: "/admin/metrics"
+    spec:
+      containers:
+        - name: miku-api
+          image: miku:latest
+          command: ["miku-api"]
+          args: ["-c", "/etc/miku", "-h", "0.0.0.0", "-p", "10002"]
+          ports:
+            - containerPort: 10002
+              name: http
+            - containerPort: 20100
+              name: metrics
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 256Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 10002
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 10002
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-api
+  labels:
+    app: miku
+    svc: api
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: api
+  ports:
+    - name: http
+      port: 10002
+      targetPort: 10002
+    - name: metrics
+      port: 20100
+      targetPort: 20100
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-msggateway
+  labels:
+    app: miku
+    svc: msggateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: miku
+      svc: msggateway
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: msggateway
+    spec:
+      containers:
+        - name: miku-msggateway
+          image: miku:latest
+          command: ["miku-msggateway"]
+          args: ["-c", "/etc/miku"]
+          ports:
+            - containerPort: 10001
+              name: ws
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-msggateway
+  labels:
+    app: miku
+    svc: msggateway
+spec:
+  type: ClusterIP
+  selector:
+    app: miku
+    svc: msggateway
+  ports:
+    - name: ws
+      port: 10001
+      targetPort: 10001

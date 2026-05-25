@@ -1,0 +1,155 @@
+version: "3.8"
+
+x-miku-common: &miku-common
+  build:
+    context: ../..
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  volumes:
+    - ../../config:/etc/miku:ro
+  networks:
+    - miku-net
+
+services:
+  api:
+    <<: *miku-common
+    container_name: miku-api
+    command: ["miku-api", "-c", "/etc/miku", "-h", "0.0.0.0", "-p", "10002"]
+    ports:
+      - "10002:10002"
+    depends_on:
+      - rpc-auth
+      - rpc-user
+      - rpc-friend
+      - rpc-group
+      - rpc-conversation
+      - rpc-msg
+      - rpc-third
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  msggateway:
+    <<: *miku-common
+    container_name: miku-msggateway
+    command: ["miku-msggateway", "-c", "/etc/miku"]
+    ports:
+      - "10001:10001"
+    depends_on:
+      - rpc-msg
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+
+  msgtransfer:
+    <<: *miku-common
+    container_name: miku-msgtransfer
+    command: ["miku-msgtransfer", "-c", "/etc/miku"]
+    depends_on:
+      - rpc-msg
+      - rpc-conversation
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  push:
+    <<: *miku-common
+    container_name: miku-push
+    command: ["miku-push", "-c", "/etc/miku"]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  crontask:
+    <<: *miku-common
+    container_name: miku-crontask
+    command: ["miku-crontask", "-c", "/etc/miku"]
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  rpc-auth:
+    <<: *miku-common
+    container_name: miku-rpc-auth
+    command: ["miku-rpc-auth", "-c", "/etc/miku"]
+    ports:
+      - "10100:10100"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  rpc-user:
+    <<: *miku-common
+    container_name: miku-rpc-user
+    command: ["miku-rpc-user", "-c", "/etc/miku"]
+    ports:
+      - "10110:10110"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  rpc-friend:
+    <<: *miku-common
+    container_name: miku-rpc-friend
+    command: ["miku-rpc-friend", "-c", "/etc/miku"]
+    ports:
+      - "10120:10120"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  rpc-group:
+    <<: *miku-common
+    container_name: miku-rpc-group
+    command: ["miku-rpc-group", "-c", "/etc/miku"]
+    ports:
+      - "10150:10150"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  rpc-conversation:
+    <<: *miku-common
+    container_name: miku-rpc-conversation
+    command: ["miku-rpc-conversation", "-c", "/etc/miku"]
+    ports:
+      - "10180:10180"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+  rpc-msg:
+    <<: *miku-common
+    container_name: miku-rpc-msg
+    command: ["miku-rpc-msg", "-c", "/etc/miku"]
+    ports:
+      - "10130:10130"
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  rpc-third:
+    <<: *miku-common
+    container_name: miku-rpc-third
+    command: ["miku-rpc-third", "-c", "/etc/miku"]
+    ports:
+      - "10200:10200"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+
+networks:
+  miku-net:
+    driver: bridge

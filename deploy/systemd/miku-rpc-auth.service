@@ -1,0 +1,22 @@
+[Unit]
+Description=Miku IM Auth RPC Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=miku
+Group=miku
+ExecStart=/usr/local/bin/miku-rpc-auth -c /etc/miku
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=65536
+
+WorkingDirectory=/etc/miku
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=miku-rpc-auth
+
+[Install]
+WantedBy=multi-user.target
