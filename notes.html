@@ -201,6 +201,22 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 8</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Config Integration + Graceful Shutdown</h3>
+  <ul>
+    <li><strong>Config parser enhanced</strong>: nested YAML dot-path keys — <code>miku_config_get(cfg, "api.port")</code> → <code>"10002"</code>,
+        <code>miku_config_get(cfg, "rpc.auth.port")</code> → <code>"10100"</code>. Quote stripping for YAML quoted values.</li>
+    <li><strong>Service config loader</strong> (<code>miku_service_config.h/c</code>): unified <code>miku_service_config_t</code> struct,
+        loads all <code>config/*.yml</code> files, provides <code>miku_service_config_load()</code> + <code>miku_service_config_print()</code></li>
+    <li><strong>Graceful shutdown</strong> (<code>miku_graceful.h/c</code>): SIGTERM/SIGINT handler, drain timeout, <code>miku_graceful_wait()</code> with on_drain callback</li>
+    <li><strong>All 13 binaries wired to config</strong>: every <code>cmd/</code> entry point now reads ports from <code>config/*.yml</code> via <code>miku_service_config_load()</code>,
+        uses <code>miku_graceful_t</code> for signal handling instead of manual <code>volatile int</code> + <code>signal()</code></li>
+    <li>6 new tests: config nested, config defaults, config file I/O, service config load, graceful lifecycle, existing config test updated</li>
+    <li>83 tests + 5 benchmarks, all passing; 50 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -222,6 +238,7 @@
   <tr><td>3</td><td>Business Services (7 RPC)</td><td><span class="tag tag-done">DONE</span></td><td>auth, user, friend, group, conversation, msg, third</td></tr>
   <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-done">DONE</span></td><td>api (48 routes), msggateway (ws+conn mgr), msgtransfer (queue), push (subs), crontask (scheduler)</td></tr>
   <tr><td>5</td><td>Tests + Docs + Service Wiring</td><td><span class="tag tag-done">DONE</span></td><td>RPC server, config YAML, e2e tests, all cmd/ wired</td></tr>
+  <tr><td>8</td><td>Config Integration + Graceful Shutdown</td><td><span class="tag tag-done">DONE</span></td><td>Dot-path YAML, service config loader, graceful shutdown, all cmd/ wired to config</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -234,7 +251,7 @@
   <tr><td>Foundation</td><td>Memory Pool</td><td>miku_memory.h/c</td><td>pool_create, alloc, alloc_obj, free_obj, reset</td></tr>
   <tr><td>Foundation</td><td>Logger</td><td>miku_log.h/c</td><td>6 levels, file+console, MK_LOG_* macros</td></tr>
   <tr><td>Foundation</td><td>Error</td><td>miku_error.h/c</td><td>error code + message, MK_RETURN_IF_ERROR</td></tr>
-  <tr><td>Foundation</td><td>Config</td><td>miku_config.h/c</td><td>YAML key:value load/get</td></tr>
+  <tr><td>Foundation</td><td>Config</td><td>miku_config.h/c</td><td>YAML key:value load/get, nested dot-path keys, quote stripping</td></tr>
   <tr><td>Foundation</td><td>String</td><td>miku_string.h/c</td><td>SDS-like dynamic string buffer</td></tr>
   <tr><td>Foundation</td><td>HashMap</td><td>miku_hashmap.h/c</td><td>FNV-1a, open addressing, auto-resize 75%</td></tr>
   <tr><td>Foundation</td><td>List</td><td>miku_list.h</td><td>Intrusive doubly-linked list (header only)</td></tr>
@@ -278,13 +295,15 @@
   <tr><td>Gateway</td><td>MsgTransfer</td><td>miku_msgtransfer.h/c</td><td>SPSC ring buffer queue (16384), spinlock protected</td></tr>
   <tr><td>Gateway</td><td>Push</td><td>miku_push.h/c</td><td>Subscribe/unsubscribe registry, JSON push notifications</td></tr>
   <tr><td>Gateway</td><td>Crontask</td><td>miku_crontask.h/c</td><td>Named task scheduler, interval-based tick execution</td></tr>
+  <tr><td>Foundation</td><td>Service Config</td><td>miku_service_config.h/c</td><td>Unified service config loader, loads all config/*.yml, populates miku_service_config_t</td></tr>
+  <tr><td>Foundation</td><td>Graceful</td><td>miku_graceful.h/c</td><td>SIGTERM/SIGINT handler, drain timeout, on_drain callback</td></tr>
 </table>
 
 <h2>Test Summary</h2>
 
 <table>
   <tr><th>Category</th><th>Tests</th><th>Assertions</th><th>Status</th></tr>
-  <tr><td>Foundation</td><td>11</td><td>~35</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Foundation</td><td>16</td><td>~55</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Runtime</td><td>9</td><td>~32</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Protocol (HTTP)</td><td>8</td><td>~30</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Protocol (JSON)</td><td>8</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
@@ -295,12 +314,13 @@
   <tr><td>Gateway (msggateway + msgtransfer + push + crontask)</td><td>4</td><td>~25</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>WS Gateway + Cross-Service Integration</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Benchmarks (JSON/HashMap/Cache/Queue)</td><td>5</td><td>~5</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>78</strong></td><td><strong>310+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>83</strong></td><td><strong>340+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>
 
 <pre>
+TBD     feat: config integration (dot-path YAML, service config loader), graceful shutdown, all cmd/ wired to config
 TBD     feat: WebSocket gateway (upgrade+frame I/O), cross-service msg→conversation integration
 9d8020c feat: middleware framework, dev server, performance benchmarks
 329c8b7 feat: RPC server, all cmd/ wired, config YAML, e2e integration tests

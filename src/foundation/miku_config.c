@@ -33,22 +33,25 @@ int miku_config_load_file(miku_config_t *cfg, const char *path) {
     return rc;
 }
 
-static void parse_simple_line(miku_config_t *cfg, char *line) {
-    while (*line == ' ' || *line == '\t') line++;
-    if (*line == '#' || *line == '\0' || *line == '\n') return;
+/* Count leading spaces (treated as 2-space indent per YAML convention) */
+static int count_indent(const char *line) {
+    int n = 0;
+    while (*line == ' ') { n++; line++; }
+    if (*line == '\t') return -1; /* tabs not supported */
+    return n / 2;
+}
 
-    char *colon = strchr(line, ':');
-    if (!colon) return;
-    *colon = '\0';
-    char *val = colon + 1;
-    while (*val == ' ') val++;
+/* Strip leading whitespace, return pointer into original buffer */
+static char *strip_left(char *s) {
+    while (*s == ' ' || *s == '\t') s++;
+    return s;
+}
 
-    size_t vlen = strlen(val);
-    while (vlen > 0 && (val[vlen-1] == '\n' || val[vlen-1] == '\r' || val[vlen-1] == ' '))
-        val[--vlen] = '\0';
-
-    if (line[0] && val[0])
-        miku_config_set(cfg, line, val);
+/* Strip trailing whitespace in-place */
+static void strip_right(char *s) {
+    size_t len = strlen(s);
+    while (len > 0 && (s[len-1] == '\n' || s[len-1] == '\r' || s[len-1] == ' ' || s[len-1] == '\t'))
+        s[--len] = '\0';
 }
 
 int miku_config_load_string(miku_config_t *cfg, const char *yaml, size_t len) {
@@ -57,10 +60,71 @@ int miku_config_load_string(miku_config_t *cfg, const char *yaml, size_t len) {
     if (!copy) return -1;
     memcpy(copy, yaml, len);
     copy[len] = '\0';
+
+    /* Indentation stack for dot-path keys: stack[0].stack[1].stack[2]... */
+    char *stack[32] = {0};
+    int   depth = 0;
+
     char *saveptr;
     char *line = strtok_r(copy, "\n", &saveptr);
     while (line) {
-        parse_simple_line(cfg, line);
+        char *stripped = strip_left(line);
+        /* Skip empty lines and comments */
+        if (*stripped == '#' || *stripped == '\0' || *stripped == '\r') {
+            line = strtok_r(NULL, "\n", &saveptr);
+            continue;
+        }
+
+        int indent = count_indent(line);
+        if (indent < 0) indent = 0;
+        if (indent > 31) indent = 31;
+
+        /* Find the colon separator */
+        char *colon = strchr(stripped, ':');
+        if (!colon) {
+            line = strtok_r(NULL, "\n", &saveptr);
+            continue;
+        }
+
+        /* Extract key */
+        *colon = '\0';
+        char *key = stripped;
+        strip_right(key);
+
+        /* Extract value (after colon) */
+        char *val = colon + 1;
+        while (*val == ' ') val++;
+        strip_right(val);
+
+        /* Update depth stack */
+        depth = indent;
+        stack[depth] = key;
+
+        if (val[0]) {
+            /* Strip surrounding quotes from value */
+            size_t vlen = strlen(val);
+            if (vlen >= 2 && ((val[0] == '"' && val[vlen-1] == '"') ||
+                              (val[0] == '\'' && val[vlen-1] == '\''))) {
+                val[vlen-1] = '\0';
+                val++;
+            }
+
+            /* Leaf node: build dot-path */
+            char fullpath[512] = {0};
+            size_t pos = 0;
+            for (int i = 0; i <= depth; i++) {
+                if (i > 0 && pos < sizeof(fullpath) - 1) fullpath[pos++] = '.';
+                size_t klen = strlen(stack[i]);
+                if (pos + klen >= sizeof(fullpath) - 1) break;
+                memcpy(fullpath + pos, stack[i], klen);
+                pos += klen;
+            }
+            fullpath[pos] = '\0';
+            if (fullpath[0])
+                miku_config_set(cfg, fullpath, val);
+        }
+        /* else: parent node, just pushed onto stack, no value to set */
+
         line = strtok_r(NULL, "\n", &saveptr);
     }
     free(copy);

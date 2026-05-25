@@ -1,5 +1,7 @@
 #include "miku_common.h"
 #include "miku_log.h"
+#include "miku_service_config.h"
+#include "miku_graceful.h"
 #include "miku_api.h"
 #include "miku_http_server.h"
 #include "miku_msggateway.h"
@@ -18,31 +20,37 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <signal.h>
 #include <unistd.h>
 
-static volatile int g_running = 1;
-static void signal_handler(int sig) { (void)sig; g_running = 0; }
+static miku_graceful_t g_graceful;
 
 int main(int argc, char **argv) {
-    int api_port = 10002;
-    int ws_port = 10001;
+    const char *config_dir = "config/";
+    int api_port = -1;
+    int ws_port = -1;
 
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) api_port = atoi(argv[++i]);
-        if (strcmp(argv[i], "-w") == 0 && i + 1 < argc) ws_port = atoi(argv[++i]);
+        if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) config_dir = argv[++i];
+        else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) api_port = atoi(argv[++i]);
+        else if (strcmp(argv[i], "-w") == 0 && i + 1 < argc) ws_port = atoi(argv[++i]);
     }
 
-    signal(SIGTERM, signal_handler);
-    signal(SIGINT,  signal_handler);
+    miku_service_config_t sc;
+    miku_service_config_load(&sc, config_dir);
+    miku_service_config_print(&sc);
+
+    if (api_port < 0) api_port = sc.api_port;
+    if (ws_port < 0)  ws_port = sc.ws_port;
+
     miku_log_init(NULL, MK_LOG_DEBUG);
+    miku_graceful_init(&g_graceful, 500);
 
     MK_LOG_INFO("=== miku-dev: starting all services ===");
 
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     if (!ctx) { MK_LOG_ERROR("Failed to create API context"); return 1; }
 
-    miku_http_server_t *srv = miku_http_server_create("0.0.0.0", api_port);
+    miku_http_server_t *srv = miku_http_server_create(sc.listen_ip, api_port);
     if (!srv) { MK_LOG_ERROR("Failed to create HTTP server"); return 1; }
 
     miku_http_server_use(srv, miku_mw_cors, NULL);
@@ -62,13 +70,17 @@ int main(int argc, char **argv) {
     miku_crontask_start(cron);
 
     MK_LOG_INFO("=== miku-dev ready ===");
-    MK_LOG_INFO("  API:        http://0.0.0.0:%d", api_port);
-    MK_LOG_INFO("  WebSocket:  ws://0.0.0.0:%d", ws_port);
+    MK_LOG_INFO("  API:        http://%s:%d", sc.listen_ip, api_port);
+    MK_LOG_INFO("  WebSocket:  ws://%s:%d", sc.listen_ip, ws_port);
+    MK_LOG_INFO("  Mongo:      %s/%s", sc.mongo_uri, sc.mongo_database);
+    MK_LOG_INFO("  Redis:      %s", sc.redis_address);
+    MK_LOG_INFO("  Kafka:      %s", sc.kafka_brokers);
     MK_LOG_INFO("  Services:   7 RPC + 5 gateway");
     MK_LOG_INFO("  Press Ctrl+C to stop");
 
-    while (g_running) {
+    while (miku_graceful_running(&g_graceful)) {
         miku_crontask_tick(cron);
+        miku_msggw_poll(gw, 10);
         usleep(50000);
     }
 
@@ -85,5 +97,6 @@ int main(int argc, char **argv) {
     miku_msgtransfer_destroy(mt);
     miku_msggw_destroy(gw);
     miku_api_ctx_destroy(ctx);
+    miku_graceful_cleanup(&g_graceful);
     return 0;
 }

@@ -5,6 +5,8 @@
 #include "miku_string.h"
 #include "miku_error.h"
 #include "miku_config.h"
+#include "miku_service_config.h"
+#include "miku_graceful.h"
 #include "miku_uuid.h"
 #include "miku_crc32.h"
 #include "miku_base64.h"
@@ -180,6 +182,95 @@ void test_memory_pool(void) {
     miku_pool_destroy(pool);
 }
 
+void test_config_nested(void) {
+    miku_config_t *cfg = miku_config_create();
+    mk_assert_not_null(cfg);
+
+    const char *yaml =
+        "listenIP: 0.0.0.0\n"
+        "api:\n"
+        "  port: 10002\n"
+        "  prometheus:\n"
+        "    enable: true\n"
+        "rpc:\n"
+        "  auth:\n"
+        "    port: 10100\n"
+        "  user:\n"
+        "    port: 10110\n";
+    int rc = miku_config_load_string(cfg, yaml, strlen(yaml));
+    mk_assert_int_eq(0, rc);
+
+    mk_assert_str_eq("0.0.0.0", miku_config_get_str(cfg, "listenIP", "FAIL"));
+    mk_assert_str_eq("10002", miku_config_get_str(cfg, "api.port", "FAIL"));
+    mk_assert_str_eq("true", miku_config_get_str(cfg, "api.prometheus.enable", "FAIL"));
+    mk_assert_str_eq("10100", miku_config_get_str(cfg, "rpc.auth.port", "FAIL"));
+    mk_assert_str_eq("10110", miku_config_get_str(cfg, "rpc.user.port", "FAIL"));
+    mk_assert_int_eq(10002, (int)miku_config_get_int(cfg, "api.port", 0));
+    mk_assert_int_eq(10100, (int)miku_config_get_int(cfg, "rpc.auth.port", 0));
+
+    miku_config_destroy(cfg);
+}
+
+void test_config_defaults(void) {
+    miku_config_t *cfg = miku_config_create();
+    mk_assert_not_null(cfg);
+
+    mk_assert_int_eq(42, (int)miku_config_get_int(cfg, "nonexistent", 42));
+    mk_assert_str_eq("fallback", miku_config_get_str(cfg, "nonexistent", "fallback"));
+    mk_assert_null(miku_config_get(cfg, "nonexistent"));
+
+    miku_config_destroy(cfg);
+}
+
+void test_config_file_io(void) {
+    const char *tmpfile = "/tmp/miku_test_config.yml";
+    FILE *f = fopen(tmpfile, "w");
+    mk_assert_not_null(f);
+    fprintf(f, "key1: value1\nkey2: 42\nnested:\n  child: hello\n");
+    fclose(f);
+
+    miku_config_t *cfg = miku_config_create();
+    mk_assert_int_eq(0, miku_config_load_file(cfg, tmpfile));
+    mk_assert_str_eq("value1", miku_config_get_str(cfg, "key1", "FAIL"));
+    mk_assert_int_eq(42, (int)miku_config_get_int(cfg, "key2", 0));
+    mk_assert_str_eq("hello", miku_config_get_str(cfg, "nested.child", "FAIL"));
+
+    miku_config_destroy(cfg);
+    unlink(tmpfile);
+}
+
+void test_service_config(void) {
+    miku_service_config_t sc;
+    int rc = miku_service_config_load(&sc, "config");
+    mk_assert_int_eq(0, rc);
+
+    mk_assert_str_eq("0.0.0.0", sc.listen_ip);
+    mk_assert_int_eq(10002, sc.api_port);
+    mk_assert_int_eq(10001, sc.ws_port);
+    mk_assert_int_eq(10100, sc.rpc_auth_port);
+    mk_assert_int_eq(10110, sc.rpc_user_port);
+    mk_assert_int_eq(10120, sc.rpc_friend_port);
+    mk_assert_int_eq(10150, sc.rpc_group_port);
+    mk_assert_int_eq(10180, sc.rpc_conversation_port);
+    mk_assert_int_eq(10130, sc.rpc_msg_port);
+    mk_assert_int_eq(10200, sc.rpc_third_port);
+    mk_assert_str_eq("mongodb://localhost:27017", sc.mongo_uri);
+    mk_assert_str_eq("miku", sc.mongo_database);
+    mk_assert_int_eq(64, sc.mongo_pool_size);
+}
+
+void test_graceful_lifecycle(void) {
+    miku_graceful_t g;
+    miku_graceful_init(&g, 0);
+
+    mk_assert_int_eq(1, miku_graceful_running(&g));
+
+    g.running = 0;
+    mk_assert_int_eq(0, miku_graceful_running(&g));
+
+    miku_graceful_cleanup(&g);
+}
+
 int main(void) {
     printf("── Miku Foundation Tests ───────────────────\n\n");
 
@@ -194,6 +285,11 @@ int main(void) {
     mk_run_test(test_base64);
     mk_run_test(test_rbtree);
     mk_run_test(test_memory_pool);
+    mk_run_test(test_config_nested);
+    mk_run_test(test_config_defaults);
+    mk_run_test(test_config_file_io);
+    mk_run_test(test_service_config);
+    mk_run_test(test_graceful_lifecycle);
 
     run_runtime_tests();
     run_protocol_tests();

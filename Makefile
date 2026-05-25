@@ -48,6 +48,12 @@ miku-rpc-third: release
 test: debug
 	cd $(BUILD_DIR) && ctest --output-on-failure -j$(JOBS)
 
+bench: debug
+	./$(BUILD_DIR)/bin/miku_tests 2>&1 | grep -E "ops/sec|Total|FAIL"
+
+run: debug
+	./$(BUILD_DIR)/bin/miku-dev -p 10002 -w 10001
+
 valgrind: debug
 	cd $(BUILD_DIR) && valgrind --leak-check=full --error-exitcode=1 ./bin/miku_tests
 

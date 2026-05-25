@@ -2,22 +2,28 @@
 #include "miku_log.h"
 #include "miku_friend.h"
 #include "miku_rpc_server.h"
-#include <signal.h>
+#include "miku_service_config.h"
+#include "miku_graceful.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 
-static volatile int g_running = 1;
-static void signal_handler(int sig) { (void)sig; g_running = 0; }
+static miku_graceful_t g_graceful;
 
 int main(int argc, char **argv) {
-    int port = 10120;
+    const char *config_dir = "config/";
+    int port = -1;
     for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) port = atoi(argv[++i]);
+        if (strcmp(argv[i], "-c") == 0 && i + 1 < argc) config_dir = argv[++i];
+        else if (strcmp(argv[i], "-p") == 0 && i + 1 < argc) port = atoi(argv[++i]);
     }
-    signal(SIGTERM, signal_handler);
-    signal(SIGINT,  signal_handler);
+
+    miku_service_config_t sc;
+    miku_service_config_load(&sc, config_dir);
+    if (port < 0) port = sc.rpc_friend_port;
+
     miku_log_init(NULL, MK_LOG_DEBUG);
+    miku_graceful_init(&g_graceful, 300);
     MK_LOG_INFO("miku-rpc-friend starting on :%d", port);
 
     miku_friend_service_t *svc = miku_friend_service_create();
@@ -30,10 +36,11 @@ int main(int argc, char **argv) {
     }
 
     MK_LOG_INFO("miku-rpc-friend ready");
-    while (g_running) { miku_rpc_server_poll(srv, 100); }
+    while (miku_graceful_running(&g_graceful)) { miku_rpc_server_poll(srv, 100); }
 
     miku_rpc_server_stop(srv);
     miku_rpc_server_destroy(srv);
     miku_friend_service_destroy(svc);
+    miku_graceful_cleanup(&g_graceful);
     return 0;
 }
