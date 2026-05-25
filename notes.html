@@ -283,12 +283,18 @@
 </div>
 
 <div class="entry">
-  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 13</span> <span class="tag tag-done">DONE</span></div>
-  <h3>Version Endpoint + Access Logs + Body Size Limit</h3>
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 14</span> <span class="tag tag-done">DONE</span></div>
+  <h3>100+ API Endpoints</h3>
   <ul>
-    <li><strong>/version endpoint</strong>: <code>GET /version</code> returns <code>{"version":"0.1.0","gitHash":"abc123","buildDate":"..."}</code></li>
-    <li><strong>Access log middleware</strong>: <code>miku_mw_logging</code> now wired into miku-api and miku-dev — logs <code>METHOD /path STATUS</code> per request</li>
-    <li><strong>Request body size limit</strong>: <code>miku_http_server_set_max_body()</code> (default 1MB). Returns <code>413 Payload Too Large</code> when exceeded.</li>
+    <li><strong>100 registered routes</strong> across all services, matching OpenIM Server 1:1 API surface</li>
+    <li>Auth: 5 routes (user_token, parse_token, admin_token, force_logout, force_logout_all)</li>
+    <li>User: 16 routes (CRUD, online status, global recv opt, user status, subscribe)</li>
+    <li>Friend: 15 routes (add/delete, blacklist, apply list, accept/refuse, import, sync)</li>
+    <li>Group: 22 routes (CRUD, join/quit, dismiss, mute, kick, transfer, applicant list)</li>
+    <li>Conversation: 13 routes (get/set/delete, total unread, min seq, mark read, pin)</li>
+    <li>Message: 16 routes (send/get/revoke, batch send, by seq, reaction extensions)</li>
+    <li>Third/S3: 9 routes (upload/download, multipart, object info, signal invitation)</li>
+    <li>Batch: 2 routes, Admin: 3 routes, Version: 1 route</li>
     <li>89 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
   </ul>
 </div>
@@ -320,6 +326,7 @@
   <tr><td>11</td><td>HTTP Server Connection + Bytes Tracking</td><td><span class="tag tag-done">DONE</span></td><td>miku_http_server_set_stats, conn/bytes auto-tracking, improved access log</td></tr>
   <tr><td>12</td><td>Version Info + RPC Stats + JSON Errors</td><td><span class="tag tag-done">DONE</span></td><td>miku_version.h, RPC server stats, JSON 404 responses</td></tr>
   <tr><td>13</td><td>Version Endpoint + Access Logs + Body Limit</td><td><span class="tag tag-done">DONE</span></td><td>GET /version, miku_mw_logging wired, 1MB body limit</td></tr>
+  <tr><td>14</td><td>100+ API Endpoints</td><td><span class="tag tag-done">DONE</span></td><td>100 routes across 7 services matching OpenIM API surface</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
