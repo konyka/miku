@@ -363,6 +363,17 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 19</span> <span class="tag tag-done">DONE</span></div>
+  <h3>GitHub Actions CI</h3>
+  <ul>
+    <li><strong>CI pipeline</strong>: <code>.github/workflows/ci.yml</code> — triggers on push/PR to master</li>
+    <li>Job 1: <code>build-test</code> — configure → build → test → stats output</li>
+    <li>Job 2: <code>docker-build</code> — validates Dockerfile builds cleanly</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -395,6 +406,7 @@
   <tr><td>16</td><td>HTTP Keep-Alive + Request Tracing</td><td><span class="tag tag-done">DONE</span></td><td>Keep-alive, miku_mw_request_id, header val_free fix</td></tr>
   <tr><td>17</td><td>Idle Timeout + Full RPC Dispatch</td><td><span class="tag tag-done">DONE</span></td><td>Connection sweeping, all 100 routes → RPC handlers</td></tr>
   <tr><td>18</td><td>Dockerfile + Makefile + Route Test</td><td><span class="tag tag-done">DONE</span></td><td>Multi-stage Docker, Makefile targets, 102-route validation</td></tr>
+  <tr><td>19</td><td>GitHub Actions CI</td><td><span class="tag tag-done">DONE</span></td><td>Build + test + Docker validation on push/PR</td></tr>
 </table>
 
 <h2>Module Inventory</h2>

@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc cmake make
+
+      - name: Configure
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DMIKU_ENABLE_TESTS=ON \
+            -DMIKU_ENABLE_MONGO=OFF \
+            -DMIKU_ENABLE_REDIS=OFF \
+            -DMIKU_ENABLE_KAFKA=OFF \
+            -DMIKU_ENABLE_S3=OFF
+
+      - name: Build
+        run: cmake --build build -j$(nproc)
+
+      - name: Test
+        run: timeout 60 ./build/bin/miku_tests
+
+      - name: Count tests
+        run: |
+          echo "=== Project Stats ==="
+          find src -name '*.c' -o -name '*.h' | xargs wc -l | tail -1
+          echo "Modules: $(find src -name '*.c' | wc -l)"
+          echo "Routes:  $(grep -c 'miku_http_server_route' src/gateway/api/miku_api.c)"
+
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t miku:ci .
