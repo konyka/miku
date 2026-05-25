@@ -36,4 +36,8 @@ MIKU_API miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
                                         miku_http_response_t *resp,
                                         void *ctx);
 
+MIKU_API miku_mw_result_t miku_mw_request_id(miku_http_request_t *req,
+                                               miku_http_response_t *resp,
+                                               void *ctx);
+
 #endif

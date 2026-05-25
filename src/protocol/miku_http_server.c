@@ -33,6 +33,7 @@ struct miku_http_server_s {
     bool               running;
     miku_stats_t      *stats;
     size_t             max_body;
+    bool               keep_alive;
 };
 
 #define MIKU_DEFAULT_MAX_BODY (1 << 20)
@@ -54,7 +55,7 @@ static void handle_client(int fd, int events, void *data) {
     int parsed = miku_http_request_parse(req, buf, n);
     if (parsed <= 0) {
         miku_http_request_destroy(req);
-        const char *bad = "HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n";
+        const char *bad = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
         write(fd, bad, strlen(bad));
         close(fd);
         miku_io_del(srv->io, fd);
@@ -63,7 +64,7 @@ static void handle_client(int fd, int events, void *data) {
 
     if (srv->max_body > 0 && req->body.len > srv->max_body) {
         miku_http_request_destroy(req);
-        const char *big = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\n\r\n";
+        const char *big = "HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
         write(fd, big, strlen(big));
         close(fd);
         miku_io_del(srv->io, fd);
@@ -71,47 +72,60 @@ static void handle_client(int fd, int events, void *data) {
         return;
     }
 
+    bool wants_close = true;
+    if (req->headers) {
+        const char *conn = (const char *)miku_hashmap_get(req->headers, "connection");
+        if (conn && strcasecmp(conn, "keep-alive") == 0) wants_close = false;
+    } else if (srv->keep_alive && req->version >= 1) {
+        wants_close = false;
+    }
+
     miku_http_response_t *resp = miku_http_response_create();
 
     for (int i = 0; i < srv->mw_count; i++) {
         miku_mw_result_t r = srv->middleware[i].fn(req, resp, srv->middleware[i].ctx);
-        if (r == MK_MW_STOP) goto send_response;
+        if (r == MK_MW_STOP) goto send_response_ka;
     }
 
-    bool matched = false;
-    for (int i = 0; i < srv->route_count; i++) {
-        miku_http_route_t *r = &srv->routes[i];
-        const char *method = miku_http_method_name(req->method);
-        if (strcasecmp(method, r->method) == 0 &&
-            req->path.len == strlen(r->path) &&
-            strncmp(req->path.data, r->path, req->path.len) == 0) {
-            r->handler(req, resp, r->ctx);
-            matched = true;
-            break;
+    {
+        bool matched = false;
+        for (int i = 0; i < srv->route_count; i++) {
+            miku_http_route_t *r = &srv->routes[i];
+            const char *method = miku_http_method_name(req->method);
+            if (strcasecmp(method, r->method) == 0 &&
+                req->path.len == strlen(r->path) &&
+                strncmp(req->path.data, r->path, req->path.len) == 0) {
+                r->handler(req, resp, r->ctx);
+                matched = true;
+                break;
+            }
+        }
+        if (!matched) {
+            resp->status = 404;
+            miku_json_val_t *err = miku_json_create_object();
+            miku_jerr(err, 404, "route not found");
+            miku_string_t *es = miku_json_stringify(err);
+            miku_http_response_set_json(resp, es->data);
+            miku_str_destroy(es);
+            miku_json_destroy(err);
         }
     }
-    if (!matched) {
-        resp->status = 404;
-        miku_json_val_t *err = miku_json_create_object();
-        miku_jerr(err, 404, "route not found");
-        miku_string_t *es = miku_json_stringify(err);
-        miku_http_response_set_json(resp, es->data);
-        miku_str_destroy(es);
-        miku_json_destroy(err);
-    }
 
-send_response:
+send_response_ka:
+    if (!resp->headers) resp->headers = miku_hashmap_create(4, NULL);
+    miku_hashmap_put(resp->headers, "Connection", strdup(wants_close ? "close" : "keep-alive"));
     miku_string_t *out = miku_http_response_serialize(resp);
     write(fd, out->data, out->len);
-    if (srv->stats) {
-        miku_stats_bytes_sent(srv->stats, (int64_t)out->len);
-        miku_stats_conn_close(srv->stats);
-    }
+    if (srv->stats) miku_stats_bytes_sent(srv->stats, (int64_t)out->len);
     miku_str_destroy(out);
     miku_http_response_destroy(resp);
     miku_http_request_destroy(req);
-    close(fd);
-    miku_io_del(srv->io, fd);
+
+    if (wants_close) {
+        if (srv->stats) miku_stats_conn_close(srv->stats);
+        close(fd);
+        miku_io_del(srv->io, fd);
+    }
 }
 
 static void accept_conn(int fd, int events, void *data) {
@@ -133,6 +147,7 @@ miku_http_server_t *miku_http_server_create(const char *host, int port) {
     srv->port = port;
     srv->io = miku_io_create();
     srv->max_body = MIKU_DEFAULT_MAX_BODY;
+    srv->keep_alive = true;
     return srv;
 }
 

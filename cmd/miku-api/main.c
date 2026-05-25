@@ -43,6 +43,7 @@ int main(int argc, char **argv) {
 
     miku_http_server_set_stats(srv, &ctx->stats);
     miku_http_server_use(srv, miku_mw_cors, NULL);
+    miku_http_server_use(srv, miku_mw_request_id, NULL);
     miku_http_server_use(srv, miku_mw_logging, NULL);
     static miku_auth_mw_cfg_t auth_cfg = { .secret = "openIM123", .enabled = 1 };
     miku_http_server_use(srv, miku_mw_auth, &auth_cfg);

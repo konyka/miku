@@ -2,6 +2,7 @@
 #include "miku_log.h"
 #include "miku_json.h"
 #include "miku_string.h"
+#include "miku_uuid.h"
 #include <string.h>
 #include <stdio.h>
 
@@ -131,5 +132,26 @@ miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
         return MK_MW_STOP;
     }
 
+    return MK_MW_CONTINUE;
+}
+
+miku_mw_result_t miku_mw_request_id(miku_http_request_t *req,
+                                      miku_http_response_t *resp,
+                                      void *ctx) {
+    (void)ctx;
+    if (!req || !resp) return MK_MW_CONTINUE;
+
+    char rid[64] = {0};
+    if (req->headers) {
+        const char *existing = (const char *)miku_hashmap_get(req->headers, "operationid");
+        if (!existing) existing = (const char *)miku_hashmap_get(req->headers, "x-request-id");
+        if (existing) strncpy(rid, existing, sizeof(rid) - 1);
+    }
+    if (rid[0] == '\0') miku_uuid_generate(rid);
+
+    if (!resp->headers) resp->headers = miku_hashmap_create(8, NULL);
+    miku_hashmap_put(resp->headers, "X-Request-ID", strdup(rid));
+
+    MK_LOG_INFO("[%s] %.*s", rid, (int)req->path.len, req->path.data);
     return MK_MW_CONTINUE;
 }

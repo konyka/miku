@@ -57,6 +57,7 @@ int main(int argc, char **argv) {
 
     miku_http_server_set_stats(srv, &ctx->stats);
     miku_http_server_use(srv, miku_mw_cors, NULL);
+    miku_http_server_use(srv, miku_mw_request_id, NULL);
     miku_http_server_use(srv, miku_mw_logging, NULL);
     miku_http_server_use(srv, miku_mw_stats, &ctx->stats);
     miku_rate_limit_cfg_t rl = {.window_ms = 1000, .max_requests = 100, .enabled = 1};

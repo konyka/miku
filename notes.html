@@ -320,6 +320,18 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 16</span> <span class="tag tag-done">DONE</span></div>
+  <h3>HTTP Keep-Alive + Request Tracing</h3>
+  <ul>
+    <li><strong>HTTP keep-alive</strong>: server respects <code>Connection: keep-alive</code> header, keeps fd registered in epoll for reuse</li>
+    <li><strong>Request ID middleware</strong>: <code>miku_mw_request_id</code> — reads <code>operationID</code>/<code>X-Request-ID</code> from request, generates UUID if missing, sets <code>X-Request-ID</code> response header, logs <code>[requestID] /path</code></li>
+    <li>Both wired into miku-api and miku-dev (CORS → request_id → logging → auth → stats)</li>
+    <li>Fixed response header val_free bug: <code>miku_http_response_create</code> uses <code>free</code> as val_free, so all header values must be <code>strdup</code>'d</li>
+    <li>99 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -349,6 +361,7 @@
   <tr><td>13</td><td>Version Endpoint + Access Logs + Body Limit</td><td><span class="tag tag-done">DONE</span></td><td>GET /version, miku_mw_logging wired, 1MB body limit</td></tr>
   <tr><td>14</td><td>100+ API Endpoints</td><td><span class="tag tag-done">DONE</span></td><td>100 routes across 7 services matching OpenIM API surface</td></tr>
   <tr><td>15</td><td>Auth Middleware + Integration Tests</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_auth, 10 new tests (99 total)</td></tr>
+  <tr><td>16</td><td>HTTP Keep-Alive + Request Tracing</td><td><span class="tag tag-done">DONE</span></td><td>Keep-alive, miku_mw_request_id, header val_free fix</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
