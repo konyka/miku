@@ -195,7 +195,7 @@ static void io_read_cb(int fd, int events, void *data) {
     (void)events;
     (void)data;
     char buf[64];
-    int n = read(fd, buf, sizeof(buf));
+    ssize_t n = read(fd, buf, sizeof(buf));
     if (n > 0) atomic_fetch_add(&g_io_read_count, 1);
 }
 

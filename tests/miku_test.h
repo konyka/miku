@@ -17,6 +17,10 @@
 #ifndef MIKU_TEST_H
 #define MIKU_TEST_H
 
+#pragma GCC diagnostic ignored "-Wmissing-prototypes"
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-variable"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -61,10 +65,10 @@ static int mk_assertions   = 0;
 #define mk_assert_false(cond)              MK_ASSERT_IMPL(!(cond), __FILE__, __LINE__, #cond " is not false")
 #define mk_assert_null(ptr)                MK_ASSERT_IMPL((ptr) == NULL, __FILE__, __LINE__, #ptr " is not NULL")
 #define mk_assert_not_null(ptr)            MK_ASSERT_IMPL((ptr) != NULL, __FILE__, __LINE__, #ptr " is NULL")
-#define mk_assert_int_eq(expected, actual) MK_ASSERT_EQ_IMPL((expected), (actual), "%d", __FILE__, __LINE__)
+#define mk_assert_int_eq(expected, actual) MK_ASSERT_EQ_IMPL((int)(expected), (int)(actual), "%d", __FILE__, __LINE__)
 #define mk_assert_int_ne(a, b)             mk_assert((a) != (b))
-#define mk_assert_uint_eq(expected, actual) MK_ASSERT_EQ_IMPL((expected), (actual), "%u", __FILE__, __LINE__)
-#define mk_assert_long_eq(expected, actual) MK_ASSERT_EQ_IMPL((expected), (actual), "%ld", __FILE__, __LINE__)
+#define mk_assert_uint_eq(expected, actual) MK_ASSERT_EQ_IMPL((unsigned)(expected), (unsigned)(actual), "%u", __FILE__, __LINE__)
+#define mk_assert_long_eq(expected, actual) MK_ASSERT_EQ_IMPL((long)(expected), (long)(actual), "%ld", __FILE__, __LINE__)
 #define mk_assert_ptr_eq(expected, actual)  MK_ASSERT_EQ_IMPL((expected), (actual), "%p", __FILE__, __LINE__)
 #define mk_assert_ptr_ne(a, b)             mk_assert((a) != (b))
 #define mk_assert_str_eq(expected, actual) do {                            \

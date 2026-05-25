@@ -458,7 +458,18 @@
   </ul>
 </div>
 
-<div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 26</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Test Warning Cleanup + .gitignore</h3>
+  <ul>
+    <li><strong>73 to 0 test warnings</strong>: Added pragmas in miku_test.h for missing-prototypes, unused-function, unused-variable</li>
+    <li>Fixed format specifier warnings in mk_assert_int_eq / mk_assert_long_eq (added explicit casts)</li>
+    <li>Fixed ssize_t to int conversion in test_runtime.c</li>
+    <li><strong>Total: 0 warnings across entire build</strong> (source + tests)</li>
+    <li>Updated .gitignore to exclude .sisyphus/ agent state</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries; 103 routes</li>
+  </ul>
+</div>
 <p style="color:#8b949e; margin-top:0.5rem;">100% complete — all phases done, production-ready IM server in pure C</p>
 
 <h2>Phase Status</h2>
@@ -495,6 +506,7 @@
   <tr><td>23</td><td>Production Deployment Artifacts</td><td><span class="tag tag-done">DONE</span></td><td>systemd, docker-compose, k8s manifests, config example, Dockerfile update</td></tr>
   <tr><td>24</td><td>OpenAPI 3.0 Specification</td><td><span class="tag tag-done">DONE</span></td><td>docs/openapi.yaml (3037 lines, 103 routes, 9 tags)</td></tr>
   <tr><td>25</td><td>README Update + Warning Cleanup</td><td><span class="tag tag-done">DONE</span></td><td>README updated, 108 to 0 source warnings</td></tr>
+  <tr><td>26</td><td>Test Warning Cleanup + .gitignore</td><td><span class="tag tag-done">DONE</span></td><td>73 to 0 test warnings, 0 total warnings</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -580,6 +592,7 @@
 <h2>Git Log</h2>
 
 <pre>
+TBD     fix: 73 to 0 test warnings, total 0 warnings across entire build, .gitignore update
 TBD     fix: README update, 108 to 0 source warnings (sign-conversion, format-truncation, pointer-sign, unused)
 TBD     docs: OpenAPI 3.0 spec (3037 lines, 103 routes, 9 tags)
 TBD     feat: production deployment (systemd, docker-compose, k8s, config example, Dockerfile update)
