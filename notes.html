@@ -352,6 +352,17 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 18</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Dockerfile + Makefile + Route Validation Test</h3>
+  <ul>
+    <li><strong>Dockerfile</strong>: multi-stage build (gcc:13 → debian:bookworm-slim), non-root user, config volume</li>
+    <li><strong>Makefile</strong>: convenience targets — <code>make build</code>, <code>make test</code>, <code>make dev</code>, <code>make release</code>, <code>make docker</code>, <code>make count</code></li>
+    <li><strong>Route validation test</strong>: <code>test_api_all_100_routes</code> — enumerates all 102 registered routes, verifies exact count matches expectation</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -383,6 +394,7 @@
   <tr><td>15</td><td>Auth Middleware + Integration Tests</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_auth, 10 new tests (99 total)</td></tr>
   <tr><td>16</td><td>HTTP Keep-Alive + Request Tracing</td><td><span class="tag tag-done">DONE</span></td><td>Keep-alive, miku_mw_request_id, header val_free fix</td></tr>
   <tr><td>17</td><td>Idle Timeout + Full RPC Dispatch</td><td><span class="tag tag-done">DONE</span></td><td>Connection sweeping, all 100 routes → RPC handlers</td></tr>
+  <tr><td>18</td><td>Dockerfile + Makefile + Route Test</td><td><span class="tag tag-done">DONE</span></td><td>Multi-stage Docker, Makefile targets, 102-route validation</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
