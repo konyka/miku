@@ -1,4 +1,5 @@
 #include "miku_friend.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -60,8 +61,6 @@ bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1, const c
     return false;
 }
 
-static void js(miku_json_val_t *o, const char *k, const char *v) { if (v) miku_json_object_set(o, k, miku_json_create_str(v)); }
-static void ji(miku_json_val_t *o, const char *k, int64_t v) { miku_json_object_set(o, k, miku_json_create_int(v)); }
 
 void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                              const miku_json_val_t *req, miku_json_val_t *resp) {
@@ -71,33 +70,33 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         const char *fuid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
         const char *rem = req ? miku_json_str(miku_json_get(req, "remark")) : NULL;
         int rc = miku_friend_add(svc, owner, fuid, rem);
-        ji(resp, "errCode", rc == 0 ? 0 : (rc == -2 ? 2001 : 500));
+        miku_ji(resp, "errCode", rc == 0 ? 0 : (rc == -2 ? 2001 : 500));
     } else if (strcmp(method, "deleteFriend") == 0) {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *fuid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
         int rc = miku_friend_delete(svc, owner, fuid);
-        ji(resp, "errCode", rc == 0 ? 0 : 2002);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 2002);
     } else if (strcmp(method, "getFriendList") == 0) {
         const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_friend_t list[256];
         int n = miku_friend_get_list(svc, owner, list, 256);
-        ji(resp, "errCode", 0);
+        miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) {
             miku_json_val_t *fj = miku_json_create_object();
-            js(fj, "ownerUserID", list[i].owner_user_id);
-            js(fj, "friendUserID", list[i].friend_user_id);
-            js(fj, "remark", list[i].remark);
-            ji(fj, "createTime", list[i].create_time);
+            miku_jss(fj, "ownerUserID", list[i].owner_user_id);
+            miku_jss(fj, "friendUserID", list[i].friend_user_id);
+            miku_jss(fj, "remark", list[i].remark);
+            miku_ji(fj, "createTime", list[i].create_time);
             miku_json_array_push(arr, fj);
         }
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "isFriend") == 0) {
         const char *u1 = req ? miku_json_str(miku_json_get(req, "userID1")) : NULL;
         const char *u2 = req ? miku_json_str(miku_json_get(req, "userID2")) : NULL;
-        ji(resp, "errCode", 0);
-        ji(resp, "isFriend", miku_friend_is_friend(svc, u1, u2) ? 1 : 0);
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "isFriend", miku_friend_is_friend(svc, u1, u2) ? 1 : 0);
     } else {
-        ji(resp, "errCode", 404);
+        miku_ji(resp, "errCode", 404);
     }
 }

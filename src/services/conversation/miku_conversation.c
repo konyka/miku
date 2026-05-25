@@ -1,4 +1,5 @@
 #include "miku_conversation.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -50,7 +51,6 @@ int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c) {
     return -2;
 }
 
-static void ji(miku_json_val_t *o, const char *k, int64_t v) { miku_json_object_set(o, k, miku_json_create_int(v)); }
 
 void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
                            const miku_json_val_t *req, miku_json_val_t *resp) {
@@ -59,7 +59,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_conversation_t list[256];
         int n = miku_conv_get_all(svc, owner, list, 256);
-        ji(resp, "errCode", 0);
+        miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_conversation_to_json(&list[i]));
         miku_json_object_set(resp, "data", arr);
@@ -68,7 +68,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         miku_conversation_t c;
         int rc = miku_conv_get(svc, owner, cid, &c);
-        ji(resp, "errCode", rc == 0 ? 0 : 4001);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 4001);
         if (rc == 0) miku_json_object_set(resp, "data", miku_conversation_to_json(&c));
     } else if (strcmp(method, "setConversation") == 0) {
         miku_conversation_t c;
@@ -76,8 +76,8 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         miku_conversation_from_json(req, &c);
         int rc = miku_conv_update(svc, &c);
         if (rc == -2) rc = miku_conv_create(svc, &c);
-        ji(resp, "errCode", rc == 0 ? 0 : 500);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
     } else {
-        ji(resp, "errCode", 404);
+        miku_ji(resp, "errCode", 404);
     }
 }

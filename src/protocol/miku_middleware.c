@@ -58,3 +58,12 @@ miku_mw_result_t miku_mw_logging(miku_http_request_t *req,
     (void)resp;
     return MK_MW_CONTINUE;
 }
+
+miku_mw_result_t miku_mw_stats(miku_http_request_t *req,
+                                miku_http_response_t *resp,
+                                void *ctx) {
+    (void)req; (void)resp;
+    miku_stats_t *s = (miku_stats_t *)ctx;
+    if (s) miku_stats_request_inc(s);
+    return MK_MW_CONTINUE;
+}

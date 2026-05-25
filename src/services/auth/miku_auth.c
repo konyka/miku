@@ -1,19 +1,13 @@
 #include "miku_auth.h"
 #include "miku_log.h"
 #include "miku_json.h"
+#include "miku_json_util.h"
 #include "miku_uuid.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
 #define AUTH_SECRET "openIM123"
-
-static void set_int(miku_json_val_t *obj, const char *key, int64_t val) {
-    miku_json_object_set(obj, key, miku_json_create_int(val));
-}
-static void set_str(miku_json_val_t *obj, const char *key, const char *val) {
-    if (val) miku_json_object_set(obj, key, miku_json_create_str(val));
-}
 
 struct miku_auth_service_s {
     int placeholder;
@@ -91,13 +85,13 @@ void miku_auth_handle_rpc(miku_auth_service_t *svc, const miku_rpc_message_t *re
             int rc = miku_auth_user_token(svc, user_id, secret, (int)platform, token, sizeof(token));
             miku_json_val_t *out = miku_json_create_object();
             if (rc == 0) {
-                set_int(out, "errCode", 0);
-                set_str(out, "errMsg", "");
-                set_str(out, "token", token);
-                set_int(out, "expireTimeSeconds", 86400);
+                miku_ji(out, "errCode", 0);
+                miku_jss(out, "errMsg", "");
+                miku_jss(out, "token", token);
+                miku_ji(out, "expireTimeSeconds", 86400);
             } else {
-                set_int(out, "errCode", 401);
-                set_str(out, "errMsg", "authentication failed");
+                miku_ji(out, "errCode", 401);
+                miku_jss(out, "errMsg", "authentication failed");
             }
             miku_string_t *s = miku_json_stringify(out);
             miku_rpc_message_set_payload(resp, s->data, s->len);

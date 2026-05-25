@@ -8,6 +8,7 @@
 #include "miku_service_config.h"
 #include "miku_graceful.h"
 #include "miku_stats.h"
+#include "miku_json_util.h"
 #include "miku_uuid.h"
 #include "miku_crc32.h"
 #include "miku_base64.h"
@@ -322,6 +323,20 @@ void test_stats_uptime(void) {
     mk_assert(up < 5000);
 }
 
+void test_json_util(void) {
+    miku_json_val_t *o = miku_json_create_object();
+    miku_ji(o, "code", 42);
+    miku_jss(o, "msg", "hello");
+    miku_jerr(o, 100, "bad request");
+
+    mk_assert_int_eq(42, miku_json_int(miku_json_get(o, "code")));
+    mk_assert_str_eq("hello", miku_json_str(miku_json_get(o, "msg")));
+    mk_assert_int_eq(100, miku_json_int(miku_json_get(o, "errCode")));
+    mk_assert_str_eq("bad request", miku_json_str(miku_json_get(o, "errMsg")));
+    mk_assert_str_eq("", miku_json_str(miku_json_get(o, "errDmg")));
+    miku_json_destroy(o);
+}
+
 int main(void) {
     printf("── Miku Foundation Tests ───────────────────\n\n");
 
@@ -344,6 +359,7 @@ int main(void) {
     mk_run_test(test_stats_basic);
     mk_run_test(test_stats_snapshot);
     mk_run_test(test_stats_uptime);
+    mk_run_test(test_json_util);
 
     run_runtime_tests();
     run_protocol_tests();

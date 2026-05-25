@@ -1,5 +1,6 @@
 #include "miku_msg.h"
 #include "miku_uuid.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -51,8 +52,6 @@ int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *cl
     return -2;
 }
 
-static void js(miku_json_val_t *o, const char *k, const char *v) { if (v) miku_json_object_set(o, k, miku_json_create_str(v)); }
-static void ji(miku_json_val_t *o, const char *k, int64_t v) { miku_json_object_set(o, k, miku_json_create_int(v)); }
 
 void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                           const miku_json_val_t *req, miku_json_val_t *resp) {
@@ -62,11 +61,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
         int rc = miku_msg_send(svc, &m);
-        ji(resp, "errCode", rc == 0 ? 0 : 500);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
         if (rc == 0) {
-            js(resp, "serverMsgID", m.server_msg_id);
-            ji(resp, "seq", m.seq);
-            ji(resp, "sendTime", m.send_time);
+            miku_jss(resp, "serverMsgID", m.server_msg_id);
+            miku_ji(resp, "seq", m.seq);
+            miku_ji(resp, "sendTime", m.send_time);
         }
     } else if (strcmp(method, "getMsgByConv") == 0) {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
@@ -75,7 +74,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 20;
         miku_msg_t list[64];
         int n = miku_msg_get_by_conv(svc, cid, start, end, (int)cnt, list, 64);
-        ji(resp, "errCode", 0);
+        miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_msg_to_json(&list[i]));
         miku_json_object_set(resp, "data", arr);
@@ -83,8 +82,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         int rc = miku_msg_revoke(svc, uid, cmid);
-        ji(resp, "errCode", rc == 0 ? 0 : 5001);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 5001);
     } else {
-        ji(resp, "errCode", 404);
+        miku_ji(resp, "errCode", 404);
     }
 }

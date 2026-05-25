@@ -1,5 +1,6 @@
 #include "miku_group.h"
 #include "miku_uuid.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -54,8 +55,6 @@ int miku_group_get_members(miku_group_service_t *svc, const char *group_id, miku
     return n;
 }
 
-static void js(miku_json_val_t *o, const char *k, const char *v) { if (v) miku_json_object_set(o, k, miku_json_create_str(v)); }
-static void ji(miku_json_val_t *o, const char *k, int64_t v) { miku_json_object_set(o, k, miku_json_create_int(v)); }
 
 void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
                             const miku_json_val_t *req, miku_json_val_t *resp) {
@@ -67,27 +66,27 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         if (name) strncpy(g.group_name, name, sizeof(g.group_name) - 1);
         int rc = miku_group_create(svc, &g, owner);
-        ji(resp, "errCode", rc == 0 ? 0 : 500);
-        if (rc == 0) js(resp, "data", g.group_id);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+        if (rc == 0) miku_jss(resp, "data", g.group_id);
     } else if (strcmp(method, "getGroupInfo") == 0) {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         miku_group_t *g = miku_group_find(svc, gid);
-        ji(resp, "errCode", g ? 0 : 3001);
+        miku_ji(resp, "errCode", g ? 0 : 3001);
         if (g) miku_json_object_set(resp, "data", miku_group_to_json(g));
     } else if (strcmp(method, "inviteToGroup") == 0) {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         int rc = miku_group_add_member(svc, gid, uid, 20);
-        ji(resp, "errCode", rc == 0 ? 0 : 3002);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
     } else if (strcmp(method, "getGroupMemberList") == 0) {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         miku_group_member_t list[256];
         int n = miku_group_get_members(svc, gid, list, 256);
-        ji(resp, "errCode", 0);
+        miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_group_member_to_json(&list[i]));
         miku_json_object_set(resp, "data", arr);
     } else {
-        ji(resp, "errCode", 404);
+        miku_ji(resp, "errCode", 404);
     }
 }

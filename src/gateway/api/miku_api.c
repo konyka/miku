@@ -1,6 +1,7 @@
 #include "miku_api.h"
 #include "miku_log.h"
 #include "miku_json.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -48,9 +49,6 @@ static miku_json_val_t *parse_body(miku_http_request_t *req) {
     return miku_json_create_object();
 }
 
-static void ji(miku_json_val_t *o, const char *k, int64_t v) { miku_json_object_set(o, k, miku_json_create_int(v)); }
-static void jss(miku_json_val_t *o, const char *k, const char *v) { if (v) miku_json_object_set(o, k, miku_json_create_str(v)); }
-
 static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     miku_json_val_t *j = parse_body(req);
@@ -62,12 +60,12 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
         int64_t plat = miku_json_int(miku_json_get(j, "platformID"));
         char token[512] = {0};
         int rc = miku_auth_user_token(c->auth, uid, secret, (int)plat, token, sizeof(token));
-        ji(out, "errCode", rc == 0 ? 0 : 401);
-        if (rc == 0) { jss(out, "token", token); ji(out, "expireTimeSeconds", 86400); }
+        miku_ji(out, "errCode", rc == 0 ? 0 : 401);
+        if (rc == 0) { miku_jss(out, "token", token); miku_ji(out, "expireTimeSeconds", 86400); }
     } else if (strstr(path, "force_logout")) {
-        ji(out, "errCode", 0);
+        miku_ji(out, "errCode", 0);
     } else {
-        ji(out, "errCode", 404);
+        miku_ji(out, "errCode", 404);
     }
     free(path);
     miku_json_destroy(j);
@@ -189,20 +187,20 @@ static void handle_admin(miku_http_request_t *req, miku_http_response_t *resp, v
     if (strstr(path, "stats")) {
         miku_stats_snapshot_t snap;
         miku_stats_snapshot(&c->stats, &snap);
-        ji(out, "errCode", 0);
-        ji(out, "requestsTotal", snap.requests_total);
-        ji(out, "requestsFailed", snap.requests_failed);
-        ji(out, "connectionsActive", snap.connections_active);
-        ji(out, "connectionsTotal", snap.connections_total);
-        ji(out, "bytesSent", snap.bytes_sent);
-        ji(out, "bytesRecv", snap.bytes_recv);
-        ji(out, "uptimeMs", snap.uptime_ms);
-        jss(out, "service", snap.service_name);
+        miku_ji(out, "errCode", 0);
+        miku_ji(out, "requestsTotal", snap.requests_total);
+        miku_ji(out, "requestsFailed", snap.requests_failed);
+        miku_ji(out, "connectionsActive", snap.connections_active);
+        miku_ji(out, "connectionsTotal", snap.connections_total);
+        miku_ji(out, "bytesSent", snap.bytes_sent);
+        miku_ji(out, "bytesRecv", snap.bytes_recv);
+        miku_ji(out, "uptimeMs", snap.uptime_ms);
+        miku_jss(out, "service", snap.service_name);
     } else if (strstr(path, "health")) {
-        ji(out, "status", 0);
-        jss(out, "message", "ok");
+        miku_ji(out, "status", 0);
+        miku_jss(out, "message", "ok");
     } else {
-        ji(out, "errCode", 404);
+        miku_ji(out, "errCode", 404);
     }
     free(path);
     json_resp(resp, out);
@@ -233,7 +231,7 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
                 miku_json_destroy(r);
             }
         }
-        ji(out, "errCode", 0);
+        miku_ji(out, "errCode", 0);
         miku_json_object_set(out, "data", arr);
     } else if (strstr(path, "delete_friend")) {
         miku_json_val_t *r = miku_json_create_object();
@@ -241,7 +239,7 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
         miku_json_object_set(out, "errCode", miku_json_get(r, "errCode"));
         miku_json_destroy(r);
     } else {
-        ji(out, "errCode", 404);
+        miku_ji(out, "errCode", 404);
     }
     free(path);
     miku_json_destroy(j);
