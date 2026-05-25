@@ -12,6 +12,11 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 
+#ifdef MIKU_ENABLE_TLS
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#endif
+
 #define MAX_ROUTES 256
 #define MAX_MIDDLEWARE 16
 #define READ_BUF   4096
@@ -39,6 +44,10 @@ struct miku_http_server_s {
     int64_t           *conn_last_active;
     int                conn_count;
     int                conn_cap;
+    bool               tls_enabled;
+#ifdef MIKU_ENABLE_TLS
+    SSL_CTX           *ssl_ctx;
+#endif
 };
 
 #define MIKU_DEFAULT_MAX_BODY (1 << 20)
@@ -97,10 +106,32 @@ static void conn_sweep_idle(miku_http_server_t *srv) {
 static void handle_client(int fd, int events, void *data) {
     (void)events;
     miku_http_server_t *srv = (miku_http_server_t *)data;
+
+#ifdef MIKU_ENABLE_TLS
+    SSL *ssl = NULL;
+    if (srv->ssl_ctx) {
+        ssl = SSL_new(srv->ssl_ctx);
+        if (!ssl) { close(fd); miku_io_del(srv->io, fd); return; }
+        SSL_set_fd(ssl, fd);
+        if (SSL_accept(ssl) <= 0) {
+            SSL_free(ssl);
+            close(fd); miku_io_del(srv->io, fd); return;
+        }
+    }
+#define MIKU_READ(buf, sz) (ssl ? SSL_read(ssl, buf, sz) : read(fd, buf, sz))
+#define MIKU_WRITE(buf, sz) (ssl ? SSL_write(ssl, buf, sz) : write(fd, buf, sz))
+#else
+#define MIKU_READ(buf, sz) read(fd, buf, sz)
+#define MIKU_WRITE(buf, sz) write(fd, buf, sz)
+#endif
+
     char buf[READ_BUF];
-    ssize_t nread = read(fd, buf, sizeof(buf) - 1);
+    ssize_t nread = MIKU_READ(buf, sizeof(buf) - 1);
     if (nread <= 0) {
         conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+        if (ssl) SSL_free(ssl);
+#endif
         if (srv->stats) miku_stats_conn_close(srv->stats);
         close(fd); miku_io_del(srv->io, fd); return;
     }
@@ -114,8 +145,11 @@ static void handle_client(int fd, int events, void *data) {
     if (parsed <= 0) {
         miku_http_request_destroy(req);
         const char *bad = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-        write(fd, bad, strlen(bad));
+        MIKU_WRITE(bad, strlen(bad));
         conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+        if (ssl) SSL_free(ssl);
+#endif
         close(fd);
         miku_io_del(srv->io, fd);
         return;
@@ -124,8 +158,11 @@ static void handle_client(int fd, int events, void *data) {
     if (srv->max_body > 0 && req->body.len > srv->max_body) {
         miku_http_request_destroy(req);
         const char *big = "HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-        write(fd, big, strlen(big));
+        MIKU_WRITE(big, strlen(big));
         conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+        if (ssl) SSL_free(ssl);
+#endif
         close(fd);
         miku_io_del(srv->io, fd);
         if (srv->stats) miku_stats_conn_close(srv->stats);
@@ -175,11 +212,15 @@ send_response_ka:
     if (!resp->headers) resp->headers = miku_hashmap_create(4, NULL);
     miku_hashmap_put(resp->headers, "Connection", strdup(wants_close ? "close" : "keep-alive"));
     miku_string_t *out = miku_http_response_serialize(resp);
-    write(fd, out->data, out->len);
+    MIKU_WRITE(out->data, out->len);
     if (srv->stats) miku_stats_bytes_sent(srv->stats, (int64_t)out->len);
     miku_str_destroy(out);
     miku_http_response_destroy(resp);
     miku_http_request_destroy(req);
+
+#ifdef MIKU_ENABLE_TLS
+    if (ssl) SSL_free(ssl);
+#endif
 
     if (wants_close) {
         conn_track_remove(srv, fd);
@@ -277,6 +318,9 @@ void miku_http_server_stop(miku_http_server_t *srv) {
 
 void miku_http_server_destroy(miku_http_server_t *srv) {
     if (!srv) return;
+#ifdef MIKU_ENABLE_TLS
+    if (srv->ssl_ctx) SSL_CTX_free(srv->ssl_ctx);
+#endif
     if (srv->listen_fd >= 0) close(srv->listen_fd);
     if (srv->io) miku_io_destroy(srv->io);
     free(srv->conn_fds);
@@ -294,4 +338,35 @@ void miku_http_server_set_max_body(miku_http_server_t *srv, size_t max_bytes) {
 
 void miku_http_server_set_idle_timeout(miku_http_server_t *srv, int seconds) {
     if (srv) srv->idle_timeout_sec = seconds;
+}
+
+void miku_http_server_set_tls(miku_http_server_t *srv, const char *cert_path, const char *key_path) {
+    if (!srv || !cert_path || !key_path) return;
+#ifdef MIKU_ENABLE_TLS
+    SSL_library_init();
+    SSL_load_error_strings();
+    OpenSSL_add_all_algorithms();
+    srv->ssl_ctx = SSL_CTX_new(TLS_server_method());
+    if (!srv->ssl_ctx) {
+        MK_LOG_ERROR("Failed to create SSL context");
+        return;
+    }
+    if (SSL_CTX_use_certificate_file(srv->ssl_ctx, cert_path, SSL_FILETYPE_PEM) <= 0) {
+        MK_LOG_ERROR("Failed to load certificate: %s", cert_path);
+        SSL_CTX_free(srv->ssl_ctx);
+        srv->ssl_ctx = NULL;
+        return;
+    }
+    if (SSL_CTX_use_PrivateKey_file(srv->ssl_ctx, key_path, SSL_FILETYPE_PEM) <= 0) {
+        MK_LOG_ERROR("Failed to load private key: %s", key_path);
+        SSL_CTX_free(srv->ssl_ctx);
+        srv->ssl_ctx = NULL;
+        return;
+    }
+    srv->tls_enabled = true;
+    MK_LOG_INFO("TLS enabled: cert=%s key=%s", cert_path, key_path);
+#else
+    (void)srv; (void)cert_path; (void)key_path;
+    MK_LOG_WARN("TLS not available (build with -DMIKU_ENABLE_TLS=ON)");
+#endif
 }

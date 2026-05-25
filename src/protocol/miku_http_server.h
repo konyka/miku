@@ -34,5 +34,6 @@ MIKU_API void miku_http_server_destroy(miku_http_server_t *srv);
 MIKU_API void miku_http_server_set_stats(miku_http_server_t *srv, miku_stats_t *stats);
 MIKU_API void miku_http_server_set_max_body(miku_http_server_t *srv, size_t max_bytes);
 MIKU_API void miku_http_server_set_idle_timeout(miku_http_server_t *srv, int seconds);
+MIKU_API void miku_http_server_set_tls(miku_http_server_t *srv, const char *cert_path, const char *key_path);
 
 #endif

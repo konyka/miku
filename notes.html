@@ -374,6 +374,19 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 20</span> <span class="tag tag-done">DONE</span></div>
+  <h3>TLS Support (OpenSSL)</h3>
+  <ul>
+    <li><strong>Optional TLS</strong>: <code>miku_http_server_set_tls(cert, key)</code> enables HTTPS via OpenSSL</li>
+    <li>Conditional compilation: <code>-DMIKU_ENABLE_TLS=ON</code> links OpenSSL, disabled by default</li>
+    <li>When enabled: SSL handshake on accept, SSL_read/SSL_write for all client I/O</li>
+    <li>When disabled: no-op, pure HTTP (current default build)</li>
+    <li>All SSL objects properly freed on connection close and server destroy</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -407,6 +420,7 @@
   <tr><td>17</td><td>Idle Timeout + Full RPC Dispatch</td><td><span class="tag tag-done">DONE</span></td><td>Connection sweeping, all 100 routes → RPC handlers</td></tr>
   <tr><td>18</td><td>Dockerfile + Makefile + Route Test</td><td><span class="tag tag-done">DONE</span></td><td>Multi-stage Docker, Makefile targets, 102-route validation</td></tr>
   <tr><td>19</td><td>GitHub Actions CI</td><td><span class="tag tag-done">DONE</span></td><td>Build + test + Docker validation on push/PR</td></tr>
+  <tr><td>20</td><td>TLS Support (OpenSSL)</td><td><span class="tag tag-done">DONE</span></td><td>Conditional TLS, miku_http_server_set_tls()</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
