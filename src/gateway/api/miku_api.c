@@ -292,6 +292,52 @@ static void handle_admin(miku_http_request_t *req, miku_http_response_t *resp, v
     json_resp(resp, out);
 }
 
+static void handle_metrics(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)req;
+    miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
+    miku_stats_snapshot_t snap;
+    miku_stats_snapshot(&c->stats, &snap);
+
+    char buf[2048];
+    int n = snprintf(buf, sizeof(buf),
+        "# HELP miku_requests_total Total requests processed\n"
+        "# TYPE miku_requests_total counter\n"
+        "miku_requests_total %lld\n"
+        "# HELP miku_requests_failed Total failed requests\n"
+        "# TYPE miku_requests_failed counter\n"
+        "miku_requests_failed %lld\n"
+        "# HELP miku_connections_active Currently active connections\n"
+        "# TYPE miku_connections_active gauge\n"
+        "miku_connections_active %lld\n"
+        "# HELP miku_connections_total Total connections opened\n"
+        "# TYPE miku_connections_total counter\n"
+        "miku_connections_total %lld\n"
+        "# HELP miku_bytes_sent Total bytes sent\n"
+        "# TYPE miku_bytes_sent counter\n"
+        "miku_bytes_sent %lld\n"
+        "# HELP miku_bytes_recv Total bytes received\n"
+        "# TYPE miku_bytes_recv counter\n"
+        "miku_bytes_recv %lld\n"
+        "# HELP miku_uptime_ms Service uptime in milliseconds\n"
+        "# TYPE miku_uptime_ms gauge\n"
+        "miku_uptime_ms %lld\n",
+        (long long)snap.requests_total,
+        (long long)snap.requests_failed,
+        (long long)snap.connections_active,
+        (long long)snap.connections_total,
+        (long long)snap.bytes_sent,
+        (long long)snap.bytes_recv,
+        (long long)snap.uptime_ms);
+
+    resp->status = 200;
+    if (!resp->headers) resp->headers = miku_hashmap_create(4, free);
+    miku_hashmap_put(resp->headers, "Content-Type", strdup("text/plain; version=0.0.4"));
+    if (resp->body) { miku_str_destroy(resp->body); resp->body = NULL; }
+    miku_string_t *body = miku_str_create_empty((size_t)n + 1);
+    miku_str_cat_len(body, buf, (size_t)n);
+    resp->body = body;
+}
+
 static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     miku_json_val_t *j = parse_body(req);
@@ -461,6 +507,7 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     /* Admin — 3 routes + version */
     miku_http_server_route(srv, "POST", "/admin/stats",     handle_admin, ctx);
     miku_http_server_route(srv, "GET",  "/admin/health",    handle_admin, ctx);
+    miku_http_server_route(srv, "GET",  "/admin/metrics",   handle_metrics, ctx);
     miku_http_server_route(srv, "POST", "/admin/shutdown",  handle_admin, ctx);
     miku_http_server_route(srv, "GET",  "/version",         handle_version, ctx);
 

@@ -387,6 +387,18 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 21</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Log Rotation + Prometheus Metrics</h3>
+  <ul>
+    <li><strong>Log rotation</strong>: <code>miku_log_set_rotation(max_bytes, max_files)</code> — size-based rotation with file renaming (default 10MB × 5 files)</li>
+    <li><strong>Prometheus metrics</strong>: <code>GET /admin/metrics</code> — standard Prometheus text format with 7 gauges/counters</li>
+    <li>Metrics exposed: requests_total, requests_failed, connections_active/total, bytes_sent/recv, uptime_ms</li>
+    <li>103 registered routes (was 102)</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -421,6 +433,7 @@
   <tr><td>18</td><td>Dockerfile + Makefile + Route Test</td><td><span class="tag tag-done">DONE</span></td><td>Multi-stage Docker, Makefile targets, 102-route validation</td></tr>
   <tr><td>19</td><td>GitHub Actions CI</td><td><span class="tag tag-done">DONE</span></td><td>Build + test + Docker validation on push/PR</td></tr>
   <tr><td>20</td><td>TLS Support (OpenSSL)</td><td><span class="tag tag-done">DONE</span></td><td>Conditional TLS, miku_http_server_set_tls()</td></tr>
+  <tr><td>21</td><td>Log Rotation + Prometheus Metrics</td><td><span class="tag tag-done">DONE</span></td><td>Size-based log rotation, GET /admin/metrics</td></tr>
 </table>
 
 <h2>Module Inventory</h2>

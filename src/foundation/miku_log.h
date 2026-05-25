@@ -17,6 +17,7 @@ MIKU_API void miku_log_write(int level, const char *file, int line,
                               const char *fmt, ...) MIKU_FORMAT(4, 5);
 MIKU_API void miku_log_shutdown(void);
 MIKU_API void miku_log_set_level(int level);
+MIKU_API void miku_log_set_rotation(size_t max_bytes, int max_files);
 
 #define MK_LOG_TRACE(fmt, ...) miku_log_write(MK_LOG_TRACE, __FILE__, __LINE__, fmt, ##__VA_ARGS__)
 #define MK_LOG_DEBUG(fmt, ...) miku_log_write(MK_LOG_DEBUG, __FILE__, __LINE__, fmt, ##__VA_ARGS__)

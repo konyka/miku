@@ -950,13 +950,14 @@ void test_api_all_100_routes(void) {
         "POST /admin/stats",
         "POST /admin/shutdown",
         "GET  /admin/health",
+        "GET  /admin/metrics",
         "GET  /version",
         NULL
     };
 
     int expected = 0;
     for (int i = 0; routes[i]; i++) expected++;
-    mk_assert_int_eq(102, expected);
+    mk_assert_int_eq(103, expected);
 
     miku_http_server_destroy(srv);
     miku_api_ctx_destroy(ctx);
