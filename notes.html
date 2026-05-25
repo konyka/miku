@@ -428,7 +428,18 @@
   </ul>
 </div>
 
-<h2>Overall Progress</h2>
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 24</span> <span class="tag tag-done">DONE</span></div>
+  <h3>OpenAPI 3.0 Specification</h3>
+  <ul>
+    <li><strong>docs/openapi.yaml</strong>: Complete OpenAPI 3.0.3 specification — 3037 lines, 103 routes, 9 tags</li>
+    <li>Tags: Auth (5), User (16), Friend (15), Group (22), Message (16), Conversation (13), Third (9), Batch (2), Admin (4)</li>
+    <li>Reusable schemas: ErrorResponse, UserInfo, FriendInfo, GroupInfo, GroupMemberInfo, MsgData, ConversationInfo, Pagination</li>
+    <li>Security scheme: apiKey in header (<code>token</code>) — matches Miku auth middleware</li>
+    <li>Unauthenticated endpoints: /auth/user_token, /auth/admin_token, /admin/health, /admin/metrics, /version</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries; 103 routes</li>
+  </ul>
+</div>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
 <p style="color:#8b949e; margin-top:0.5rem;">100% complete — all phases done, production-ready IM server in pure C</p>
@@ -465,6 +476,7 @@
   <tr><td>21</td><td>Log Rotation + Prometheus Metrics</td><td><span class="tag tag-done">DONE</span></td><td>Size-based log rotation, GET /admin/metrics</td></tr>
   <tr><td>22</td><td>ARCHITECTURE.md Rewrite + Benchmark Script</td><td><span class="tag tag-done">DONE</span></td><td>Full doc rewrite (13 sections), scripts/bench.sh</td></tr>
   <tr><td>23</td><td>Production Deployment Artifacts</td><td><span class="tag tag-done">DONE</span></td><td>systemd, docker-compose, k8s manifests, config example, Dockerfile update</td></tr>
+  <tr><td>24</td><td>OpenAPI 3.0 Specification</td><td><span class="tag tag-done">DONE</span></td><td>docs/openapi.yaml (3037 lines, 103 routes, 9 tags)</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -550,6 +562,7 @@
 <h2>Git Log</h2>
 
 <pre>
+TBD     docs: OpenAPI 3.0 spec (3037 lines, 103 routes, 9 tags)
 TBD     feat: production deployment (systemd, docker-compose, k8s, config example, Dockerfile update)
 d0fbdee docs: ARCHITECTURE.md rewrite (13 sections, phases 0-21), scripts/bench.sh
 3449f17 feat: log rotation, Prometheus metrics endpoint
