@@ -34,9 +34,65 @@ struct miku_http_server_s {
     miku_stats_t      *stats;
     size_t             max_body;
     bool               keep_alive;
+    int                idle_timeout_sec;
+    int               *conn_fds;
+    int64_t           *conn_last_active;
+    int                conn_count;
+    int                conn_cap;
 };
 
 #define MIKU_DEFAULT_MAX_BODY (1 << 20)
+#define MIKU_INITIAL_CONN_CAP 64
+
+static void conn_track_add(miku_http_server_t *srv, int fd) {
+    if (srv->conn_count >= srv->conn_cap) {
+        int newcap = srv->conn_cap * 2;
+        srv->conn_fds = realloc(srv->conn_fds, newcap * sizeof(int));
+        srv->conn_last_active = realloc(srv->conn_last_active, newcap * sizeof(int64_t));
+        srv->conn_cap = newcap;
+    }
+    srv->conn_fds[srv->conn_count] = fd;
+    srv->conn_last_active[srv->conn_count] = miku_timestamp_ms();
+    srv->conn_count++;
+}
+
+static void conn_track_remove(miku_http_server_t *srv, int fd) {
+    for (int i = 0; i < srv->conn_count; i++) {
+        if (srv->conn_fds[i] == fd) {
+            srv->conn_fds[i] = srv->conn_fds[srv->conn_count - 1];
+            srv->conn_last_active[i] = srv->conn_last_active[srv->conn_count - 1];
+            srv->conn_count--;
+            return;
+        }
+    }
+}
+
+static void conn_track_touch(miku_http_server_t *srv, int fd) {
+    for (int i = 0; i < srv->conn_count; i++) {
+        if (srv->conn_fds[i] == fd) {
+            srv->conn_last_active[i] = miku_timestamp_ms();
+            return;
+        }
+    }
+    conn_track_add(srv, fd);
+}
+
+static void conn_sweep_idle(miku_http_server_t *srv) {
+    if (srv->idle_timeout_sec <= 0) return;
+    int64_t now = miku_timestamp_ms();
+    int64_t timeout_ms = (int64_t)srv->idle_timeout_sec * 1000;
+    for (int i = srv->conn_count - 1; i >= 0; i--) {
+        if ((now - srv->conn_last_active[i]) > timeout_ms) {
+            int fd = srv->conn_fds[i];
+            close(fd);
+            miku_io_del(srv->io, fd);
+            if (srv->stats) miku_stats_conn_close(srv->stats);
+            srv->conn_fds[i] = srv->conn_fds[srv->conn_count - 1];
+            srv->conn_last_active[i] = srv->conn_last_active[srv->conn_count - 1];
+            srv->conn_count--;
+        }
+    }
+}
 
 static void handle_client(int fd, int events, void *data) {
     (void)events;
@@ -44,9 +100,11 @@ static void handle_client(int fd, int events, void *data) {
     char buf[READ_BUF];
     ssize_t nread = read(fd, buf, sizeof(buf) - 1);
     if (nread <= 0) {
+        conn_track_remove(srv, fd);
         if (srv->stats) miku_stats_conn_close(srv->stats);
         close(fd); miku_io_del(srv->io, fd); return;
     }
+    conn_track_touch(srv, fd);
     size_t n = (size_t)nread;
     buf[n] = '\0';
     if (srv->stats) miku_stats_bytes_recv(srv->stats, (int64_t)n);
@@ -57,6 +115,7 @@ static void handle_client(int fd, int events, void *data) {
         miku_http_request_destroy(req);
         const char *bad = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
         write(fd, bad, strlen(bad));
+        conn_track_remove(srv, fd);
         close(fd);
         miku_io_del(srv->io, fd);
         return;
@@ -66,6 +125,7 @@ static void handle_client(int fd, int events, void *data) {
         miku_http_request_destroy(req);
         const char *big = "HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
         write(fd, big, strlen(big));
+        conn_track_remove(srv, fd);
         close(fd);
         miku_io_del(srv->io, fd);
         if (srv->stats) miku_stats_conn_close(srv->stats);
@@ -122,6 +182,7 @@ send_response_ka:
     miku_http_request_destroy(req);
 
     if (wants_close) {
+        conn_track_remove(srv, fd);
         if (srv->stats) miku_stats_conn_close(srv->stats);
         close(fd);
         miku_io_del(srv->io, fd);
@@ -137,6 +198,7 @@ static void accept_conn(int fd, int events, void *data) {
     if (client_fd < 0) return;
     miku_set_nonblocking(client_fd);
     if (srv->stats) miku_stats_conn_open(srv->stats);
+    conn_track_add(srv, client_fd);
     miku_io_add(srv->io, client_fd, MK_IO_READ, handle_client, srv);
 }
 
@@ -148,6 +210,11 @@ miku_http_server_t *miku_http_server_create(const char *host, int port) {
     srv->io = miku_io_create();
     srv->max_body = MIKU_DEFAULT_MAX_BODY;
     srv->keep_alive = true;
+    srv->idle_timeout_sec = 30;
+    srv->conn_cap = MIKU_INITIAL_CONN_CAP;
+    srv->conn_fds = malloc(MIKU_INITIAL_CONN_CAP * sizeof(int));
+    srv->conn_last_active = malloc(MIKU_INITIAL_CONN_CAP * sizeof(int64_t));
+    srv->conn_count = 0;
     return srv;
 }
 
@@ -199,6 +266,7 @@ int miku_http_server_start(miku_http_server_t *srv) {
 
     while (srv->running) {
         miku_io_poll(srv->io, 100);
+        conn_sweep_idle(srv);
     }
     return 0;
 }
@@ -211,6 +279,8 @@ void miku_http_server_destroy(miku_http_server_t *srv) {
     if (!srv) return;
     if (srv->listen_fd >= 0) close(srv->listen_fd);
     if (srv->io) miku_io_destroy(srv->io);
+    free(srv->conn_fds);
+    free(srv->conn_last_active);
     free(srv);
 }
 
@@ -220,4 +290,8 @@ void miku_http_server_set_stats(miku_http_server_t *srv, miku_stats_t *stats) {
 
 void miku_http_server_set_max_body(miku_http_server_t *srv, size_t max_bytes) {
     if (srv) srv->max_body = max_bytes;
+}
+
+void miku_http_server_set_idle_timeout(miku_http_server_t *srv, int seconds) {
+    if (srv) srv->idle_timeout_sec = seconds;
 }

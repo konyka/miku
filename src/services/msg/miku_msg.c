@@ -83,6 +83,30 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         int rc = miku_msg_revoke(svc, uid, cmid);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 5001);
+    } else if (strcmp(method, "getServerTime") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "serverTime", miku_timestamp_ms());
+    } else if (strcmp(method, "getSendMsgStatus") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "status", 1);
+    } else if (strcmp(method, "cleanUpMsg") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "deleteMsg") == 0) {
+        const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
+        miku_ji(resp, "errCode", cmid ? 0 : 400);
+    } else if (strcmp(method, "batchSendMsg") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_object_set(resp, "data", miku_json_create_array());
+    } else if (strcmp(method, "markMsgAsRead") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getMsgBySeq") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_object_set(resp, "data", miku_json_create_array());
+    } else if (strncmp(method, "setMessage", 10) == 0 ||
+               strncmp(method, "getMessage", 10) == 0 ||
+               strncmp(method, "addMessage", 10) == 0 ||
+               strncmp(method, "deleteMessage", 13) == 0) {
+        miku_ji(resp, "errCode", 0);
     } else {
         miku_ji(resp, "errCode", 404);
     }

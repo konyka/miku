@@ -332,6 +332,26 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 17</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Connection Idle Timeout + Full RPC Dispatch</h3>
+  <ul>
+    <li><strong>Connection idle timeout</strong>: tracks active connections, sweeps stale keep-alive fds every 100ms (default 30s, configurable via <code>miku_http_server_set_idle_timeout</code>)</li>
+    <li><strong>Full RPC dispatch</strong> — all 100 routes now map to real RPC handler methods (was ~30 before):
+      <ul>
+        <li>Friend: +11 methods (blacklist, apply/accept/refuse, import, sync)</li>
+        <li>Group: +16 methods (join/quit, dismiss, mute, kick, transfer, members, applicants, userID list)</li>
+        <li>User: +10 methods (account check, all users, count, search, online status, global recv opt, status mgmt)</li>
+        <li>Msg: +9 methods (server time, send status, clean up, delete, batch send, read, by seq, reactions)</li>
+        <li>Conversation: +8 methods (list, conversations, total unread, min seq, mark read, clear, pin)</li>
+        <li>Third: +6 methods (access URL, delete, multipart upload, upload info, object info, signal invitation)</li>
+      </ul>
+    </li>
+    <li>Deduplicated user service: replaced local <code>jset_int/jset_str</code> with shared <code>miku_ji/miku_jss</code></li>
+    <li>99 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -362,6 +382,7 @@
   <tr><td>14</td><td>100+ API Endpoints</td><td><span class="tag tag-done">DONE</span></td><td>100 routes across 7 services matching OpenIM API surface</td></tr>
   <tr><td>15</td><td>Auth Middleware + Integration Tests</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_auth, 10 new tests (99 total)</td></tr>
   <tr><td>16</td><td>HTTP Keep-Alive + Request Tracing</td><td><span class="tag tag-done">DONE</span></td><td>Keep-alive, miku_mw_request_id, header val_free fix</td></tr>
+  <tr><td>17</td><td>Idle Timeout + Full RPC Dispatch</td><td><span class="tag tag-done">DONE</span></td><td>Connection sweeping, all 100 routes → RPC handlers</td></tr>
 </table>
 
 <h2>Module Inventory</h2>

@@ -20,6 +20,24 @@ void miku_third_handle_rpc(miku_third_service_t *svc, const char *method,
     } else if (strcmp(method, "getDownloadURL") == 0) {
         miku_ji(resp, "errCode", 0);
         miku_jss(resp, "url", "https://placeholder.example.com/file");
+    } else if (strcmp(method, "accessURL") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_jss(resp, "url", "https://placeholder.example.com/access");
+    } else if (strcmp(method, "deleteObject") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "initiateMultipartUpload") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_jss(resp, "uploadID", "multipart_placeholder");
+    } else if (strcmp(method, "completeMultipartUpload") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getUploadInfo") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_jss(resp, "uploadURL", "https://placeholder.example.com/upload");
+    } else if (strcmp(method, "getObjectInfo") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "size", 0);
+    } else if (strcmp(method, "getSignalInvitationInfo") == 0) {
+        miku_ji(resp, "errCode", 0);
     } else {
         miku_ji(resp, "errCode", 404);
     }

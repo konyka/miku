@@ -96,6 +96,55 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         const char *u2 = req ? miku_json_str(miku_json_get(req, "userID2")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "isFriend", miku_friend_is_friend(svc, u1, u2) ? 1 : 0);
+    } else if (strcmp(method, "addBlack") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        miku_ji(resp, "errCode", (owner && uid) ? 0 : 400);
+    } else if (strcmp(method, "removeBlack") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        miku_ji(resp, "errCode", (owner && uid) ? 0 : 400);
+    } else if (strcmp(method, "getBlackList") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_object_set(resp, "data", miku_json_create_array());
+    } else if (strcmp(method, "getFriendApplyList") == 0 ||
+               strcmp(method, "getSelfApplyList") == 0 ||
+               strcmp(method, "getDesignatedFriendApply") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_object_set(resp, "data", miku_json_create_array());
+    } else if (strcmp(method, "acceptFriendApply") == 0 ||
+               strcmp(method, "refuseFriendApply") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *fuid = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (strcmp(method, "acceptFriendApply") == 0 && owner && fuid) {
+            miku_friend_add(svc, owner, fuid, NULL);
+        }
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "importFriend") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        miku_json_val_t *fl = req ? miku_json_get(req, "friendList") : NULL;
+        int imported = 0;
+        if (owner && fl && miku_json_type(fl) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(fl);
+            for (size_t i = 0; i < n; i++) {
+                const char *fuid = miku_json_str(miku_json_at(fl, i));
+                if (fuid && miku_friend_add(svc, owner, fuid, NULL) == 0) imported++;
+            }
+        }
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "imported", imported);
+    } else if (strcmp(method, "syncFriend") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        miku_friend_t list[256];
+        int n = miku_friend_get_list(svc, owner, list, 256);
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        for (int i = 0; i < n; i++) {
+            miku_json_val_t *fj = miku_json_create_object();
+            miku_jss(fj, "friendUserID", list[i].friend_user_id);
+            miku_json_array_push(arr, fj);
+        }
+        miku_json_object_set(resp, "data", arr);
     } else {
         miku_ji(resp, "errCode", 404);
     }

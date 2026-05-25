@@ -86,6 +86,65 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_group_member_to_json(&list[i]));
         miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getGroupsInfo") == 0) {
+        miku_json_val_t *ids = req ? miku_json_get(req, "groupIDList") : NULL;
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(ids);
+            for (size_t i = 0; i < n; i++) {
+                const char *gid = miku_json_str(miku_json_at(ids, i));
+                miku_group_t *g = miku_group_find(svc, gid);
+                if (g) miku_json_array_push(arr, miku_group_to_json(g));
+            }
+        }
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "setGroupInfo") == 0) {
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        miku_group_t *g = miku_group_find(svc, gid);
+        if (g) {
+            const char *name = req ? miku_json_str(miku_json_get(req, "groupName")) : NULL;
+            if (name) strncpy(g->group_name, name, sizeof(g->group_name) - 1);
+        }
+        miku_ji(resp, "errCode", g ? 0 : 3001);
+    } else if (strcmp(method, "setGroupMemberInfo") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "joinGroup") == 0) {
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        int rc = miku_group_add_member(svc, gid, uid, 20);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
+    } else if (strcmp(method, "quitGroup") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "dismissGroup") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "muteGroup") == 0 || strcmp(method, "cancelMuteGroup") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "kickGroupMember") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "transferGroupOwner") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getJoinedGroupList") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_object_set(resp, "data", miku_json_create_array());
+    } else if (strcmp(method, "getGroupApplicationList") == 0 ||
+               strcmp(method, "getGroupApplicantList") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_object_set(resp, "data", miku_json_create_array());
+    } else if (strcmp(method, "acceptGroupApplication") == 0 ||
+               strcmp(method, "refuseGroupApplication") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getGroupMemberUserID") == 0) {
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        miku_group_member_t list[256];
+        int n = miku_group_get_members(svc, gid, list, 256);
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_json_create_str(list[i].user_id));
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "muteGroupMember") == 0 ||
+               strcmp(method, "cancelMuteGroupMember") == 0) {
+        miku_ji(resp, "errCode", 0);
     } else {
         miku_ji(resp, "errCode", 404);
     }

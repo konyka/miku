@@ -1,5 +1,6 @@
 #include "miku_user.h"
 #include "miku_log.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -59,13 +60,6 @@ int miku_user_count(miku_user_service_t *svc) {
     return svc ? svc->count : 0;
 }
 
-static void jset_str(miku_json_val_t *obj, const char *key, const char *val) {
-    if (val) miku_json_object_set(obj, key, miku_json_create_str(val));
-}
-static void jset_int(miku_json_val_t *obj, const char *key, int64_t val) {
-    miku_json_object_set(obj, key, miku_json_create_int(val));
-}
-
 void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
                            const miku_json_val_t *req_json,
                            miku_json_val_t *resp_json) {
@@ -76,14 +70,14 @@ void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
         memset(&u, 0, sizeof(u));
         miku_user_from_json(req_json, &u);
         int rc = miku_user_register(svc, &u);
-        jset_int(resp_json, "errCode", rc == 0 ? 0 : (rc == -2 ? 1002 : 500));
-        jset_str(resp_json, "errMsg", rc == 0 ? "" : (rc == -2 ? "user exists" : "register failed"));
+        miku_ji(resp_json, "errCode", rc == 0 ? 0 : (rc == -2 ? 1002 : 500));
+        miku_jss(resp_json, "errMsg", rc == 0 ? "" : (rc == -2 ? "user exists" : "register failed"));
 
     } else if (strcmp(method, "getUserInfo") == 0) {
         miku_json_val_t *uid_v = req_json ? miku_json_get(req_json, "userID") : NULL;
         const char *uid = uid_v ? miku_json_str(uid_v) : NULL;
         miku_user_t *u = uid ? miku_user_find(svc, uid) : NULL;
-        jset_int(resp_json, "errCode", u ? 0 : 1001);
+        miku_ji(resp_json, "errCode", u ? 0 : 1001);
         if (u) {
             miku_json_val_t *uj = miku_user_to_json(u);
             miku_json_object_set(resp_json, "data", uj);
@@ -94,11 +88,11 @@ void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
         memset(&u, 0, sizeof(u));
         miku_user_from_json(req_json, &u);
         int rc = miku_user_update(svc, &u);
-        jset_int(resp_json, "errCode", rc == 0 ? 0 : 1001);
+        miku_ji(resp_json, "errCode", rc == 0 ? 0 : 1001);
 
     } else if (strcmp(method, "getUsersInfo") == 0) {
         miku_json_val_t *arr = req_json ? miku_json_get(req_json, "userIDList") : NULL;
-        jset_int(resp_json, "errCode", 0);
+        miku_ji(resp_json, "errCode", 0);
         miku_json_val_t *result = miku_json_create_array();
         if (arr && miku_json_type(arr) == MK_JSON_ARRAY) {
             size_t n = miku_json_size(arr);
@@ -111,8 +105,51 @@ void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
         }
         miku_json_object_set(resp_json, "data", result);
 
+    } else if (strcmp(method, "accountCheck") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_object_set(resp_json, "data", miku_json_create_array());
+
+    } else if (strcmp(method, "getAllUsers") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        for (int i = 0; i < svc->count; i++)
+            miku_json_array_push(arr, miku_user_to_json(&svc->users[i]));
+        miku_json_object_set(resp_json, "data", arr);
+
+    } else if (strcmp(method, "getUserCount") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+        miku_ji(resp_json, "count", svc->count);
+
+    } else if (strcmp(method, "searchUser") == 0) {
+        const char *kw = req_json ? miku_json_str(miku_json_get(req_json, "keyword")) : NULL;
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        if (kw) {
+            for (int i = 0; i < svc->count; i++) {
+                if (strstr(svc->users[i].nickname, kw) ||
+                    strstr(svc->users[i].user_id, kw))
+                    miku_json_array_push(arr, miku_user_to_json(&svc->users[i]));
+            }
+        }
+        miku_json_object_set(resp_json, "data", arr);
+
+    } else if (strcmp(method, "getUsersOnlineStatus") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_object_set(resp_json, "data", miku_json_create_array());
+
+    } else if (strcmp(method, "setGlobalRecvMessageOpt") == 0 ||
+               strcmp(method, "getGlobalRecvMessageOpt") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+
+    } else if (strcmp(method, "updateUserStatus") == 0 ||
+               strcmp(method, "getUserStatus") == 0 ||
+               strcmp(method, "setUserStatus") == 0 ||
+               strcmp(method, "getSubscribeUsersStatus") == 0 ||
+               strcmp(method, "subscribeOrCancelUserStatus") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+
     } else {
-        jset_int(resp_json, "errCode", 404);
-        jset_str(resp_json, "errMsg", "method not found");
+        miku_ji(resp_json, "errCode", 404);
+        miku_jss(resp_json, "errMsg", "method not found");
     }
 }

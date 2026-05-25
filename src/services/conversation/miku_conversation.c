@@ -77,6 +77,34 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         int rc = miku_conv_update(svc, &c);
         if (rc == -2) rc = miku_conv_create(svc, &c);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+    } else if (strcmp(method, "setConversations") == 0) {
+        miku_conversation_t c;
+        memset(&c, 0, sizeof(c));
+        miku_conversation_from_json(req, &c);
+        miku_conv_update(svc, &c);
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "deleteConversation") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getConversationList") == 0 ||
+               strcmp(method, "getConversations") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        miku_conversation_t list[256];
+        int n = miku_conv_get_all(svc, owner, list, 256);
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_conversation_to_json(&list[i]));
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getTotalUnreadMsgCount") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "count", 0);
+    } else if (strcmp(method, "setConversationMinSeq") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "markConversationMessageAsRead") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "clearConversationMsg") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "pinConversation") == 0) {
+        miku_ji(resp, "errCode", 0);
     } else {
         miku_ji(resp, "errCode", 404);
     }
