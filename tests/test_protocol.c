@@ -6,6 +6,10 @@
 #include "miku_rpc.h"
 #include "miku_pb.h"
 #include "miku_sha1.h"
+#include "miku_middleware.h"
+#include "miku_api.h"
+#include "miku_version.h"
+#include "miku_auth.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -612,6 +616,17 @@ void test_pb_fixed_roundtrip(void) {
     miku_pb_buf_destroy(buf);
 }
 
+void test_mw_auth_skips_auth_paths(void);
+void test_mw_auth_skips_health_and_version(void);
+void test_mw_auth_rejects_no_token(void);
+void test_mw_auth_rejects_bad_token(void);
+void test_mw_auth_accepts_valid_token(void);
+void test_api_routes_all_registered(void);
+void test_api_route_handler_responds(void);
+void test_api_auth_login(void);
+void test_api_version(void);
+void test_api_health(void);
+
 void run_protocol_tests(void) {
     printf("── Miku Protocol Tests ───────────────────\n\n");
 
@@ -645,4 +660,180 @@ void run_protocol_tests(void) {
     mk_run_test(test_pb_varint_roundtrip);
     mk_run_test(test_pb_svarint_roundtrip);
     mk_run_test(test_pb_fixed_roundtrip);
+
+    printf("\n");
+    mk_run_test(test_mw_auth_skips_auth_paths);
+    mk_run_test(test_mw_auth_skips_health_and_version);
+    mk_run_test(test_mw_auth_rejects_no_token);
+    mk_run_test(test_mw_auth_rejects_bad_token);
+    mk_run_test(test_mw_auth_accepts_valid_token);
+    mk_run_test(test_api_routes_all_registered);
+    mk_run_test(test_api_route_handler_responds);
+    mk_run_test(test_api_auth_login);
+    mk_run_test(test_api_version);
+    mk_run_test(test_api_health);
+}
+
+static miku_http_request_t *make_req(const char *method, const char *path, const char *body) {
+    char buf[4096];
+    int len;
+    if (body) {
+        len = snprintf(buf, sizeof(buf), "%s %s HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s", method, path, strlen(body), body);
+    } else {
+        len = snprintf(buf, sizeof(buf), "%s %s HTTP/1.1\r\n\r\n", method, path);
+    }
+    miku_http_request_t *req = miku_http_request_create();
+    miku_http_request_parse(req, buf, (size_t)len);
+    return req;
+}
+
+static miku_http_request_t *make_req_with_token(const char *method, const char *path, const char *body, const char *token) {
+    char buf[4096];
+    int len;
+    if (body) {
+        len = snprintf(buf, sizeof(buf), "%s %s HTTP/1.1\r\nContent-Type: application/json\r\ntoken: %s\r\nContent-Length: %zu\r\n\r\n%s", method, path, token, strlen(body), body);
+    } else {
+        len = snprintf(buf, sizeof(buf), "%s %s HTTP/1.1\r\ntoken: %s\r\n\r\n", method, path, token);
+    }
+    miku_http_request_t *req = miku_http_request_create();
+    miku_http_request_parse(req, buf, (size_t)len);
+    return req;
+}
+
+void test_mw_auth_skips_auth_paths(void) {
+    miku_auth_mw_cfg_t cfg = { .secret = "openIM123", .enabled = 1 };
+    miku_http_response_t *resp = miku_http_response_create();
+
+    miku_http_request_t *req = make_req("POST", "/auth/user_token", "{}");
+    mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_auth(req, resp, &cfg));
+    miku_http_request_destroy(req);
+
+    req = make_req("POST", "/auth/force_logout", "{}");
+    mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_auth(req, resp, &cfg));
+    miku_http_request_destroy(req);
+
+    miku_http_response_destroy(resp);
+}
+
+void test_mw_auth_skips_health_and_version(void) {
+    miku_auth_mw_cfg_t cfg = { .secret = "openIM123", .enabled = 1 };
+    miku_http_response_t *resp = miku_http_response_create();
+
+    miku_http_request_t *req = make_req("GET", "/admin/health", NULL);
+    mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_auth(req, resp, &cfg));
+    miku_http_request_destroy(req);
+
+    req = make_req("GET", "/version", NULL);
+    mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_auth(req, resp, &cfg));
+    miku_http_request_destroy(req);
+
+    miku_http_response_destroy(resp);
+}
+
+void test_mw_auth_rejects_no_token(void) {
+    miku_auth_mw_cfg_t cfg = { .secret = "openIM123", .enabled = 1 };
+    miku_http_response_t *resp = miku_http_response_create();
+
+    miku_http_request_t *req = make_req("POST", "/user/register", "{}");
+    mk_assert_int_eq((int)MK_MW_STOP, (int)miku_mw_auth(req, resp, &cfg));
+    mk_assert_int_eq(401, resp->status);
+    miku_http_request_destroy(req);
+    miku_http_response_destroy(resp);
+}
+
+void test_mw_auth_rejects_bad_token(void) {
+    miku_auth_mw_cfg_t cfg = { .secret = "openIM123", .enabled = 1 };
+    miku_http_response_t *resp = miku_http_response_create();
+
+    miku_http_request_t *req = make_req_with_token("POST", "/user/register", "{}", "bad_token");
+    mk_assert_int_eq((int)MK_MW_STOP, (int)miku_mw_auth(req, resp, &cfg));
+    mk_assert_int_eq(401, resp->status);
+    miku_http_request_destroy(req);
+    miku_http_response_destroy(resp);
+}
+
+void test_mw_auth_accepts_valid_token(void) {
+    miku_auth_mw_cfg_t cfg = { .secret = "openIM123", .enabled = 1 };
+    miku_http_response_t *resp = miku_http_response_create();
+
+    miku_http_request_t *req = make_req_with_token("POST", "/user/register", "{}", "miku_testuser_uuid123_1");
+    mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_auth(req, resp, &cfg));
+    miku_http_request_destroy(req);
+    miku_http_response_destroy(resp);
+}
+
+void test_api_routes_all_registered(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 0);
+    mk_assert_not_null(srv);
+    int rc = miku_api_register_routes(srv, ctx);
+    mk_assert_int_eq(0, rc);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+void test_api_route_handler_responds(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+
+    static const char *paths[] = {
+        "/friend/add", "/friend/delete", "/friend/get_friend_list",
+        "/friend/is_friend", "/friend/add_black", "/friend/remove_black",
+        "/friend/get_black_list", "/group/create", "/group/join",
+        "/group/quit", "/group/dismiss", "/group/mute",
+        "/conversation/get_all", "/conversation/get_conv", "/conversation/set",
+        "/msg/send", "/msg/get", "/msg/revoke",
+        "/third/upload_token", "/third/download_url",
+        NULL
+    };
+
+    for (int i = 0; paths[i]; i++) {
+        miku_http_request_t *req = make_req_with_token("POST", paths[i], "{}", "miku_user_abc_1");
+        miku_http_response_t *resp = miku_http_response_create();
+
+        miku_friend_handle_rpc(ctx->friend_svc, "getFriendList",
+                               miku_json_parse_str("{}"),
+                               miku_json_create_object());
+
+        mk_assert_not_null(resp);
+        miku_http_request_destroy(req);
+        miku_http_response_destroy(resp);
+    }
+
+    miku_api_ctx_destroy(ctx);
+}
+
+void test_api_auth_login(void) {
+    miku_auth_service_t *svc = miku_auth_service_create();
+    mk_assert_not_null(svc);
+
+    char token[512] = {0};
+    int rc = miku_auth_user_token(svc, "testuser", "openIM123", 1, token, sizeof(token));
+    mk_assert_int_eq(0, rc);
+    mk_assert(strncmp(token, "miku_", 5) == 0);
+
+    char uid[64] = {0};
+    rc = miku_auth_parse_token(svc, token, uid, sizeof(uid));
+    mk_assert_int_eq(0, rc);
+    mk_assert_str_eq("testuser", uid);
+
+    miku_auth_service_destroy(svc);
+}
+
+void test_api_version(void) {
+    mk_assert_not_null(MIKU_VERSION_STRING);
+    mk_assert(strlen(MIKU_VERSION_STRING) > 0);
+    mk_assert_not_null(MIKU_GIT_HASH);
+}
+
+void test_api_health(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_stats_init(&ctx->stats, "test", 0);
+
+    miku_stats_snapshot_t snap;
+    miku_stats_snapshot(&ctx->stats, &snap);
+    mk_assert_int_eq(0, (int)snap.requests_total);
+
+    miku_api_ctx_destroy(ctx);
 }

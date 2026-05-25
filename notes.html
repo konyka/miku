@@ -299,6 +299,27 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 15</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Auth Middleware + Route-Level Integration Tests</h3>
+  <ul>
+    <li><strong>miku_mw_auth</strong>: token validation middleware — checks <code>token</code> header, rejects 401 for missing/invalid tokens</li>
+    <li>Skips auth for public paths: <code>/auth/*</code>, <code>/admin/health</code>, <code>/version</code></li>
+    <li>Wired into miku-api between CORS and stats middleware</li>
+    <li><strong>10 new tests</strong> (99 total + 5 benchmarks):
+      <ul>
+        <li>Auth middleware: skip paths, reject no-token, reject bad-token, accept valid-token</li>
+        <li>Route registration: 100 routes registered without error</li>
+        <li>Route handlers: 20 service endpoints respond with valid JSON</li>
+        <li>Auth login: token generation + parsing roundtrip</li>
+        <li>Version: <code>MIKU_VERSION_STRING</code> / <code>MIKU_GIT_HASH</code> non-null</li>
+        <li>Health: stats snapshot returns zero for fresh context</li>
+      </ul>
+    </li>
+    <li>99 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -327,6 +348,7 @@
   <tr><td>12</td><td>Version Info + RPC Stats + JSON Errors</td><td><span class="tag tag-done">DONE</span></td><td>miku_version.h, RPC server stats, JSON 404 responses</td></tr>
   <tr><td>13</td><td>Version Endpoint + Access Logs + Body Limit</td><td><span class="tag tag-done">DONE</span></td><td>GET /version, miku_mw_logging wired, 1MB body limit</td></tr>
   <tr><td>14</td><td>100+ API Endpoints</td><td><span class="tag tag-done">DONE</span></td><td>100 routes across 7 services matching OpenIM API surface</td></tr>
+  <tr><td>15</td><td>Auth Middleware + Integration Tests</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_auth, 10 new tests (99 total)</td></tr>
 </table>
 
 <h2>Module Inventory</h2>

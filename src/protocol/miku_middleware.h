@@ -27,4 +27,13 @@ MIKU_API miku_mw_result_t miku_mw_stats(miku_http_request_t *req,
                                           miku_http_response_t *resp,
                                           void *ctx);
 
+typedef struct {
+    const char *secret;
+    int         enabled;
+} miku_auth_mw_cfg_t;
+
+MIKU_API miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
+                                        miku_http_response_t *resp,
+                                        void *ctx);
+
 #endif

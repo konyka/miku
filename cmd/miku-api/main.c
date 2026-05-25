@@ -44,9 +44,11 @@ int main(int argc, char **argv) {
     miku_http_server_set_stats(srv, &ctx->stats);
     miku_http_server_use(srv, miku_mw_cors, NULL);
     miku_http_server_use(srv, miku_mw_logging, NULL);
+    static miku_auth_mw_cfg_t auth_cfg = { .secret = "openIM123", .enabled = 1 };
+    miku_http_server_use(srv, miku_mw_auth, &auth_cfg);
     miku_http_server_use(srv, miku_mw_stats, &ctx->stats);
     miku_api_register_routes(srv, ctx);
-    MK_LOG_INFO("Registered 48 API routes");
+    MK_LOG_INFO("Registered 100 API routes");
 
     if (miku_http_server_start(srv) != 0) {
         MK_LOG_ERROR("Failed to start HTTP server");
