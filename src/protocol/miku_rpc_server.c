@@ -85,6 +85,7 @@ int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
     socklen_t cli_len = sizeof(cli);
     int fd = accept(srv->listen_fd, (struct sockaddr *)&cli, &cli_len);
     if (fd < 0) return -1;
+    if (srv->stats) miku_stats_conn_open(srv->stats);
 
     uint8_t hdr_buf[16];
     ssize_t n = read(fd, hdr_buf, 16);
@@ -121,6 +122,7 @@ int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
     }
 
     srv->dispatch(srv->svc, method, req, resp);
+    if (srv->stats) miku_stats_request_inc(srv->stats);
 
     miku_string_t *resp_str = miku_json_stringify(resp);
     uint32_t resp_len = (uint32_t)resp_str->len;
@@ -131,10 +133,19 @@ int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
     write(fd, resp_len_buf, 4);
     write(fd, resp_str->data, resp_str->len);
 
+    if (srv->stats) {
+        miku_stats_bytes_sent(srv->stats, (int64_t)resp_str->len);
+        miku_stats_conn_close(srv->stats);
+    }
+
     miku_str_destroy(resp_str);
     miku_json_destroy(resp);
     miku_json_destroy(req);
     free(payload);
     close(fd);
     return 1;
+}
+
+void miku_rpc_server_set_stats(miku_rpc_server_t *srv, miku_stats_t *stats) {
+    if (srv) srv->stats = stats;
 }

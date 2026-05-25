@@ -2,6 +2,8 @@
 #include "miku_log.h"
 #include "miku_string.h"
 #include "miku_stats.h"
+#include "miku_json.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -75,7 +77,15 @@ static void handle_client(int fd, int events, void *data) {
             break;
         }
     }
-    if (!matched) resp->status = 404;
+    if (!matched) {
+        resp->status = 404;
+        miku_json_val_t *err = miku_json_create_object();
+        miku_jerr(err, 404, "route not found");
+        miku_string_t *es = miku_json_stringify(err);
+        miku_http_response_set_json(resp, es->data);
+        miku_str_destroy(es);
+        miku_json_destroy(err);
+    }
 
 send_response:
     miku_string_t *out = miku_http_response_serialize(resp);

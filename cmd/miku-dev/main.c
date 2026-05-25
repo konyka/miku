@@ -17,6 +17,7 @@
 #include "miku_third.h"
 #include "miku_rpc_server.h"
 #include "miku_middleware.h"
+#include "miku_version.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -45,7 +46,7 @@ int main(int argc, char **argv) {
     miku_log_init(NULL, MK_LOG_DEBUG);
     miku_graceful_init(&g_graceful, 500);
 
-    MK_LOG_INFO("=== miku-dev: starting all services ===");
+    MK_LOG_INFO("=== miku-dev %s ===", MIKU_VERSION_FULL);
 
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     if (!ctx) { MK_LOG_ERROR("Failed to create API context"); return 1; }

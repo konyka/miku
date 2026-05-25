@@ -27,12 +27,25 @@ message(STATUS "Miku IM Server v${PROJECT_VERSION}")
 message(STATUS "Platform: ${MIKU_PLATFORM}")
 message(STATUS "C Compiler: ${CMAKE_C_COMPILER} (${CMAKE_C_COMPILER_ID})")
 
+# ── Git Hash ────────────────────────────────────────────────
+execute_process(
+    COMMAND git rev-parse --short HEAD
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    OUTPUT_VARIABLE MIKU_GIT_HASH
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+)
+if(NOT MIKU_GIT_HASH)
+    set(MIKU_GIT_HASH "unknown")
+endif()
+
 # ── Compiler Flags ──────────────────────────────────────────
 add_library(miku_compiler_flags INTERFACE)
 
 target_compile_definitions(miku_compiler_flags INTERFACE
     _POSIX_C_SOURCE=200809L
     _GNU_SOURCE
+    MIKU_GIT_HASH="${MIKU_GIT_HASH}"
 )
 
 target_compile_options(miku_compiler_flags INTERFACE

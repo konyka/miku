@@ -270,6 +270,18 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 12</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Version Info + RPC Stats + JSON Error Responses</h3>
+  <ul>
+    <li><strong>miku_version.h</strong>: compile-time version (<code>0.1.0</code>), git hash (injected via CMake), build date. <code>MIKU_VERSION_FULL</code> macro for logging.</li>
+    <li><strong>RPC server stats</strong>: <code>miku_rpc_server_set_stats()</code> enables connection + request + bytes tracking for RPC services.</li>
+    <li><strong>JSON 404 responses</strong>: unmatched HTTP routes now return <code>{"errCode":404,"errMsg":"route not found","errDmg":""}</code> instead of empty body.</li>
+    <li><strong>miku-dev prints version</strong> on startup: <code>miku 0.1.0 (5f8117c, May 25 2026)</code></li>
+    <li>89 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -295,6 +307,7 @@
   <tr><td>9</td><td>Service Metrics + Health + SIGHUP + README</td><td><span class="tag tag-done">DONE</span></td><td>miku_stats, /admin/health+stats, SIGHUP reload, README.md</td></tr>
   <tr><td>10</td><td>Stats Middleware + JSON Utilities + Error Standard + Endpoint Tests</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_stats, miku_json_util.h, miku_jerr, deduplicated helpers, health/stats tests</td></tr>
   <tr><td>11</td><td>HTTP Server Connection + Bytes Tracking</td><td><span class="tag tag-done">DONE</span></td><td>miku_http_server_set_stats, conn/bytes auto-tracking, improved access log</td></tr>
+  <tr><td>12</td><td>Version Info + RPC Stats + JSON Errors</td><td><span class="tag tag-done">DONE</span></td><td>miku_version.h, RPC server stats, JSON 404 responses</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -355,6 +368,7 @@
   <tr><td>Foundation</td><td>Graceful</td><td>miku_graceful.h/c</td><td>SIGTERM/SIGINT handler, drain timeout, SIGHUP reload callback, on_drain callback</td></tr>
   <tr><td>Foundation</td><td>Stats</td><td>miku_stats.h/c</td><td>Atomic service metrics: requests, connections, bytes, uptime, thread-safe snapshot</td></tr>
   <tr><td>Foundation</td><td>JSON Util</td><td>miku_json_util.h</td><td>Shared helpers: miku_ji, miku_jss, miku_jerr (standard error response)</td></tr>
+  <tr><td>Foundation</td><td>Version</td><td>miku_version.h</td><td>Compile-time version, git hash, build date (MIKU_VERSION_FULL)</td></tr>
 </table>
 
 <h2>Test Summary</h2>
