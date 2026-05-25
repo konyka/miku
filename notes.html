@@ -245,6 +245,19 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 10+</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Stats Middleware + JSON Utilities + Health/Stats Endpoint Tests</h3>
+  <ul>
+    <li><strong>Stats middleware</strong> (<code>miku_mw_stats</code>): auto-increments request counter on every HTTP request, wired into miku-api and miku-dev</li>
+    <li><strong>Shared JSON utilities</strong> (<code>miku_json_util.h</code>): <code>miku_ji()</code>, <code>miku_jss()</code>, <code>miku_jerr()</code> — replaced 7 duplicate <code>static ji/jss/js/set_int/set_str</code> definitions across 6 service files</li>
+    <li><strong>Standardized error response</strong>: <code>miku_jerr(json, code, msg)</code> sets <code>errCode</code> + <code>errMsg</code> + <code>errDmg</code></li>
+    <li><strong>Health/Stats endpoint tests</strong>: verify /admin/health JSON response, /admin/stats returns live metrics snapshot with correct counts</li>
+    <li>2 new integration tests: health endpoint, stats endpoint
+    <li>89 tests + 5 benchmarks, all passing; 53 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -268,7 +281,7 @@
   <tr><td>5</td><td>Tests + Docs + Service Wiring</td><td><span class="tag tag-done">DONE</span></td><td>RPC server, config YAML, e2e tests, all cmd/ wired</td></tr>
   <tr><td>8</td><td>Config Integration + Graceful Shutdown</td><td><span class="tag tag-done">DONE</span></td><td>Dot-path YAML, service config loader, graceful shutdown, all cmd/ wired to config</td></tr>
   <tr><td>9</td><td>Service Metrics + Health + SIGHUP + README</td><td><span class="tag tag-done">DONE</span></td><td>miku_stats, /admin/health+stats, SIGHUP reload, README.md</td></tr>
-  <tr><td>10</td><td>Stats Middleware + JSON Utilities + Error Standard</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_stats, miku_json_util.h, miku_jerr, deduplicated 7 helper defs</td></tr>
+  <tr><td>10</td><td>Stats Middleware + JSON Utilities + Error Standard + Endpoint Tests</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_stats, miku_json_util.h, miku_jerr, deduplicated helpers, health/stats tests</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -345,8 +358,9 @@
   <tr><td>Integration (API gateway + RPC server e2e)</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Gateway (msggateway + msgtransfer + push + crontask)</td><td>4</td><td>~25</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>WS Gateway + Cross-Service Integration</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Health/Stats Endpoint Tests</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Benchmarks (JSON/HashMap/Cache/Queue)</td><td>5</td><td>~5</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>87</strong></td><td><strong>380+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>89</strong></td><td><strong>400+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>

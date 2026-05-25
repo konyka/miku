@@ -15,6 +15,8 @@
 #include "miku_msgtransfer.h"
 #include "miku_push.h"
 #include "miku_crontask.h"
+#include "miku_middleware.h"
+#include "miku_json_util.h"
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -260,6 +262,30 @@ static int http_post(const char *host, int port, const char *path, const char *b
         ssize_t n = read(fd, resp + total, (size_t)(resp_cap - total - 1));
         if (n <= 0) break;
         total += (int)n;
+    }
+    resp[total] = '\0';
+    close(fd);
+    return total;
+}
+
+static int http_get(const char *host, int port, const char *path, char *resp, int resp_cap) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, host, &addr.sin_addr);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) { close(fd); return -1; }
+
+    char req[1024];
+    int len = snprintf(req, sizeof(req), "GET %s HTTP/1.1\r\nHost: %s:%d\r\n\r\n", path, host, port);
+    write(fd, req, (size_t)len);
+
+    int total = 0;
+    while (total < resp_cap - 1) {
+        ssize_t nr = read(fd, resp + total, (size_t)(resp_cap - total - 1));
+        if (nr <= 0) break;
+        total += (int)nr;
     }
     resp[total] = '\0';
     close(fd);
@@ -513,6 +539,62 @@ static void test_cross_service_msg_flow(void) {
     miku_conv_service_destroy(conv_svc);
 }
 
+static void test_http_health_endpoint(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19081);
+    mk_assert_not_null(srv);
+    miku_http_server_use(srv, miku_mw_stats, &ctx->stats);
+    miku_api_register_routes(srv, ctx);
+
+    miku_stats_request_inc(&ctx->stats);
+    miku_stats_request_inc(&ctx->stats);
+
+    miku_json_val_t *out = miku_json_create_object();
+    miku_ji(out, "status", 0);
+    miku_jss(out, "message", "ok");
+    miku_string_t *s = miku_json_stringify(out);
+    mk_assert(strstr(s->data, "\"status\":0") != NULL);
+    mk_assert(strstr(s->data, "\"message\":\"ok\"") != NULL);
+    miku_str_destroy(s);
+    miku_json_destroy(out);
+
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_http_stats_endpoint(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    miku_stats_init(&ctx->stats, "miku-api", 19082);
+
+    miku_stats_request_inc(&ctx->stats);
+    miku_stats_request_inc(&ctx->stats);
+    miku_stats_request_inc(&ctx->stats);
+
+    miku_stats_snapshot_t snap;
+    miku_stats_snapshot(&ctx->stats, &snap);
+
+    mk_assert_int_eq(3, (int)snap.requests_total);
+    mk_assert_str_eq("miku-api", snap.service_name);
+    mk_assert_int_eq(19082, snap.port);
+    mk_assert(snap.uptime_ms >= 0);
+
+    miku_json_val_t *out = miku_json_create_object();
+    miku_ji(out, "errCode", 0);
+    miku_ji(out, "requestsTotal", snap.requests_total);
+    miku_ji(out, "uptimeMs", snap.uptime_ms);
+    miku_jss(out, "service", snap.service_name);
+    miku_string_t *s = miku_json_stringify(out);
+    mk_assert(strstr(s->data, "\"requestsTotal\":3") != NULL);
+    mk_assert(strstr(s->data, "\"service\":\"miku-api\"") != NULL);
+    miku_str_destroy(s);
+    miku_json_destroy(out);
+
+    miku_api_ctx_destroy(ctx);
+}
+
 void run_service_tests(void) {
     printf("\n── Miku Service Tests ───────────────────\n\n");
 
@@ -534,4 +616,6 @@ void run_service_tests(void) {
     mk_run_test(test_crontask_tick);
     mk_run_test(test_msggateway_ws_upgrade);
     mk_run_test(test_cross_service_msg_flow);
+    mk_run_test(test_http_health_endpoint);
+    mk_run_test(test_http_stats_endpoint);
 }
