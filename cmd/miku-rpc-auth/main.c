@@ -30,8 +30,17 @@ int main(int argc, char **argv) {
     miku_auth_service_t *svc = miku_auth_service_create();
     if (!svc) { MK_LOG_ERROR("Failed to create auth service"); return 1; }
 
+    #pragma GCC diagnostic push
+
+
+    #pragma GCC diagnostic ignored "-Wcast-function-type"
+
+
     miku_rpc_server_t *srv = miku_rpc_server_create(svc,
         (miku_rpc_dispatch_fn)miku_auth_handle_rpc, port);
+
+
+    #pragma GCC diagnostic pop
     if (!srv || miku_rpc_server_start(srv) != 0) {
         MK_LOG_ERROR("Failed to start RPC server");
         miku_auth_service_destroy(svc); return 1;

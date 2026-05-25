@@ -1,8 +1,5 @@
 #include "miku_async.h"
-#include "miku_threadpool.h"
 #include <stdlib.h>
-
-static miku_threadpool_t *g_async_pool;
 
 miku_async_result_t *miku_await(miku_async_fn fn, void *arg) {
     if (!fn) return NULL;

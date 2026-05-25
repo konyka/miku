@@ -441,6 +441,23 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 25</span> <span class="tag tag-done">DONE</span></div>
+  <h3>README Update + Compiler Warning Cleanup</h3>
+  <ul>
+    <li><strong>README.md</strong>: Updated stats (103 routes, 100 tests, 54 modules), added Features section, Deployment section, Documentation links</li>
+    <li><strong>108 to 0 source warnings</strong> (excluding test files):</li>
+    <li>Fixed sign-conversion in miku_io_epoll.c (epoll event types to uint32_t), miku_config.c (ftell to size_t), miku_uuid.c (tv_nsec cast), miku_http_server.c (realloc), miku_threadpool.c (calloc)</li>
+    <li>Fixed format-truncation in miku_log.c (increased buffer sizes 520 to 600)</li>
+    <li>Fixed pointer-sign in miku_auth.c (char* to const uint8_t*)</li>
+    <li>Fixed unused-variable in miku_async.c (removed unused g_async_pool)</li>
+    <li>Fixed unused-function in miku_scheduler.c (attribute unused)</li>
+    <li>Suppressed cast-function-type in 7 cmd/miku-rpc-* files with pragma GCC diagnostic</li>
+    <li>Fixed sign-conversion in miku_pb.c (index arithmetic), miku_rpc_server.c (payload_len casts)</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries; 103 routes</li>
+  </ul>
+</div>
+
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
 <p style="color:#8b949e; margin-top:0.5rem;">100% complete — all phases done, production-ready IM server in pure C</p>
 
@@ -477,6 +494,7 @@
   <tr><td>22</td><td>ARCHITECTURE.md Rewrite + Benchmark Script</td><td><span class="tag tag-done">DONE</span></td><td>Full doc rewrite (13 sections), scripts/bench.sh</td></tr>
   <tr><td>23</td><td>Production Deployment Artifacts</td><td><span class="tag tag-done">DONE</span></td><td>systemd, docker-compose, k8s manifests, config example, Dockerfile update</td></tr>
   <tr><td>24</td><td>OpenAPI 3.0 Specification</td><td><span class="tag tag-done">DONE</span></td><td>docs/openapi.yaml (3037 lines, 103 routes, 9 tags)</td></tr>
+  <tr><td>25</td><td>README Update + Warning Cleanup</td><td><span class="tag tag-done">DONE</span></td><td>README updated, 108 to 0 source warnings</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -562,6 +580,7 @@
 <h2>Git Log</h2>
 
 <pre>
+TBD     fix: README update, 108 to 0 source warnings (sign-conversion, format-truncation, pointer-sign, unused)
 TBD     docs: OpenAPI 3.0 spec (3037 lines, 103 routes, 9 tags)
 TBD     feat: production deployment (systemd, docker-compose, k8s, config example, Dockerfile update)
 d0fbdee docs: ARCHITECTURE.md rewrite (13 sections, phases 0-21), scripts/bench.sh

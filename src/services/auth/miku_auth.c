@@ -94,7 +94,7 @@ void miku_auth_handle_rpc(miku_auth_service_t *svc, const miku_rpc_message_t *re
                 miku_jss(out, "errMsg", "authentication failed");
             }
             miku_string_t *s = miku_json_stringify(out);
-            miku_rpc_message_set_payload(resp, s->data, s->len);
+            miku_rpc_message_set_payload(resp, (const uint8_t *)s->data, s->len);
             miku_str_destroy(s);
             miku_json_destroy(out);
         }

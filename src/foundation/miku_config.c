@@ -21,8 +21,9 @@ int miku_config_load_file(miku_config_t *cfg, const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) return -1;
     fseek(f, 0, SEEK_END);
-    long sz = ftell(f);
+    long szl = ftell(f);
     fseek(f, 0, SEEK_SET);
+    size_t sz = (size_t)szl;
     char *buf = (char *)malloc(sz + 1);
     if (!buf) { fclose(f); return -1; }
     size_t rd = fread(buf, 1, sz, f);

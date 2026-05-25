@@ -5,7 +5,7 @@
 void miku_uuid_generate_bytes(uint8_t out[16]) {
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
-    uint32_t seed = (uint32_t)(ts.tv_nsec ^ ts.tv_sec ^ (uintptr_t)&out);
+    uint32_t seed = (uint32_t)((unsigned long)ts.tv_nsec ^ (unsigned long)ts.tv_sec ^ (uintptr_t)&out);
     for (int i = 0; i < 16; i++) {
         seed = seed * 1103515245 + 12345;
         out[i] = (uint8_t)(seed >> 16);

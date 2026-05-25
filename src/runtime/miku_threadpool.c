@@ -85,7 +85,7 @@ miku_threadpool_t *miku_threadpool_create(int num_workers) {
     if (!pool) return NULL;
 
     pool->num_workers = num_workers;
-    pool->workers = (pthread_t *)calloc(num_workers, sizeof(pthread_t));
+    pool->workers = (pthread_t *)calloc((size_t)num_workers, sizeof(pthread_t));
     miku_mutex_init(&pool->queue_lock);
     miku_cond_init(&pool->queue_cond);
     miku_cond_init(&pool->idle_cond);

@@ -33,7 +33,7 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `miku-api` | 10002 | HTTP API gateway (48 routes) |
+| `miku-api` | 10002 | HTTP API gateway (103 routes) |
 | `miku-msggateway` | 10001 | WebSocket message gateway |
 | `miku-msgtransfer` | — | Message transfer queue |
 | `miku-push` | — | Push notification service |
@@ -51,22 +51,25 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 
 ```bash
 # Prerequisites (optional, auto-detected):
-#   libmongoc, hiredis, librdkafka, libyaml, zlib, libcurl
+#   libmongoc, hiredis, librdkafka, libyaml, zlib, libcurl, openssl
 
 # Debug build with tests
-make debug
-
-# Release build
-make
+make build
 
 # Run tests
 make test
 
-# Run benchmarks
-make bench
+# Run all-in-one dev server
+make dev
+
+# Release build
+make release
+
+# Docker build
+make docker
 
 # Clean
-make clean
+make distclean
 ```
 
 ### CMake Directly
@@ -111,12 +114,47 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 
 ## Project Stats
 
-- **52 source files** (56 headers + 51 implementations)
-- **50 modules** across 6 layers
+- **54 modules** across 6 layers
 - **13 binaries** (12 microservices + dev server)
-- **48 API routes**
-- **86 tests + 5 benchmarks**, all passing
+- **103 API routes** (Auth 5, User 16, Friend 15, Group 22, Msg 16, Conv 13, Third 9, Batch 2, Admin 4)
+- **100 tests + 5 benchmarks**, all passing
 - **Benchmarks**: JSON 1.36M/s, HashMap 7.09M/s, Cache 3.97M/s, Queue 38.4M/s
+
+## Features
+
+- HTTP/1.1 server with keep-alive, TLS (OpenSSL), idle timeout, body size limit
+- Middleware pipeline: CORS, request ID, access logging, auth, stats
+- WebSocket gateway (RFC 6455) with frame codec
+- Custom binary RPC with Protobuf codec
+- Prometheus metrics at `/admin/metrics`
+- Log rotation (size-based)
+- Graceful shutdown (SIGTERM/SIGINT) + config reload (SIGHUP)
+- Conditional compilation for all external dependencies
+- Docker, docker-compose, Kubernetes manifests, systemd units
+
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Full architecture design document (13 sections)
+- [docs/openapi.yaml](docs/openapi.yaml) - OpenAPI 3.0 spec (103 routes)
+- [config/miku-example.yml](config/miku-example.yml) - Config example with all options
+- [notes.html](notes.html) - Development progress log
+
+## Deployment
+
+```bash
+# Docker
+make docker
+docker run --rm -p 10002:10002 miku:latest
+
+# Docker Compose (all 12 services)
+make docker-compose-up
+
+# Kubernetes
+kubectl apply -f deploy/k8s/
+
+# Systemd
+sudo bash deploy/systemd/install.sh
+```
 
 ## Tech Stack
 

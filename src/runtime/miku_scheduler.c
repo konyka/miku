@@ -21,7 +21,7 @@ struct miku_scheduler_s {
     atomic_bool        running;
 };
 
-static void sched_coro_entry(void *arg) {
+static void __attribute__((unused)) sched_coro_entry(void *arg) {
     miku_coro_t *coro = (miku_coro_t *)arg;
     miku_coro_yield(coro);
     coro->fn(coro->arg);

@@ -25,7 +25,7 @@ static void rotate_log(void) {
     fclose(g_log_file);
     g_log_file = NULL;
     for (int i = g_max_files - 1; i >= 1; i--) {
-        char old_path[520], new_path[520];
+        char old_path[600], new_path[600];
         snprintf(old_path, sizeof(old_path), "%s.%d", g_log_path, i);
         snprintf(new_path, sizeof(new_path), "%s.%d", g_log_path, i + 1);
         rename(old_path, new_path);

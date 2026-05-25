@@ -56,8 +56,8 @@ struct miku_http_server_s {
 static void conn_track_add(miku_http_server_t *srv, int fd) {
     if (srv->conn_count >= srv->conn_cap) {
         int newcap = srv->conn_cap * 2;
-        srv->conn_fds = realloc(srv->conn_fds, newcap * sizeof(int));
-        srv->conn_last_active = realloc(srv->conn_last_active, newcap * sizeof(int64_t));
+        srv->conn_fds = realloc(srv->conn_fds, (size_t)newcap * sizeof(int));
+        srv->conn_last_active = realloc(srv->conn_last_active, (size_t)newcap * sizeof(int64_t));
         srv->conn_cap = newcap;
     }
     srv->conn_fds[srv->conn_count] = fd;

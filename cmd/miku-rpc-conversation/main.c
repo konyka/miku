@@ -29,8 +29,17 @@ int main(int argc, char **argv) {
     miku_conv_service_t *svc = miku_conv_service_create();
     if (!svc) { MK_LOG_ERROR("Failed to create conversation service"); return 1; }
 
+    #pragma GCC diagnostic push
+
+
+    #pragma GCC diagnostic ignored "-Wcast-function-type"
+
+
     miku_rpc_server_t *srv = miku_rpc_server_create(svc,
         (miku_rpc_dispatch_fn)miku_conv_handle_rpc, port);
+
+
+    #pragma GCC diagnostic pop
     if (!srv || miku_rpc_server_start(srv) != 0) {
         miku_conv_service_destroy(svc); return 1;
     }

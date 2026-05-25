@@ -102,10 +102,10 @@ int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
 
     char *payload = NULL;
     if (payload_len > 0 && payload_len < 65536) {
-        payload = (char *)malloc(payload_len + 1);
+        payload = (char *)malloc((size_t)payload_len + 1);
         ssize_t total = 0;
         while (total < (ssize_t)payload_len) {
-            ssize_t r = read(fd, payload + total, (ssize_t)(payload_len - total));
+            ssize_t r = read(fd, payload + total, (size_t)(payload_len - (uint32_t)total));
             if (r <= 0) break;
             total += r;
         }

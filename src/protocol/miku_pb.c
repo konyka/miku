@@ -183,7 +183,7 @@ bool miku_pb_read_fixed64(miku_pb_reader_t *r, uint64_t *val) {
     if (!r || r->pos + 8 > r->len) return false;
     uint64_t v = 0;
     for (int i = 0; i < 8; i++)
-        v |= (uint64_t)r->data[r->pos + i] << (i * 8);
+        v |= (uint64_t)r->data[r->pos + (size_t)i] << (i * 8);
     r->pos += 8;
     if (val) *val = v;
     return true;

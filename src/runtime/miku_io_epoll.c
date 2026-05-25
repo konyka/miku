@@ -22,28 +22,28 @@ static int io_ensure_cap(miku_io_t *io, int fd) {
     if (fd < io->cap) return 0;
     int newcap = io->cap;
     while (newcap <= fd) newcap *= 2;
-    io_watch_t *nw = (io_watch_t *)realloc(io->watches, newcap * sizeof(*nw));
+    io_watch_t *nw = (io_watch_t *)realloc(io->watches, (size_t)newcap * sizeof(*nw));
     if (!nw) return -1;
-    memset(nw + io->cap, 0, (newcap - io->cap) * sizeof(*nw));
+    memset(nw + io->cap, 0, (size_t)(newcap - io->cap) * sizeof(*nw));
     io->watches = nw;
     io->cap = newcap;
     return 0;
 }
 
-static int to_epoll_events(int events) {
-    int ep = 0;
-    if (events & MK_IO_READ)  ep |= EPOLLIN;
-    if (events & MK_IO_WRITE) ep |= EPOLLOUT;
-    if (events & MK_IO_ERROR) ep |= EPOLLERR;
+static uint32_t to_epoll_events(int events) {
+    uint32_t ep = 0;
+    if (events & MK_IO_READ)  ep |= (uint32_t)EPOLLIN;
+    if (events & MK_IO_WRITE) ep |= (uint32_t)EPOLLOUT;
+    if (events & MK_IO_ERROR) ep |= (uint32_t)EPOLLERR;
     return ep;
 }
 
-static int from_epoll_events(int ep) {
+static int from_epoll_events(uint32_t ep) {
     int ev = 0;
-    if (ep & (EPOLLIN | EPOLLPRI))  ev |= MK_IO_READ;
-    if (ep & EPOLLOUT)              ev |= MK_IO_WRITE;
-    if (ep & EPOLLERR)              ev |= MK_IO_ERROR;
-    if (ep & EPOLLHUP)              ev |= MK_IO_HUP;
+    if (ep & ((uint32_t)EPOLLIN | (uint32_t)EPOLLPRI))  ev |= MK_IO_READ;
+    if (ep & (uint32_t)EPOLLOUT)                         ev |= MK_IO_WRITE;
+    if (ep & (uint32_t)EPOLLERR)                         ev |= MK_IO_ERROR;
+    if (ep & (uint32_t)EPOLLHUP)                         ev |= MK_IO_HUP;
     return ev;
 }
 
@@ -53,7 +53,7 @@ miku_io_t *miku_io_create(void) {
     io->epfd = epoll_create1(EPOLL_CLOEXEC);
     if (io->epfd < 0) { free(io); return NULL; }
     io->cap = 1024;
-    io->watches = (io_watch_t *)calloc(io->cap, sizeof(*io->watches));
+    io->watches = (io_watch_t *)calloc((size_t)io->cap, sizeof(*io->watches));
     if (!io->watches) { close(io->epfd); free(io); return NULL; }
     return io;
 }
@@ -62,7 +62,7 @@ int miku_io_add(miku_io_t *io, int fd, int events, miku_io_cb cb, void *data) {
     if (!io || fd < 0) return -1;
     if (io_ensure_cap(io, fd) != 0) return -1;
     struct epoll_event ev;
-    ev.events = to_epoll_events(events) | EPOLLET;
+    ev.events = to_epoll_events(events) | (uint32_t)EPOLLET;
     ev.data.fd = fd;
     if (epoll_ctl(io->epfd, EPOLL_CTL_ADD, fd, &ev) != 0) return -1;
     io->watches[fd].cb = cb;
@@ -75,7 +75,7 @@ int miku_io_add(miku_io_t *io, int fd, int events, miku_io_cb cb, void *data) {
 int miku_io_mod(miku_io_t *io, int fd, int events, miku_io_cb cb, void *data) {
     if (!io || fd < 0 || fd >= io->cap) return -1;
     struct epoll_event ev;
-    ev.events = to_epoll_events(events) | EPOLLET;
+    ev.events = to_epoll_events(events) | (uint32_t)EPOLLET;
     ev.data.fd = fd;
     if (epoll_ctl(io->epfd, EPOLL_CTL_MOD, fd, &ev) != 0) return -1;
     io->watches[fd].cb = cb;
@@ -103,7 +103,7 @@ int miku_io_poll(miku_io_t *io, int timeout_ms) {
     for (int i = 0; i < n; i++) {
         int fd = events[i].data.fd;
         if (fd < 0 || fd >= io->cap || !io->watches[fd].cb) continue;
-        int revents = from_epoll_events(events[i].events);
+        int revents = from_epoll_events((uint32_t)events[i].events);
         io->watches[fd].cb(fd, revents, io->watches[fd].data);
     }
     return n;
