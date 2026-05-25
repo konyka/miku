@@ -54,6 +54,7 @@ int main(int argc, char **argv) {
     miku_http_server_t *srv = miku_http_server_create(sc.listen_ip, api_port);
     if (!srv) { MK_LOG_ERROR("Failed to create HTTP server"); return 1; }
 
+    miku_http_server_set_stats(srv, &ctx->stats);
     miku_http_server_use(srv, miku_mw_cors, NULL);
     miku_http_server_use(srv, miku_mw_stats, &ctx->stats);
     miku_rate_limit_cfg_t rl = {.window_ms = 1000, .max_requests = 100, .enabled = 1};

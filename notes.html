@@ -258,6 +258,18 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 11</span> <span class="tag tag-done">DONE</span></div>
+  <h3>HTTP Server Connection + Bytes Tracking</h3>
+  <ul>
+    <li><strong>HTTP server stats integration</strong>: <code>miku_http_server_set_stats()</code> links a <code>miku_stats_t*</code> to the server.
+        Auto-tracks: connection open on accept, connection close on disconnect, bytes received on read, bytes sent on write.</li>
+    <li><strong>Wired into miku-api and miku-dev</strong>: both set <code>srv->stats = &ctx->stats</code> so /admin/stats returns live connection and byte counts.</li>
+    <li><strong>Improved access log middleware</strong>: <code>miku_mw_logging</code> now logs <code>METHOD /path STATUS</code> instead of path only.</li>
+    <li>89 tests + 5 benchmarks, all passing; 53 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -282,6 +294,7 @@
   <tr><td>8</td><td>Config Integration + Graceful Shutdown</td><td><span class="tag tag-done">DONE</span></td><td>Dot-path YAML, service config loader, graceful shutdown, all cmd/ wired to config</td></tr>
   <tr><td>9</td><td>Service Metrics + Health + SIGHUP + README</td><td><span class="tag tag-done">DONE</span></td><td>miku_stats, /admin/health+stats, SIGHUP reload, README.md</td></tr>
   <tr><td>10</td><td>Stats Middleware + JSON Utilities + Error Standard + Endpoint Tests</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_stats, miku_json_util.h, miku_jerr, deduplicated helpers, health/stats tests</td></tr>
+  <tr><td>11</td><td>HTTP Server Connection + Bytes Tracking</td><td><span class="tag tag-done">DONE</span></td><td>miku_http_server_set_stats, conn/bytes auto-tracking, improved access log</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -312,7 +325,7 @@
   <tr><td>Runtime</td><td>Timer</td><td>miku_timer.h/c</td><td>RBTree-based: add/cancel/process</td></tr>
   <tr><td>Runtime</td><td>IO</td><td>miku_io.h, miku_io_epoll.c</td><td>epoll add/mod/del/poll, edge-triggered</td></tr>
   <tr><td>Protocol</td><td>HTTP Parser</td><td>miku_http.h/c</td><td>Request line, headers, body, query string</td></tr>
-  <tr><td>Protocol</td><td>HTTP Server</td><td>miku_http_server.h/c</td><td>Route matching, non-blocking accept+respond</td></tr>
+  <tr><td>Protocol</td><td>HTTP Server</td><td>miku_http_server.h/c</td><td>Route matching, non-blocking accept+respond, connection + bytes tracking via miku_stats_t</td></tr>
   <tr><td>Protocol</td><td>JSON</td><td>miku_json.h/c</td><td>Parse, build, query, stringify (RFC 8259)</td></tr>
   <tr><td>Foundation</td><td>SHA1</td><td>miku_sha1.h/c</td><td>SHA-1 hash (FIPS 180-4)</td></tr>
   <tr><td>Protocol</td><td>WebSocket</td><td>miku_websocket.h/c</td><td>Frame codec, handshake, server (RFC 6455)</td></tr>
@@ -366,6 +379,7 @@
 <h2>Git Log</h2>
 
 <pre>
+TBD     feat: HTTP server connection+bytes tracking, improved access log middleware
 TBD     feat: stats middleware, shared miku_json_util.h, standardized error responses, deduplicated helpers
 TBD     feat: service metrics (miku_stats), health/stats endpoints, SIGHUP config reload, README.md
 TBD     feat: config integration (dot-path YAML, service config loader), graceful shutdown, all cmd/ wired to config

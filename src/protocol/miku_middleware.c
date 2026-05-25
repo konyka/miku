@@ -54,8 +54,16 @@ miku_mw_result_t miku_mw_logging(miku_http_request_t *req,
                                   void *ctx) {
     (void)ctx;
     if (!req) return MK_MW_CONTINUE;
-    MK_LOG_INFO("%.*s %.*s", (int)req->path.len, req->path.data, 0, "");
-    (void)resp;
+    const char *method = "UNKNOWN";
+    switch (req->method) {
+        case MK_HTTP_GET:    method = "GET"; break;
+        case MK_HTTP_POST:   method = "POST"; break;
+        case MK_HTTP_PUT:    method = "PUT"; break;
+        case MK_HTTP_DELETE: method = "DELETE"; break;
+        case MK_HTTP_OPTIONS: method = "OPTIONS"; break;
+        default: break;
+    }
+    MK_LOG_INFO("%s %.*s %d", method, (int)req->path.len, req->path.data, resp ? resp->status : 0);
     return MK_MW_CONTINUE;
 }
 

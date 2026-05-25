@@ -41,6 +41,7 @@ int main(int argc, char **argv) {
     miku_http_server_t *srv = miku_http_server_create(listen_addr, port);
     if (!srv) { MK_LOG_ERROR("Failed to create HTTP server on %s:%d", listen_addr, port); miku_api_ctx_destroy(ctx); return 1; }
 
+    miku_http_server_set_stats(srv, &ctx->stats);
     miku_http_server_use(srv, miku_mw_cors, NULL);
     miku_http_server_use(srv, miku_mw_stats, &ctx->stats);
     miku_api_register_routes(srv, ctx);

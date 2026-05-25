@@ -4,6 +4,7 @@
 #include "miku_common.h"
 #include "miku_http.h"
 #include "miku_io.h"
+#include "miku_stats.h"
 
 typedef enum {
     MK_MW_CONTINUE = 0,
@@ -30,5 +31,6 @@ MIKU_API int  miku_http_server_use(miku_http_server_t *srv, miku_http_middleware
 MIKU_API int  miku_http_server_start(miku_http_server_t *srv);
 MIKU_API void miku_http_server_stop(miku_http_server_t *srv);
 MIKU_API void miku_http_server_destroy(miku_http_server_t *srv);
+MIKU_API void miku_http_server_set_stats(miku_http_server_t *srv, miku_stats_t *stats);
 
 #endif

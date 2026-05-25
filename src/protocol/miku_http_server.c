@@ -1,6 +1,7 @@
 #include "miku_http_server.h"
 #include "miku_log.h"
 #include "miku_string.h"
+#include "miku_stats.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -28,6 +29,7 @@ struct miku_http_server_s {
     miku_mw_entry_t    middleware[MAX_MIDDLEWARE];
     int                mw_count;
     bool               running;
+    miku_stats_t      *stats;
 };
 
 static void handle_client(int fd, int events, void *data) {
@@ -35,9 +37,13 @@ static void handle_client(int fd, int events, void *data) {
     miku_http_server_t *srv = (miku_http_server_t *)data;
     char buf[READ_BUF];
     ssize_t nread = read(fd, buf, sizeof(buf) - 1);
-    if (nread <= 0) { close(fd); miku_io_del(srv->io, fd); return; }
+    if (nread <= 0) {
+        if (srv->stats) miku_stats_conn_close(srv->stats);
+        close(fd); miku_io_del(srv->io, fd); return;
+    }
     size_t n = (size_t)nread;
     buf[n] = '\0';
+    if (srv->stats) miku_stats_bytes_recv(srv->stats, (int64_t)n);
 
     miku_http_request_t *req = miku_http_request_create();
     int parsed = miku_http_request_parse(req, buf, n);
@@ -74,6 +80,10 @@ static void handle_client(int fd, int events, void *data) {
 send_response:
     miku_string_t *out = miku_http_response_serialize(resp);
     write(fd, out->data, out->len);
+    if (srv->stats) {
+        miku_stats_bytes_sent(srv->stats, (int64_t)out->len);
+        miku_stats_conn_close(srv->stats);
+    }
     miku_str_destroy(out);
     miku_http_response_destroy(resp);
     miku_http_request_destroy(req);
@@ -89,6 +99,7 @@ static void accept_conn(int fd, int events, void *data) {
     int client_fd = accept(fd, (struct sockaddr *)&addr, &addrlen);
     if (client_fd < 0) return;
     miku_set_nonblocking(client_fd);
+    if (srv->stats) miku_stats_conn_open(srv->stats);
     miku_io_add(srv->io, client_fd, MK_IO_READ, handle_client, srv);
 }
 
@@ -162,4 +173,8 @@ void miku_http_server_destroy(miku_http_server_t *srv) {
     if (srv->listen_fd >= 0) close(srv->listen_fd);
     if (srv->io) miku_io_destroy(srv->io);
     free(srv);
+}
+
+void miku_http_server_set_stats(miku_http_server_t *srv, miku_stats_t *stats) {
+    if (srv) srv->stats = stats;
 }
