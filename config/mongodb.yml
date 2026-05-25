@@ -1,0 +1,10 @@
+uri: "mongodb://localhost:27017"
+database: "miku"
+maxPoolSize: 64
+collections:
+  user: "user"
+  friend: "friend"
+  group: "group"
+  group_member: "group_member"
+  conversation: "conversation"
+  msg: "msg"

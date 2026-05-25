@@ -8,8 +8,15 @@
 #include "miku_msg.h"
 #include "miku_third.h"
 #include "miku_json.h"
+#include "miku_api.h"
+#include "miku_http_server.h"
+#include "miku_rpc_server.h"
 #include <string.h>
 #include <stdio.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 static void test_model_user_json_roundtrip(void) {
     miku_user_t u;
@@ -207,6 +214,115 @@ static void test_third_rpc(void) {
     miku_third_service_destroy(svc);
 }
 
+static void test_api_gateway_e2e(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19080);
+    mk_assert_not_null(srv);
+
+    int rc = miku_api_register_routes(srv, ctx);
+    mk_assert_int_eq(0, rc);
+
+    mk_assert(ctx->auth != NULL);
+    mk_assert(ctx->user != NULL);
+    mk_assert(ctx->friend_svc != NULL);
+    mk_assert(ctx->group_svc != NULL);
+    mk_assert(ctx->conv != NULL);
+    mk_assert(ctx->msg != NULL);
+    mk_assert(ctx->third != NULL);
+
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static int http_post(const char *host, int port, const char *path, const char *body, char *resp, int resp_cap) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, host, &addr.sin_addr);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) { close(fd); return -1; }
+
+    char req[4096];
+    int len = snprintf(req, sizeof(req),
+        "POST %s HTTP/1.1\r\nHost: %s:%d\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",
+        path, host, port, strlen(body), body);
+    write(fd, req, (size_t)len);
+
+    int total = 0;
+    while (total < resp_cap - 1) {
+        ssize_t n = read(fd, resp + total, (size_t)(resp_cap - total - 1));
+        if (n <= 0) break;
+        total += (int)n;
+    }
+    resp[total] = '\0';
+    close(fd);
+    return total;
+}
+
+static void test_rpc_server_e2e(void) {
+    miku_user_service_t *svc = miku_user_service_create();
+    mk_assert_not_null(svc);
+
+    miku_rpc_server_t *srv = miku_rpc_server_create(svc,
+        (miku_rpc_dispatch_fn)miku_user_handle_rpc, 19090);
+    mk_assert_not_null(srv);
+
+    int rc = miku_rpc_server_start(srv);
+    mk_assert_int_eq(0, rc);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    mk_assert(fd >= 0);
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(19090);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    mk_assert_int_eq(0, rc);
+
+    const char *payload = "{\"method\":\"registerUser\",\"userID\":\"u42\",\"nickname\":\"E2E\"}";
+    uint32_t plen = (uint32_t)strlen(payload);
+
+    uint8_t hdr[16] = {0};
+    hdr[0] = 0x4D; hdr[1] = 0x4B;
+    hdr[4] = 1;
+    write(fd, hdr, 16);
+
+    uint8_t len_buf[4] = {
+        (uint8_t)(plen >> 24), (uint8_t)(plen >> 16),
+        (uint8_t)(plen >> 8),  (uint8_t)plen
+    };
+    write(fd, len_buf, 4);
+    write(fd, payload, plen);
+
+    miku_rpc_server_poll(srv, 1000);
+
+    uint8_t resp_len_buf[4] = {0};
+    ssize_t rn = read(fd, resp_len_buf, 4);
+    mk_assert(rn == 4);
+    uint32_t rlen = ((uint32_t)resp_len_buf[0] << 24) | ((uint32_t)resp_len_buf[1] << 16) |
+                    ((uint32_t)resp_len_buf[2] << 8)  | (uint32_t)resp_len_buf[3];
+
+    mk_assert(rlen > 0 && rlen < 4096);
+    char resp_buf[4096] = {0};
+    ssize_t n = read(fd, resp_buf, rlen);
+    close(fd);
+    mk_assert(n > 0);
+    resp_buf[n] = '\0';
+
+    miku_json_val_t *r = miku_json_parse_str(resp_buf);
+    mk_assert_not_null(r);
+    int64_t err = miku_json_int(miku_json_get(r, "errCode"));
+    mk_assert_int_eq(0, (int)err);
+    miku_json_destroy(r);
+
+    miku_rpc_server_stop(srv);
+    miku_rpc_server_destroy(srv);
+    miku_user_service_destroy(svc);
+}
+
 void run_service_tests(void) {
     printf("\n── Miku Service Tests ───────────────────\n\n");
 
@@ -220,4 +336,6 @@ void run_service_tests(void) {
     mk_run_test(test_conv_create_and_get);
     mk_run_test(test_msg_send_and_query);
     mk_run_test(test_third_rpc);
+    mk_run_test(test_api_gateway_e2e);
+    mk_run_test(test_rpc_server_e2e);
 }

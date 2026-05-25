@@ -1,0 +1,7 @@
+level: "info"
+output: "stdout"
+file:
+  path: "/var/log/miku"
+  maxSize: 100
+  maxBackups: 5
+  compress: true

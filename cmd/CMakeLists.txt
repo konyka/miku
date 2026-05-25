@@ -12,6 +12,23 @@ set(MIKU_SERVICE_LIBS
     miku_foundation
 )
 
+include_directories(
+    ${CMAKE_SOURCE_DIR}/src/gateway/api
+    ${CMAKE_SOURCE_DIR}/src/gateway/msggateway
+    ${CMAKE_SOURCE_DIR}/src/gateway/msgtransfer
+    ${CMAKE_SOURCE_DIR}/src/gateway/push
+    ${CMAKE_SOURCE_DIR}/src/gateway/crontask
+    ${CMAKE_SOURCE_DIR}/src/services/auth
+    ${CMAKE_SOURCE_DIR}/src/services/user
+    ${CMAKE_SOURCE_DIR}/src/services/friend
+    ${CMAKE_SOURCE_DIR}/src/services/group
+    ${CMAKE_SOURCE_DIR}/src/services/conversation
+    ${CMAKE_SOURCE_DIR}/src/services/msg
+    ${CMAKE_SOURCE_DIR}/src/services/third
+    ${CMAKE_SOURCE_DIR}/src/models
+    ${CMAKE_SOURCE_DIR}/src/protocol
+)
+
 # ── HTTP API Gateway ────────────────────────────────────────
 add_executable(miku-api miku-api/main.c)
 target_link_libraries(miku-api PRIVATE ${MIKU_SERVICE_LIBS})

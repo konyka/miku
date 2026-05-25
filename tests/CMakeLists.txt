@@ -15,9 +15,11 @@ target_include_directories(miku_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/services/conversation
     ${CMAKE_SOURCE_DIR}/src/services/msg
     ${CMAKE_SOURCE_DIR}/src/services/third
+    ${CMAKE_SOURCE_DIR}/src/gateway/api
 )
 
 target_link_libraries(miku_tests PRIVATE
+    miku_gateway
     miku_services
     miku_models
     miku_protocol

@@ -1,0 +1,9 @@
+brokers: "localhost:9092"
+topic: "miku_msg"
+groupId: "miku-msgtransfer"
+producer:
+  acks: "all"
+  retries: 3
+consumer:
+  sessionTimeout: 10000
+  autoCommit: true

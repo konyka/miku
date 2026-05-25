@@ -5,6 +5,7 @@ set(MIKU_PROTOCOL_SOURCES
     miku_json.c
     miku_websocket.c
     miku_rpc.c
+    miku_rpc_server.c
     miku_pb.c
 )
 
