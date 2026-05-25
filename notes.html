@@ -150,10 +150,24 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 4+</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Production Gateway Implementations + Extended API</h3>
+  <ul>
+    <li><strong>MsgGateway</strong>: Real TCP listener, connection manager (4096 slots), broadcast/send_to_user/kick_user</li>
+    <li><strong>MsgTransfer</strong>: Ring buffer queue (16384 cap), spinlock-protected enqueue/dequeue, total_processed counter</li>
+    <li><strong>Push</strong>: Subscribe/unsubscribe registry, push_to_user with JSON notifications, online_count</li>
+    <li><strong>Crontask</strong>: Named task scheduler (256 max), interval-based tick execution, add/remove</li>
+    <li><strong>API routes expanded to 48</strong>: admin (stats/health/shutdown), batch (multi-user lookup), extended user/friend/group/conversation/msg/third endpoints</li>
+    <li>4 new gateway tests: msggateway lifecycle, msgtransfer queue, push subscribe, crontask tick</li>
+    <li>71 tests total, all passing</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
-<div class="progress-bar"><div class="progress-fill" style="width: 85%"></div></div>
-<p style="color:#8b949e; margin-top:0.5rem;">~85% complete (Phase 0-5 done, production hardening remaining)</p>
+<div class="progress-bar"><div class="progress-fill" style="width: 92%"></div></div>
+<p style="color:#8b949e; margin-top:0.5rem;">~92% complete (Phase 0-5 done + production gateways, documentation remaining)</p>
 
 <h2>Phase Status</h2>
 
@@ -169,7 +183,7 @@
   <tr><td>1G</td><td>WebSocket + Binary RPC + Protobuf</td><td><span class="tag tag-done">DONE</span></td><td>miku_websocket.h/c, miku_rpc.h/c, miku_pb.h/c, miku_sha1.h/c</td></tr>
   <tr><td>2</td><td>Data Access Layer</td><td><span class="tag tag-done">DONE</span></td><td>cache, mongo, redis, kafka, discovery</td></tr>
   <tr><td>3</td><td>Business Services (7 RPC)</td><td><span class="tag tag-done">DONE</span></td><td>auth, user, friend, group, conversation, msg, third</td></tr>
-  <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-done">DONE</span></td><td>api (21 routes), msggateway, msgtransfer, push, crontask</td></tr>
+  <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-done">DONE</span></td><td>api (48 routes), msggateway (ws+conn mgr), msgtransfer (queue), push (subs), crontask (scheduler)</td></tr>
   <tr><td>5</td><td>Tests + Docs + Service Wiring</td><td><span class="tag tag-done">DONE</span></td><td>RPC server, config YAML, e2e tests, all cmd/ wired</td></tr>
 </table>
 
@@ -221,11 +235,11 @@
   <tr><td>Services</td><td>Conversation</td><td>miku_conversation.h/c</td><td>Create/get/get_all/update, RPC handler</td></tr>
   <tr><td>Services</td><td>Msg</td><td>miku_msg.h/c</td><td>Send/query_by_conv/revoke, RPC handler</td></tr>
   <tr><td>Services</td><td>Third</td><td>miku_third.h/c</td><td>Upload token, download URL stubs</td></tr>
-  <tr><td>Gateway</td><td>API</td><td>miku_api.h/c</td><td>21 HTTP routes aggregating all services</td></tr>
-  <tr><td>Gateway</td><td>MsgGateway</td><td>miku_msggateway.h/c</td><td>WebSocket gateway stub</td></tr>
-  <tr><td>Gateway</td><td>MsgTransfer</td><td>miku_msgtransfer.h/c</td><td>Message transfer stub</td></tr>
-  <tr><td>Gateway</td><td>Push</td><td>miku_push.h/c</td><td>Push notification stub</td></tr>
-  <tr><td>Gateway</td><td>Crontask</td><td>miku_crontask.h/c</td><td>Cron task stub</td></tr>
+  <tr><td>Gateway</td><td>API</td><td>miku_api.h/c</td><td>48 HTTP routes, batch ops, admin endpoints</td></tr>
+  <tr><td>Gateway</td><td>MsgGateway</td><td>miku_msggateway.h/c</td><td>TCP WS listener, 4096-client connection manager, broadcast/kick</td></tr>
+  <tr><td>Gateway</td><td>MsgTransfer</td><td>miku_msgtransfer.h/c</td><td>SPSC ring buffer queue (16384), spinlock protected</td></tr>
+  <tr><td>Gateway</td><td>Push</td><td>miku_push.h/c</td><td>Subscribe/unsubscribe registry, JSON push notifications</td></tr>
+  <tr><td>Gateway</td><td>Crontask</td><td>miku_crontask.h/c</td><td>Named task scheduler, interval-based tick execution</td></tr>
 </table>
 
 <h2>Test Summary</h2>
@@ -240,7 +254,8 @@
   <tr><td>Storage (Cache+Discovery)</td><td>9</td><td>~35</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Services (Models+Auth+User+Friend+Group+Conv+Msg+Third)</td><td>10</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Integration (API gateway + RPC server e2e)</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>67</strong></td><td><strong>265+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Gateway (msggateway + msgtransfer + push + crontask)</td><td>4</td><td>~25</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>71</strong></td><td><strong>290+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>

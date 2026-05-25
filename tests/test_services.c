@@ -11,6 +11,10 @@
 #include "miku_api.h"
 #include "miku_http_server.h"
 #include "miku_rpc_server.h"
+#include "miku_msggateway.h"
+#include "miku_msgtransfer.h"
+#include "miku_push.h"
+#include "miku_crontask.h"
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -323,6 +327,96 @@ static void test_rpc_server_e2e(void) {
     miku_user_service_destroy(svc);
 }
 
+static void test_msggateway_lifecycle(void) {
+    miku_msggw_t *gw = miku_msggw_create(19100);
+    mk_assert_not_null(gw);
+
+    int rc = miku_msggw_start(gw);
+    mk_assert_int_eq(0, rc);
+    mk_assert_int_eq(0, miku_msggw_client_count(gw));
+
+    miku_msggw_stop(gw);
+    miku_msggw_destroy(gw);
+}
+
+static void test_msgtransfer_queue(void) {
+    miku_msgtransfer_t *mt = miku_msgtransfer_create();
+    mk_assert_not_null(mt);
+    miku_msgtransfer_start(mt);
+
+    mk_assert_int_eq(0, miku_msgtransfer_pending(mt));
+
+    miku_msg_t m;
+    memset(&m, 0, sizeof(m));
+    strncpy(m.send_id, "s1", sizeof(m.send_id) - 1);
+    strncpy(m.content, "hello queue", sizeof(m.content) - 1);
+    int rc = miku_msgtransfer_enqueue(mt, &m);
+    mk_assert_int_eq(0, rc);
+    mk_assert_int_eq(1, miku_msgtransfer_pending(mt));
+
+    miku_msg_t out;
+    rc = miku_msgtransfer_dequeue(mt, &out);
+    mk_assert_int_eq(0, rc);
+    mk_assert_str_eq("s1", out.send_id);
+    mk_assert_str_eq("hello queue", out.content);
+    mk_assert_int_eq(0, miku_msgtransfer_pending(mt));
+    mk_assert_long_eq(1, (long)miku_msgtransfer_total_processed(mt));
+
+    miku_msgtransfer_stop(mt);
+    miku_msgtransfer_destroy(mt);
+}
+
+static void test_push_subscribe(void) {
+    miku_push_t *p = miku_push_create();
+    mk_assert_not_null(p);
+    miku_push_start(p);
+
+    mk_assert_int_eq(0, miku_push_online_count(p));
+
+    miku_push_subscribe(p, "u1", 1);
+    miku_push_subscribe(p, "u2", 2);
+    mk_assert_int_eq(2, miku_push_online_count(p));
+
+    miku_push_to_user(p, "u1", "Test", "Hello");
+    mk_assert(miku_push_online_count(p) == 2);
+
+    miku_push_unsubscribe(p, "u1");
+    mk_assert_int_eq(1, miku_push_online_count(p));
+
+    miku_push_stop(p);
+    miku_push_destroy(p);
+}
+
+static int g_cron_ran = 0;
+static void cron_test_fn(void *ctx) {
+    (void)ctx;
+    g_cron_ran++;
+}
+
+static void test_crontask_tick(void) {
+    miku_crontask_t *ct = miku_crontask_create();
+    mk_assert_not_null(ct);
+    miku_crontask_start(ct);
+
+    mk_assert_int_eq(0, miku_crontask_task_count(ct));
+    g_cron_ran = 0;
+
+    miku_crontask_add(ct, "test_task", cron_test_fn, NULL, 1000);
+    mk_assert_int_eq(1, miku_crontask_task_count(ct));
+
+    miku_crontask_tick(ct);
+    mk_assert_int_eq(1, g_cron_ran);
+
+    miku_crontask_tick(ct);
+    mk_assert_int_eq(1, g_cron_ran);
+
+    miku_crontask_remove(ct, "test_task");
+    mk_assert_int_eq(0, miku_crontask_task_count(ct));
+
+    miku_crontask_stop(ct);
+    miku_crontask_destroy(ct);
+}
+
 void run_service_tests(void) {
     printf("\n── Miku Service Tests ───────────────────\n\n");
 
@@ -338,4 +432,8 @@ void run_service_tests(void) {
     mk_run_test(test_third_rpc);
     mk_run_test(test_api_gateway_e2e);
     mk_run_test(test_rpc_server_e2e);
+    mk_run_test(test_msggateway_lifecycle);
+    mk_run_test(test_msgtransfer_queue);
+    mk_run_test(test_push_subscribe);
+    mk_run_test(test_crontask_tick);
 }

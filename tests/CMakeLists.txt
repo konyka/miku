@@ -16,6 +16,10 @@ target_include_directories(miku_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/services/msg
     ${CMAKE_SOURCE_DIR}/src/services/third
     ${CMAKE_SOURCE_DIR}/src/gateway/api
+    ${CMAKE_SOURCE_DIR}/src/gateway/msggateway
+    ${CMAKE_SOURCE_DIR}/src/gateway/msgtransfer
+    ${CMAKE_SOURCE_DIR}/src/gateway/push
+    ${CMAKE_SOURCE_DIR}/src/gateway/crontask
 )
 
 target_link_libraries(miku_tests PRIVATE

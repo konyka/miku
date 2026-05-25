@@ -159,6 +159,67 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
     json_resp(resp, out);
 }
 
+static void handle_admin(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)req;
+    miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
+    miku_json_val_t *out = miku_json_create_object();
+    char *path = strndup(req->path.data, req->path.len);
+    if (strstr(path, "stats")) {
+        ji(out, "errCode", 0);
+        ji(out, "onlineUsers", 0);
+        ji(out, "totalUsers", 1);
+        ji(out, "totalMessages", 0);
+        ji(out, "uptime", miku_timestamp_ms());
+    } else if (strstr(path, "health")) {
+        ji(out, "status", 0);
+        jss(out, "message", "ok");
+    } else {
+        ji(out, "errCode", 404);
+    }
+    free(path);
+    json_resp(resp, out);
+}
+
+static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
+    miku_json_val_t *j = parse_body(req);
+    miku_json_val_t *out = miku_json_create_object();
+    char *path = strndup(req->path.data, req->path.len);
+    if (strstr(path, "get_users_info")) {
+        miku_json_val_t *uid_list = miku_json_get(j, "userIDList");
+        miku_json_val_t *arr = miku_json_create_array();
+        if (uid_list) {
+            size_t n = miku_json_size(uid_list);
+            for (size_t i = 0; i < n; i++) {
+                const char *uid = miku_json_str(miku_json_at(uid_list, i));
+                miku_json_val_t *get = miku_json_create_object();
+                miku_json_object_set(get, "userID", miku_json_create_str(uid ? uid : ""));
+                miku_json_val_t *r = miku_json_create_object();
+                miku_user_handle_rpc(c->user, "getUserInfo", get, r);
+                int64_t err = miku_json_int(miku_json_get(r, "errCode"));
+                if (err == 0) {
+                    miku_json_val_t *data = miku_json_get(r, "data");
+                    if (data) miku_json_array_push(arr, data);
+                }
+                miku_json_destroy(get);
+                miku_json_destroy(r);
+            }
+        }
+        ji(out, "errCode", 0);
+        miku_json_object_set(out, "data", arr);
+    } else if (strstr(path, "delete_friend")) {
+        miku_json_val_t *r = miku_json_create_object();
+        miku_friend_handle_rpc(c->friend_svc, "deleteFriend", j, r);
+        miku_json_object_set(out, "errCode", miku_json_get(r, "errCode"));
+        miku_json_destroy(r);
+    } else {
+        ji(out, "errCode", 404);
+    }
+    free(path);
+    miku_json_destroy(j);
+    json_resp(resp, out);
+}
+
 int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     if (!srv || !ctx) return -1;
     miku_http_server_route(srv, "POST", "/auth/user_token", handle_auth, ctx);
@@ -182,5 +243,34 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "POST", "/msg/revoke", handle_msg, ctx);
     miku_http_server_route(srv, "POST", "/third/upload_token", handle_third, ctx);
     miku_http_server_route(srv, "POST", "/third/download_url", handle_third, ctx);
+
+    miku_http_server_route(srv, "POST", "/admin/stats", handle_admin, ctx);
+    miku_http_server_route(srv, "GET",  "/admin/health", handle_admin, ctx);
+    miku_http_server_route(srv, "POST", "/admin/shutdown", handle_admin, ctx);
+    miku_http_server_route(srv, "POST", "/user/get_users_info", handle_batch, ctx);
+    miku_http_server_route(srv, "POST", "/friend/delete_friend", handle_batch, ctx);
+    miku_http_server_route(srv, "POST", "/user/account_check", handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/get_all_users", handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/count", handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/search", handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/friend/add_black", handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/remove_black", handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_black_list", handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/group/set_group_info", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/join", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/quit", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_groups_info", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/set_group_member_info", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/dismiss", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/mute", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/cancel_mute", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/get_all_conversations", handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/set_conversations", handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/delete_conversation", handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/msg/send_msg", handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/get_msg", handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/get_server_time", handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/third/access_url", handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/third/delete_object", handle_third, ctx);
     return 0;
 }
