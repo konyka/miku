@@ -35,6 +35,7 @@ int main(int argc, char **argv) {
 
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     if (!ctx) { MK_LOG_ERROR("Failed to create API context"); return 1; }
+    ctx->stats.port = port;
 
     miku_http_server_t *srv = miku_http_server_create(listen_addr, port);
     if (!srv) { MK_LOG_ERROR("Failed to create HTTP server on %s:%d", listen_addr, port); miku_api_ctx_destroy(ctx); return 1; }

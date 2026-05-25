@@ -7,6 +7,7 @@
 #include "miku_config.h"
 #include "miku_service_config.h"
 #include "miku_graceful.h"
+#include "miku_stats.h"
 #include "miku_uuid.h"
 #include "miku_crc32.h"
 #include "miku_base64.h"
@@ -271,6 +272,56 @@ void test_graceful_lifecycle(void) {
     miku_graceful_cleanup(&g);
 }
 
+void test_stats_basic(void) {
+    miku_stats_t s;
+    miku_stats_init(&s, "test-svc", 9999);
+
+    mk_assert_str_eq("test-svc", s.service_name);
+    mk_assert_int_eq(9999, s.port);
+    mk_assert_int_eq(0, (int)miku_atomic_load(&s.requests_total));
+    mk_assert_int_eq(0, (int)miku_atomic_load(&s.connections_active));
+
+    miku_stats_request_inc(&s);
+    miku_stats_request_inc(&s);
+    miku_stats_fail_inc(&s);
+    miku_stats_conn_open(&s);
+    miku_stats_conn_open(&s);
+    miku_stats_conn_close(&s);
+    miku_stats_bytes_sent(&s, 1024);
+    miku_stats_bytes_recv(&s, 512);
+
+    mk_assert_int_eq(2, (int)miku_atomic_load(&s.requests_total));
+    mk_assert_int_eq(1, (int)miku_atomic_load(&s.requests_failed));
+    mk_assert_int_eq(1, (int)miku_atomic_load(&s.connections_active));
+    mk_assert_int_eq(2, (int)miku_atomic_load(&s.connections_total));
+    mk_assert_int_eq(1024, (int)miku_atomic_load(&s.bytes_sent));
+    mk_assert_int_eq(512, (int)miku_atomic_load(&s.bytes_recv));
+}
+
+void test_stats_snapshot(void) {
+    miku_stats_t s;
+    miku_stats_init(&s, "snap-test", 8080);
+    miku_stats_request_inc(&s);
+    miku_stats_conn_open(&s);
+
+    miku_stats_snapshot_t snap;
+    miku_stats_snapshot(&s, &snap);
+
+    mk_assert_str_eq("snap-test", snap.service_name);
+    mk_assert_int_eq(8080, snap.port);
+    mk_assert_int_eq(1, (int)snap.requests_total);
+    mk_assert_int_eq(1, (int)snap.connections_active);
+    mk_assert(snap.uptime_ms >= 0);
+}
+
+void test_stats_uptime(void) {
+    miku_stats_t s;
+    miku_stats_init(&s, "up", 1);
+    int64_t up = miku_stats_uptime_ms(&s);
+    mk_assert(up >= 0);
+    mk_assert(up < 5000);
+}
+
 int main(void) {
     printf("── Miku Foundation Tests ───────────────────\n\n");
 
@@ -290,6 +341,9 @@ int main(void) {
     mk_run_test(test_config_file_io);
     mk_run_test(test_service_config);
     mk_run_test(test_graceful_lifecycle);
+    mk_run_test(test_stats_basic);
+    mk_run_test(test_stats_snapshot);
+    mk_run_test(test_stats_uptime);
 
     run_runtime_tests();
     run_protocol_tests();

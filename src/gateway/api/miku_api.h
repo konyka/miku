@@ -10,6 +10,7 @@
 #include "miku_conversation.h"
 #include "miku_msg.h"
 #include "miku_third.h"
+#include "miku_stats.h"
 
 typedef struct {
     miku_auth_service_t       *auth;
@@ -19,6 +20,7 @@ typedef struct {
     miku_conv_service_t       *conv;
     miku_msg_service_t        *msg;
     miku_third_service_t      *third;
+    miku_stats_t              stats;
 } miku_api_ctx_t;
 
 MIKU_API miku_api_ctx_t *miku_api_ctx_create(void);

@@ -16,6 +16,7 @@ set(MIKU_FOUNDATION_SOURCES
     miku_sha1.c
     miku_service_config.c
     miku_graceful.c
+    miku_stats.c
 )
 
 add_library(miku_foundation STATIC ${MIKU_FOUNDATION_SOURCES})

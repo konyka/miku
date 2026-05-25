@@ -217,6 +217,22 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 9</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Service Metrics + Health Endpoints + SIGHUP Reload + README</h3>
+  <ul>
+    <li><strong>Service metrics</strong> (<code>miku_stats.h/c</code>): atomic counters for requests_total, requests_failed,
+        connections_active/total, bytes_sent/recv, uptime. Thread-safe snapshot via <code>miku_stats_snapshot()</code>.</li>
+    <li><strong>Health/Stats endpoints</strong>: <code>/admin/health</code> returns <code>{"status":0,"message":"ok"}</code>,
+        <code>/admin/stats</code> returns live metrics (request counts, connections, bytes, uptime) from <code>miku_stats_t</code> embedded in API context.</li>
+    <li><strong>SIGHUP config reload</strong>: <code>miku_graceful_on_reload()</code> registers a callback invoked on SIGHUP,
+        enabling live config reload without restart.</li>
+    <li><strong>README.md</strong>: full project documentation with architecture diagram, service table, build/run/config instructions, project stats.</li>
+    <li>3 new tests: stats basic (counters), stats snapshot (struct copy), stats uptime (time check)</li>
+    <li>86 tests + 5 benchmarks, all passing; 52 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -239,6 +255,7 @@
   <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-done">DONE</span></td><td>api (48 routes), msggateway (ws+conn mgr), msgtransfer (queue), push (subs), crontask (scheduler)</td></tr>
   <tr><td>5</td><td>Tests + Docs + Service Wiring</td><td><span class="tag tag-done">DONE</span></td><td>RPC server, config YAML, e2e tests, all cmd/ wired</td></tr>
   <tr><td>8</td><td>Config Integration + Graceful Shutdown</td><td><span class="tag tag-done">DONE</span></td><td>Dot-path YAML, service config loader, graceful shutdown, all cmd/ wired to config</td></tr>
+  <tr><td>9</td><td>Service Metrics + Health + SIGHUP + README</td><td><span class="tag tag-done">DONE</span></td><td>miku_stats, /admin/health+stats, SIGHUP reload, README.md</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -296,14 +313,15 @@
   <tr><td>Gateway</td><td>Push</td><td>miku_push.h/c</td><td>Subscribe/unsubscribe registry, JSON push notifications</td></tr>
   <tr><td>Gateway</td><td>Crontask</td><td>miku_crontask.h/c</td><td>Named task scheduler, interval-based tick execution</td></tr>
   <tr><td>Foundation</td><td>Service Config</td><td>miku_service_config.h/c</td><td>Unified service config loader, loads all config/*.yml, populates miku_service_config_t</td></tr>
-  <tr><td>Foundation</td><td>Graceful</td><td>miku_graceful.h/c</td><td>SIGTERM/SIGINT handler, drain timeout, on_drain callback</td></tr>
+  <tr><td>Foundation</td><td>Graceful</td><td>miku_graceful.h/c</td><td>SIGTERM/SIGINT handler, drain timeout, SIGHUP reload callback, on_drain callback</td></tr>
+  <tr><td>Foundation</td><td>Stats</td><td>miku_stats.h/c</td><td>Atomic service metrics: requests, connections, bytes, uptime, thread-safe snapshot</td></tr>
 </table>
 
 <h2>Test Summary</h2>
 
 <table>
   <tr><th>Category</th><th>Tests</th><th>Assertions</th><th>Status</th></tr>
-  <tr><td>Foundation</td><td>16</td><td>~55</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Foundation</td><td>19</td><td>~70</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Runtime</td><td>9</td><td>~32</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Protocol (HTTP)</td><td>8</td><td>~30</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Protocol (JSON)</td><td>8</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
@@ -314,12 +332,13 @@
   <tr><td>Gateway (msggateway + msgtransfer + push + crontask)</td><td>4</td><td>~25</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>WS Gateway + Cross-Service Integration</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Benchmarks (JSON/HashMap/Cache/Queue)</td><td>5</td><td>~5</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>83</strong></td><td><strong>340+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>86</strong></td><td><strong>370+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>
 
 <pre>
+TBD     feat: service metrics (miku_stats), health/stats endpoints, SIGHUP config reload, README.md
 TBD     feat: config integration (dot-path YAML, service config loader), graceful shutdown, all cmd/ wired to config
 TBD     feat: WebSocket gateway (upgrade+frame I/O), cross-service msg→conversation integration
 9d8020c feat: middleware framework, dev server, performance benchmarks

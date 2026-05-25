@@ -15,6 +15,7 @@ miku_api_ctx_t *miku_api_ctx_create(void) {
     ctx->conv = miku_conv_service_create();
     ctx->msg = miku_msg_service_create();
     ctx->third = miku_third_service_create();
+    miku_stats_init(&ctx->stats, "miku-api", 0);
     return ctx;
 }
 
@@ -182,16 +183,21 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
 }
 
 static void handle_admin(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
-    (void)req;
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);
     if (strstr(path, "stats")) {
+        miku_stats_snapshot_t snap;
+        miku_stats_snapshot(&c->stats, &snap);
         ji(out, "errCode", 0);
-        ji(out, "onlineUsers", 0);
-        ji(out, "totalUsers", 1);
-        ji(out, "totalMessages", 0);
-        ji(out, "uptime", miku_timestamp_ms());
+        ji(out, "requestsTotal", snap.requests_total);
+        ji(out, "requestsFailed", snap.requests_failed);
+        ji(out, "connectionsActive", snap.connections_active);
+        ji(out, "connectionsTotal", snap.connections_total);
+        ji(out, "bytesSent", snap.bytes_sent);
+        ji(out, "bytesRecv", snap.bytes_recv);
+        ji(out, "uptimeMs", snap.uptime_ms);
+        jss(out, "service", snap.service_name);
     } else if (strstr(path, "health")) {
         ji(out, "status", 0);
         jss(out, "message", "ok");
