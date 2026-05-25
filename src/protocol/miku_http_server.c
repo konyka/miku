@@ -32,7 +32,10 @@ struct miku_http_server_s {
     int                mw_count;
     bool               running;
     miku_stats_t      *stats;
+    size_t             max_body;
 };
+
+#define MIKU_DEFAULT_MAX_BODY (1 << 20)
 
 static void handle_client(int fd, int events, void *data) {
     (void)events;
@@ -55,6 +58,16 @@ static void handle_client(int fd, int events, void *data) {
         write(fd, bad, strlen(bad));
         close(fd);
         miku_io_del(srv->io, fd);
+        return;
+    }
+
+    if (srv->max_body > 0 && req->body.len > srv->max_body) {
+        miku_http_request_destroy(req);
+        const char *big = "HTTP/1.1 413 Payload Too Large\r\nContent-Length: 0\r\n\r\n";
+        write(fd, big, strlen(big));
+        close(fd);
+        miku_io_del(srv->io, fd);
+        if (srv->stats) miku_stats_conn_close(srv->stats);
         return;
     }
 
@@ -119,6 +132,7 @@ miku_http_server_t *miku_http_server_create(const char *host, int port) {
     strncpy(srv->host, host ? host : "0.0.0.0", sizeof(srv->host) - 1);
     srv->port = port;
     srv->io = miku_io_create();
+    srv->max_body = MIKU_DEFAULT_MAX_BODY;
     return srv;
 }
 
@@ -187,4 +201,8 @@ void miku_http_server_destroy(miku_http_server_t *srv) {
 
 void miku_http_server_set_stats(miku_http_server_t *srv, miku_stats_t *stats) {
     if (srv) srv->stats = stats;
+}
+
+void miku_http_server_set_max_body(miku_http_server_t *srv, size_t max_bytes) {
+    if (srv) srv->max_body = max_bytes;
 }

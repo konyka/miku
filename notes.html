@@ -282,6 +282,17 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 13</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Version Endpoint + Access Logs + Body Size Limit</h3>
+  <ul>
+    <li><strong>/version endpoint</strong>: <code>GET /version</code> returns <code>{"version":"0.1.0","gitHash":"abc123","buildDate":"..."}</code></li>
+    <li><strong>Access log middleware</strong>: <code>miku_mw_logging</code> now wired into miku-api and miku-dev — logs <code>METHOD /path STATUS</code> per request</li>
+    <li><strong>Request body size limit</strong>: <code>miku_http_server_set_max_body()</code> (default 1MB). Returns <code>413 Payload Too Large</code> when exceeded.</li>
+    <li>89 tests + 5 benchmarks, all passing; 54 modules; 13 binaries</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -308,6 +319,7 @@
   <tr><td>10</td><td>Stats Middleware + JSON Utilities + Error Standard + Endpoint Tests</td><td><span class="tag tag-done">DONE</span></td><td>miku_mw_stats, miku_json_util.h, miku_jerr, deduplicated helpers, health/stats tests</td></tr>
   <tr><td>11</td><td>HTTP Server Connection + Bytes Tracking</td><td><span class="tag tag-done">DONE</span></td><td>miku_http_server_set_stats, conn/bytes auto-tracking, improved access log</td></tr>
   <tr><td>12</td><td>Version Info + RPC Stats + JSON Errors</td><td><span class="tag tag-done">DONE</span></td><td>miku_version.h, RPC server stats, JSON 404 responses</td></tr>
+  <tr><td>13</td><td>Version Endpoint + Access Logs + Body Limit</td><td><span class="tag tag-done">DONE</span></td><td>GET /version, miku_mw_logging wired, 1MB body limit</td></tr>
 </table>
 
 <h2>Module Inventory</h2>

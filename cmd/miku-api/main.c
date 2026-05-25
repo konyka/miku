@@ -43,6 +43,7 @@ int main(int argc, char **argv) {
 
     miku_http_server_set_stats(srv, &ctx->stats);
     miku_http_server_use(srv, miku_mw_cors, NULL);
+    miku_http_server_use(srv, miku_mw_logging, NULL);
     miku_http_server_use(srv, miku_mw_stats, &ctx->stats);
     miku_api_register_routes(srv, ctx);
     MK_LOG_INFO("Registered 48 API routes");

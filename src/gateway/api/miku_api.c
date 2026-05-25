@@ -2,6 +2,7 @@
 #include "miku_log.h"
 #include "miku_json.h"
 #include "miku_json_util.h"
+#include "miku_version.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -246,6 +247,15 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
     json_resp(resp, out);
 }
 
+static void handle_version(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)req; (void)ctx;
+    miku_json_val_t *out = miku_json_create_object();
+    miku_jss(out, "version", MIKU_VERSION_STRING);
+    miku_jss(out, "gitHash", MIKU_GIT_HASH);
+    miku_jss(out, "buildDate", MIKU_BUILD_DATE);
+    json_resp(resp, out);
+}
+
 int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     if (!srv || !ctx) return -1;
     miku_http_server_route(srv, "POST", "/auth/user_token", handle_auth, ctx);
@@ -272,6 +282,7 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
 
     miku_http_server_route(srv, "POST", "/admin/stats", handle_admin, ctx);
     miku_http_server_route(srv, "GET",  "/admin/health", handle_admin, ctx);
+    miku_http_server_route(srv, "GET",  "/version", handle_version, ctx);
     miku_http_server_route(srv, "POST", "/admin/shutdown", handle_admin, ctx);
     miku_http_server_route(srv, "POST", "/user/get_users_info", handle_batch, ctx);
     miku_http_server_route(srv, "POST", "/friend/delete_friend", handle_batch, ctx);
