@@ -76,3 +76,6 @@ target_link_libraries(miku-rpc-msg PRIVATE ${MIKU_SERVICE_LIBS})
 # ── RPC: Third Party ───────────────────────────────────────
 add_executable(miku-rpc-third miku-rpc-third/main.c)
 target_link_libraries(miku-rpc-third PRIVATE ${MIKU_SERVICE_LIBS})
+
+add_executable(miku-dev miku-dev/main.c)
+target_link_libraries(miku-dev PRIVATE ${MIKU_SERVICE_LIBS})

@@ -10,7 +10,13 @@
 #include <fcntl.h>
 
 #define MAX_ROUTES 256
+#define MAX_MIDDLEWARE 16
 #define READ_BUF   4096
+
+typedef struct {
+    miku_http_middleware_fn fn;
+    void                   *ctx;
+} miku_mw_entry_t;
 
 struct miku_http_server_s {
     int                listen_fd;
@@ -19,6 +25,8 @@ struct miku_http_server_s {
     miku_io_t         *io;
     miku_http_route_t  routes[MAX_ROUTES];
     int                route_count;
+    miku_mw_entry_t    middleware[MAX_MIDDLEWARE];
+    int                mw_count;
     bool               running;
 };
 
@@ -43,6 +51,12 @@ static void handle_client(int fd, int events, void *data) {
     }
 
     miku_http_response_t *resp = miku_http_response_create();
+
+    for (int i = 0; i < srv->mw_count; i++) {
+        miku_mw_result_t r = srv->middleware[i].fn(req, resp, srv->middleware[i].ctx);
+        if (r == MK_MW_STOP) goto send_response;
+    }
+
     bool matched = false;
     for (int i = 0; i < srv->route_count; i++) {
         miku_http_route_t *r = &srv->routes[i];
@@ -57,6 +71,7 @@ static void handle_client(int fd, int events, void *data) {
     }
     if (!matched) resp->status = 404;
 
+send_response:
     miku_string_t *out = miku_http_response_serialize(resp);
     write(fd, out->data, out->len);
     miku_str_destroy(out);
@@ -94,6 +109,14 @@ int miku_http_server_route(miku_http_server_t *srv, const char *method,
     r->path = path;
     r->handler = fn;
     r->ctx = ctx;
+    return 0;
+}
+
+int miku_http_server_use(miku_http_server_t *srv, miku_http_middleware_fn mw, void *ctx) {
+    if (!srv || !mw || srv->mw_count >= MAX_MIDDLEWARE) return -1;
+    srv->middleware[srv->mw_count].fn = mw;
+    srv->middleware[srv->mw_count].ctx = ctx;
+    srv->mw_count++;
     return 0;
 }
 

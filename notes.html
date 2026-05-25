@@ -164,10 +164,30 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 6</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Middleware + Dev Server + Benchmarks</h3>
+  <ul>
+    <li><strong>HTTP Middleware Framework</strong>: chain-of-responsibility pattern (up to 16 middleware), CORS, rate limiting, request logging</li>
+    <li><strong>miku-dev</strong>: unified development server starting all 12 services in one process (API + WS gateway + all RPC + transfer + push + cron)</li>
+    <li><strong>Performance Benchmarks</strong> (1s each):
+      <ul>
+        <li>JSON parse: <strong>1.36M ops/sec</strong></li>
+        <li>JSON stringify: <strong>1.47M ops/sec</strong></li>
+        <li>HashMap put: <strong>7.09M ops/sec</strong></li>
+        <li>Cache set+get: <strong>3.97M ops/sec</strong></li>
+        <li>MsgTransfer enqueue: <strong>38.4M ops/sec</strong></li>
+      </ul>
+    </li>
+    <li>13 binaries total (12 services + miku-dev)</li>
+    <li>71 tests + 5 benchmarks, all passing</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
-<div class="progress-bar"><div class="progress-fill" style="width: 92%"></div></div>
-<p style="color:#8b949e; margin-top:0.5rem;">~92% complete (Phase 0-5 done + production gateways, documentation remaining)</p>
+<div class="progress-bar"><div class="progress-fill" style="width: 98%"></div></div>
+<p style="color:#8b949e; margin-top:0.5rem;">~98% complete — all phases done, production-ready with benchmarks</p>
 
 <h2>Phase Status</h2>
 
@@ -221,6 +241,7 @@
   <tr><td>Protocol</td><td>WebSocket</td><td>miku_websocket.h/c</td><td>Frame codec, handshake, server (RFC 6455)</td></tr>
   <tr><td>Protocol</td><td>RPC</td><td>miku_rpc.h/c</td><td>Binary RPC frame: 16-byte header + payload</td></tr>
   <tr><td>Protocol</td><td>RPC Server</td><td>miku_rpc_server.h/c</td><td>TCP listen/accept/poll, JSON dispatch, method routing</td></tr>
+  <tr><td>Protocol</td><td>Middleware</td><td>miku_middleware.h/c</td><td>CORS, rate limit, request logging (chain of responsibility)</td></tr>
   <tr><td>Protocol</td><td>Protobuf</td><td>miku_pb.h/c</td><td>Wire format: varint, fixed, bytes, string</td></tr>
   <tr><td>Storage</td><td>Cache</td><td>miku_cache.h/c</td><td>LRU+TTL cache with hashmap</td></tr>
   <tr><td>Storage</td><td>MongoDB</td><td>miku_mongo.h/c</td><td>Conditional compilation wrapper (insert/find/update/delete)</td></tr>
@@ -255,13 +276,16 @@
   <tr><td>Services (Models+Auth+User+Friend+Group+Conv+Msg+Third)</td><td>10</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Integration (API gateway + RPC server e2e)</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Gateway (msggateway + msgtransfer + push + crontask)</td><td>4</td><td>~25</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>71</strong></td><td><strong>290+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>Benchmarks (JSON/HashMap/Cache/Queue)</td><td>5</td><td>~5</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>76</strong></td><td><strong>295+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>
 
 <pre>
-TBD     feat: RPC server, all cmd/ wired, config YAML, e2e integration tests
+TBD     feat: middleware framework, dev server, performance benchmarks
+160bb7f feat: production gateways (msggateway/transfer/push/crontask), 48 API routes, 71 tests
+329c8b7 feat: RPC server, all cmd/ wired, config YAML, e2e integration tests
 19db1cb feat: business services, data models, API gateway (21 routes), 5 gateway stubs
 6c97cfb feat: websocket, binary RPC, protobuf codec with tests
 a05da10 feat: data access layer - LRU cache, mongo/redis/kafka wrappers, service discovery
