@@ -399,6 +399,20 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 22</span> <span class="tag tag-done">DONE</span></div>
+  <h3>ARCHITECTURE.md Rewrite + Benchmark Script</h3>
+  <ul>
+    <li><strong>ARCHITECTURE.md</strong>: Full rewrite reflecting all 21 phases — added sections for HTTP server features, middleware pipeline, service metrics, Prometheus, log rotation, version module</li>
+    <li>Updated directory tree (103 routes, 6 middlewares), dependency table (all optional), build system (conditional flags), test summary (100 tests), phase table (0-21)</li>
+    <li>Added Section 11: Production Deployment (Docker, CI, monitoring endpoints)</li>
+    <li>Added Section 12: API Route Table (103 routes across 7 service groups + admin)</li>
+    <li>Added Section 13: Key Design Decisions (13 documented choices)</li>
+    <li><strong>scripts/bench.sh</strong>: Load test / benchmark runner — unit benchmarks, HTTP latency, throughput (ab or curl fallback), service metrics check</li>
+    <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries; 103 routes</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
 <div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
@@ -418,7 +432,7 @@
   <tr><td>1G</td><td>WebSocket + Binary RPC + Protobuf</td><td><span class="tag tag-done">DONE</span></td><td>miku_websocket.h/c, miku_rpc.h/c, miku_pb.h/c, miku_sha1.h/c</td></tr>
   <tr><td>2</td><td>Data Access Layer</td><td><span class="tag tag-done">DONE</span></td><td>cache, mongo, redis, kafka, discovery</td></tr>
   <tr><td>3</td><td>Business Services (7 RPC)</td><td><span class="tag tag-done">DONE</span></td><td>auth, user, friend, group, conversation, msg, third</td></tr>
-  <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-done">DONE</span></td><td>api (48 routes), msggateway (ws+conn mgr), msgtransfer (queue), push (subs), crontask (scheduler)</td></tr>
+  <tr><td>4</td><td>Gateway Services</td><td><span class="tag tag-done">DONE</span></td><td>api (103 routes), msggateway (ws+conn mgr), msgtransfer (queue), push (subs), crontask (scheduler)</td></tr>
   <tr><td>5</td><td>Tests + Docs + Service Wiring</td><td><span class="tag tag-done">DONE</span></td><td>RPC server, config YAML, e2e tests, all cmd/ wired</td></tr>
   <tr><td>8</td><td>Config Integration + Graceful Shutdown</td><td><span class="tag tag-done">DONE</span></td><td>Dot-path YAML, service config loader, graceful shutdown, all cmd/ wired to config</td></tr>
   <tr><td>9</td><td>Service Metrics + Health + SIGHUP + README</td><td><span class="tag tag-done">DONE</span></td><td>miku_stats, /admin/health+stats, SIGHUP reload, README.md</td></tr>
@@ -434,6 +448,7 @@
   <tr><td>19</td><td>GitHub Actions CI</td><td><span class="tag tag-done">DONE</span></td><td>Build + test + Docker validation on push/PR</td></tr>
   <tr><td>20</td><td>TLS Support (OpenSSL)</td><td><span class="tag tag-done">DONE</span></td><td>Conditional TLS, miku_http_server_set_tls()</td></tr>
   <tr><td>21</td><td>Log Rotation + Prometheus Metrics</td><td><span class="tag tag-done">DONE</span></td><td>Size-based log rotation, GET /admin/metrics</td></tr>
+  <tr><td>22</td><td>ARCHITECTURE.md Rewrite + Benchmark Script</td><td><span class="tag tag-done">DONE</span></td><td>Full doc rewrite (13 sections), scripts/bench.sh</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -513,12 +528,23 @@
   <tr><td>WS Gateway + Cross-Service Integration</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Health/Stats Endpoint Tests</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Benchmarks (JSON/HashMap/Cache/Queue)</td><td>5</td><td>~5</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>89</strong></td><td><strong>400+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>100</strong></td><td><strong>400+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>
 
 <pre>
+TBD     docs: ARCHITECTURE.md rewrite (13 sections, all 21 phases), scripts/bench.sh
+3449f17 feat: log rotation, Prometheus metrics endpoint
+b56a830 feat: optional TLS support via OpenSSL
+d9f5a4e ci: GitHub Actions CI pipeline
+bb45019 feat: Dockerfile, Makefile, route validation test (100 tests total)
+404278e feat: connection idle timeout, full RPC dispatch for all 100 routes
+77ac348 feat: HTTP keep-alive, request ID tracking, header val_free fix
+57b43e7 feat: auth middleware, integration tests (100 tests total)
+e18e13f feat: 103 registered routes, full OpenIM API surface
+f64ee2f feat: /version endpoint, access log middleware, 1MB body limit (413)
+TBD     feat: version module, RPC server stats, JSON 404 responses
 TBD     feat: HTTP server connection+bytes tracking, improved access log middleware
 TBD     feat: stats middleware, shared miku_json_util.h, standardized error responses, deduplicated helpers
 TBD     feat: service metrics (miku_stats), health/stats endpoints, SIGHUP config reload, README.md

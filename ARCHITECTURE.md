@@ -2,6 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
+> **Status**: 103 API routes, 100 tests, 54 modules, 13 binaries, 7 RPC services — production-ready.
 
 ## 1. Overview
 
@@ -114,7 +115,7 @@ miku/
 │   │   ├── miku_rpc.h/c              # Binary RPC framework + header codec
 │   │   ├── miku_rpc_server.h/c       # Generic TCP RPC server (listen/poll/dispatch)
 │   │   ├── miku_pb.h/c               # Protocol Buffers encoder/decoder
-│   │   ├── miku_middleware.h/c        # HTTP middleware (CORS, rate limit, logging, stats)
+│   │   ├── miku_middleware.h/c        # HTTP middleware (CORS, rate limit, logging, stats, auth, request_id)
 │   │   └── miku_rpc_cmd.h            # RPC command IDs
 │   │
 │   ├── storage/                      # Data access layer
@@ -143,7 +144,7 @@ miku/
 │   │   └── CMakeLists.txt
 │   │
 │   └── gateway/                      # Gateway services
-│       ├── api/miku_api.h/c          # HTTP API gateway (48 routes)
+│       ├── api/miku_api.h/c          # HTTP API gateway (103 routes, 7 service groups)
 │       ├── msggateway/miku_msggateway.h/c  # WebSocket message gateway (4096 clients)
 │       ├── msgtransfer/miku_msgtransfer.h/c  # Message transfer queue (SPSC ring buffer)
 │       ├── push/miku_push.h/c        # Push notification service
@@ -166,13 +167,27 @@ miku/
 │   ├── miku-dev/main.c               # All-in-one dev server
 │   └── CMakeLists.txt
 │
-└── tests/                            # Test suite
+└── tests/                            # Test suite (100 tests + 5 benchmarks)
     ├── test_foundation.c             # Foundation tests (20 tests)
     ├── test_runtime.c                # Runtime tests (9 tests)
-    ├── test_protocol.c               # Protocol tests (26 tests)
+    ├── test_protocol.c               # Protocol + middleware + route tests (40 tests)
     ├── test_storage.c                # Storage tests (9 tests)
-    ├── test_services.c               # Service + integration tests (25 tests)
+    ├── test_services.c               # Service + integration tests (22 tests)
     └── CMakeLists.txt
+```
+
+### Additional Project Files
+
+```
+miku/
+├── Dockerfile                        # Multi-stage build (gcc:13 → debian:bookworm-slim)
+├── Makefile                          # Convenience targets (build/test/dev/release/docker/count)
+├── .github/workflows/ci.yml          # GitHub Actions CI (build + test + docker-build)
+├── scripts/
+│   └── bench.sh                      # Load test / benchmark runner
+├── config/                           # YAML configuration files
+│   ├── share.yml, mongodb.yml, redis.yml, kafka.yml, log.yml
+└── notes.html                        # Development progress tracking
 ```
 
 ---
@@ -569,6 +584,108 @@ int miku_etcd_watch(miku_etcd_t *etcd, const char *prefix,
                      void (*callback)(const char *key, const char *val));
 ```
 
+### 4.12 HTTP Server Features
+
+The HTTP server (`miku_http_server`) supports production-ready features:
+
+- **HTTP Keep-Alive**: Epoll event handles one request per wake-up, keeps fd registered for next request
+- **Connection Idle Timeout**: Configurable (default 30s), tracked via `conn_last_active[]` array, expired connections cleaned every 100ms epoll cycle
+- **Max Body Size Limit**: Default 1MB, returns `413 Payload Too Large` on oversized requests
+- **TLS Support**: Optional OpenSSL integration via `-DMIKU_ENABLE_TLS=ON`, `miku_http_server_set_tls(cert, key)`. SSL read/write wrapped in `MIKU_READ`/`MIKU_WRITE` macros for transparent operation
+- **Connection & Bytes Tracking**: Atomic counters for total connections, active connections, bytes in/out
+- **Graceful Shutdown**: Stop accepting new connections, drain in-flight requests
+
+```c
+miku_http_server_t *miku_http_server_create(const char *host, int port);
+void miku_http_server_set_tls(miku_http_server_t *srv, const char *cert, const char *key);
+void miku_http_server_set_max_body(miku_http_server_t *srv, size_t max_bytes);
+void miku_http_server_set_idle_timeout(miku_http_server_t *srv, int seconds);
+void miku_http_server_set_stats(miku_http_server_t *srv, miku_stats_t *stats);
+```
+
+### 4.13 Middleware Pipeline
+
+Middleware executes in chain order before route handlers. Chain: **CORS → request_id → logging → auth → stats**.
+
+| Middleware | Purpose |
+|------------|---------|
+| `miku_mw_cors` | Sets `Access-Control-Allow-*` headers for cross-origin requests |
+| `miku_mw_request_id` | Generates unique `X-Request-ID` (UUID v4) per request, propagates to response |
+| `miku_mw_logging` | Access log: method, path, status code, latency, request ID |
+| `miku_mw_auth` | Token validation (`miku_{userID}_{uuid}_{platform}`), HMAC-SHA256, returns 401 on failure |
+| `miku_mw_stats` | Increments request/error counters in `miku_stats_t` |
+
+```c
+typedef enum { MK_MW_CONTINUE = 0, MK_MW_STOP = 1 } miku_mw_result_t;
+typedef miku_mw_result_t (*miku_http_middleware_fn)(miku_http_request_t *req,
+                                                    miku_http_response_t *resp,
+                                                    void *ctx);
+int miku_http_server_use(miku_http_server_t *srv, miku_http_middleware_fn mw, void *ctx);
+```
+
+### 4.14 Service Metrics (miku_stats)
+
+Atomic counters for observability. Each service maintains its own `miku_stats_t`.
+
+```c
+typedef struct {
+    const char   *service_name;
+    int           instance_id;
+    atomic_int64_t total_requests;
+    atomic_int64_t total_errors;
+    atomic_int64_t active_connections;
+    atomic_int64_t bytes_in;
+    atomic_int64_t bytes_out;
+    atomic_int64_t ws_connections;
+    atomic_int64_t uptime_start;
+} miku_stats_t;
+
+void miku_stats_init(miku_stats_t *s, const char *name, int id);
+void miku_stats_format_prometheus(const miku_stats_t *s, char *buf, size_t len);
+```
+
+### 4.15 Prometheus Metrics Endpoint
+
+`GET /admin/metrics` returns standard Prometheus text format:
+
+```
+# HELP miku_requests_total Total requests processed
+# TYPE miku_requests_total counter
+miku_requests_total{service="miku-api"} 12345
+# HELP miku_errors_total Total errors
+# TYPE miku_errors_total counter
+miku_errors_total{service="miku-api"} 42
+# HELP miku_active_connections Currently active connections
+# TYPE miku_active_connections gauge
+miku_active_connections{service="miku-api"} 7
+...
+```
+
+### 4.16 Log Rotation
+
+Size-based rotation via `miku_log_set_rotation()`. When log file exceeds threshold:
+
+```
+miku.log → miku.log.1
+miku.log.1 → miku.log.2
+...
+miku.log.{N-1} → miku.log.N  (N = max_files)
+```
+
+### 4.17 Version Module
+
+Compile-time version constants:
+
+```c
+// miku_version.h
+#define MIKU_VERSION_MAJOR 0
+#define MIKU_VERSION_MINOR 1
+#define MIKU_VERSION_PATCH 0
+#define MIKU_VERSION "0.1.0"
+```
+
+Exposed via `GET /version` endpoint.
+
 ---
 
 ## 5. Service Architecture
@@ -644,11 +761,59 @@ SIGTERM received:
 
 ## 6. Build System (CMake)
 
+### Build Commands
+
+```bash
+# Debug build with tests, no external services
+cmake -B build \
+  -DCMAKE_BUILD_TYPE=Debug \
+  -DMIKU_ENABLE_TESTS=ON \
+  -DMIKU_ENABLE_MONGO=OFF \
+  -DMIKU_ENABLE_REDIS=OFF \
+  -DMIKU_ENABLE_KAFKA=OFF \
+  -DMIKU_ENABLE_S3=OFF \
+  -DMIKU_ENABLE_TLS=OFF
+cmake --build build -j$(nproc)
+
+# Run tests
+timeout 15 ./build/bin/miku_tests
+
+# Production build with all features
+cmake -B build -DCMAKE_BUILD_TYPE=Release \
+  -DMIKU_ENABLE_MONGO=ON -DMIKU_ENABLE_REDIS=ON \
+  -DMIKU_ENABLE_KAFKA=ON -DMIKU_ENABLE_S3=ON \
+  -DMIKU_ENABLE_TLS=ON
+```
+
+### Makefile Targets
+
+```bash
+make build      # Debug build (no external deps)
+make test       # Build + run tests
+make dev        # Start dev server (all-in-one)
+make release    # Release build with all features
+make docker     # Build Docker image
+make count      # Count modules, tests, routes
+```
+
+### Conditional Compilation Flags
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `MIKU_ENABLE_TESTS` | OFF | Build test suite |
+| `MIKU_ENABLE_MONGO` | ON | MongoDB driver (mongoc) |
+| `MIKU_ENABLE_REDIS` | ON | Redis client (hiredis) |
+| `MIKU_ENABLE_KAFKA` | ON | Kafka producer/consumer (librdkafka) |
+| `MIKU_ENABLE_S3` | ON | S3/MinIO storage (libcurl) |
+| `MIKU_ENABLE_TLS` | OFF | OpenSSL TLS support |
+
+When disabled, each module compiles to a stub that returns success/error codes.
+
+### CMake Structure
+
 ```cmake
 cmake_minimum_required(VERSION 3.16)
 project(miku C)
-
-# C99 baseline, with C23 feature detection
 set(CMAKE_C_STANDARD 23)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 
@@ -709,18 +874,28 @@ void test_arena_alloc(void **state) {
 ```
 
 ### Test Categories
-1. **Unit tests**: Per-module (memory, coroutine, http, etc.)
-2. **Integration tests**: Service-to-service RPC calls
-3. **End-to-end tests**: Full API flow (register → login → send msg → receive)
-4. **Stress tests**: 100K concurrent connections, message throughput benchmarks
-5. **Memory leak tests**: Valgrind/ASAN integration
+
+| Category | Tests | Description |
+|----------|-------|-------------|
+| Foundation | 20 | Memory, arena, slab, log, config, hashmap, string, UUID, etc. |
+| Runtime | 9 | Coroutine, thread pool, scheduler, channel, timer |
+| Protocol | 40 | HTTP parser, JSON, SHA1, WebSocket, RPC, PB, middleware, routes |
+| Storage | 9 | LRU cache, service discovery |
+| Services | 22 | Models, 7 RPC services, integration tests, auth middleware |
+| **Total** | **100** | + 5 benchmarks |
+| Benchmarks | 5 | JSON parse/stringify, HashMap put, Cache set+get, Queue enqueue |
 
 ### Test Execution
 ```bash
-./scripts/test.sh              # All tests
-./scripts/test.sh --unit       # Unit tests only
-./scripts/test.sh --integration # Integration tests
-./scripts/test.sh --valgrind   # Memory leak detection
+# Quick build + test
+cmake -B build -DCMAKE_BUILD_TYPE=Debug -DMIKU_ENABLE_TESTS=ON \
+  -DMIKU_ENABLE_MONGO=OFF -DMIKU_ENABLE_REDIS=OFF \
+  -DMIKU_ENABLE_KAFKA=OFF -DMIKU_ENABLE_S3=OFF && \
+cmake --build build -j$(nproc) && \
+timeout 15 ./build/bin/miku_tests
+
+# Or via Makefile
+make test
 ```
 
 ---
@@ -741,42 +916,52 @@ void test_arena_alloc(void **state) {
 
 ## 9. External Dependencies
 
-| Library | Version | Purpose |
-|---------|---------|---------|
-| **mongoc** | 1.27+ | MongoDB C driver |
-| **hiredis** | 1.2+ | Redis async client |
-| **librdkafka** | 2.3+ | Kafka producer/consumer |
-| **libyaml** | 0.2+ | YAML configuration parsing |
-| **zlib** | 1.3+ | Compression (gzip, WebSocket) |
-| **libcurl** | 8.0+ | HTTP client (etcd API, S3) |
-| **OpenSSL** | 3.0+ | TLS, JWT, HMAC-SHA256 |
+| Library | Version | Purpose | Required |
+|---------|---------|---------|----------|
+| **mongoc** | 1.27+ | MongoDB C driver | Optional (`MIKU_ENABLE_MONGO`) |
+| **hiredis** | 1.2+ | Redis async client | Optional (`MIKU_ENABLE_REDIS`) |
+| **librdkafka** | 2.3+ | Kafka producer/consumer | Optional (`MIKU_ENABLE_KAFKA`) |
+| **libyaml** | 0.2+ | YAML configuration parsing | Yes |
+| **zlib** | 1.3+ | Compression (gzip, WebSocket) | Yes |
+| **libcurl** | 8.0+ | HTTP client (etcd API, S3) | Optional (`MIKU_ENABLE_S3`) |
+| **OpenSSL** | 3.0+ | TLS, HMAC-SHA256 | Optional (`MIKU_ENABLE_TLS`) |
 
 ---
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete. 89 tests + 5 benchmarks passing. 53 modules across 6 layers. 13 binaries.
+All phases complete. **100 tests + 5 benchmarks** passing. **54 modules** across 6 layers. **13 binaries**. **103 routes**.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
-| 0 | Architecture Design | ✅ DONE |
-| 1A | Build System + Project Skeleton | ✅ DONE |
-| 1B | Memory Pool (Arena + Slab) | ✅ DONE |
-| 1C | Logger, Config, Error | ✅ DONE |
-| 1D | Thread Pool + Coroutine | ✅ DONE |
-| 1E | I/O Abstraction (epoll) | ✅ DONE |
-| 1F | HTTP + JSON | ✅ DONE |
-| 1G | WebSocket + Binary RPC + Protobuf | ✅ DONE |
-| 2 | Data Access Layer (cache, mongo, redis, kafka, discovery) | ✅ DONE |
-| 3 | Business Services (7 RPC) | ✅ DONE |
-| 4 | Gateway Services (API 48 routes, WS gateway, transfer, push, cron) | ✅ DONE |
-| 5 | Service Wiring + Config YAML + Integration Tests | ✅ DONE |
-| 6 | Middleware Framework + Dev Server + Benchmarks | ✅ DONE |
-| 7 | WebSocket Gateway I/O + Cross-Service Integration | ✅ DONE |
-| 8 | Config Integration (dot-path YAML, service config loader, graceful shutdown) | ✅ DONE |
-| 9 | Service Metrics + Health Endpoints + SIGHUP Reload + README | ✅ DONE |
-| 10 | Stats Middleware + JSON Utilities + Error Standardization | ✅ DONE |
-| 11 | HTTP Server Connection + Bytes Tracking | ✅ DONE |
+| 0 | Architecture Design | DONE |
+| 1A | Build System + Project Skeleton | DONE |
+| 1B | Memory Pool (Arena + Slab) | DONE |
+| 1C | Logger, Config, Error | DONE |
+| 1D | Thread Pool + Coroutine | DONE |
+| 1E | I/O Abstraction (epoll) | DONE |
+| 1F | HTTP + JSON | DONE |
+| 1G | WebSocket + Binary RPC + Protobuf | DONE |
+| 2 | Data Access Layer (cache, mongo, redis, kafka, discovery) | DONE |
+| 3 | Business Services (7 RPC) | DONE |
+| 4 | Gateway Services (API routes, WS gateway, transfer, push, cron) | DONE |
+| 5 | Service Wiring + Config YAML + Integration Tests | DONE |
+| 6 | Middleware Framework + Dev Server + Benchmarks | DONE |
+| 7 | WebSocket Gateway I/O + Cross-Service Integration | DONE |
+| 8 | Config Integration (dot-path YAML, service config loader, graceful shutdown) | DONE |
+| 9 | Service Metrics + Health Endpoints + SIGHUP Reload + README | DONE |
+| 10 | Stats Middleware + JSON Utilities + Error Standardization | DONE |
+| 11 | HTTP Server Connection + Bytes Tracking | DONE |
+| 12 | Version Module + RPC Server Stats + JSON 404 Responses | DONE |
+| 13 | /version Endpoint + Access Log Middleware + 1MB Body Limit (413) | DONE |
+| 14 | 103 Registered Routes (7 service groups) - Full OpenIM API Surface | DONE |
+| 15 | Auth Middleware (miku_mw_auth) + 10 Integration Tests (99->100 total) | DONE |
+| 16 | HTTP Keep-Alive + Request ID Tracking + Response Header val_free Bugfix | DONE |
+| 17 | Connection Idle Timeout (30s) + Full RPC Dispatch for All Routes | DONE |
+| 18 | Dockerfile (Multi-stage) + Makefile + Route Validation Test | DONE |
+| 19 | GitHub Actions CI (build + test + docker-build) | DONE |
+| 20 | Optional TLS via OpenSSL + Conditional Compilation | DONE |
+| 21 | Log Rotation (size-based) + Prometheus /admin/metrics Endpoint | DONE |
 
 ### Performance Benchmarks
 - JSON parse: **1.36M ops/sec**
@@ -784,3 +969,200 @@ All phases complete. 89 tests + 5 benchmarks passing. 53 modules across 6 layers
 - HashMap put: **7.09M ops/sec**
 - Cache set+get: **3.97M ops/sec**
 - MsgTransfer enqueue: **38.4M ops/sec**
+
+---
+
+## 11. Production Deployment
+
+### Docker
+
+Multi-stage build: `gcc:13` (build) to `debian:bookworm-slim` (runtime).
+
+```bash
+# Build image
+docker build -t miku:latest .
+
+# Run API gateway
+docker run -p 10002:10002 miku:latest ./bin/miku-api
+
+# Run with TLS
+docker run -p 443:10002 \
+  -v /etc/ssl/cert.pem:/tls/cert.pem \
+  -v /etc/ssl/key.pem:/tls/key.pem \
+  miku:latest ./bin/miku-api
+```
+
+### CI/CD
+
+GitHub Actions pipeline (`.github/workflows/ci.yml`):
+- **build**: CMake debug build with tests disabled
+- **test**: Full build with tests, runs `miku_tests`
+- **docker-build**: Validates Docker image builds successfully
+
+### Monitoring
+
+- `GET /health` - Liveness check (returns `{"status":"ok"}`)
+- `GET /admin/stats` - JSON service stats
+- `GET /admin/metrics` - Prometheus text format metrics
+- `GET /version` - Build version info
+
+---
+
+## 12. API Route Table
+
+103 routes across 7 service groups + admin:
+
+### Auth (5 routes)
+| Method | Path | RPC Method |
+|--------|------|------------|
+| POST | `/auth/user_token` | userToken |
+| POST | `/auth/parse_token` | parseToken |
+| POST | `/auth/admin_token` | adminToken |
+| POST | `/auth/force_logout` | forceLogout |
+| POST | `/auth/force_logout_all` | forceLogoutAll |
+
+### User (16 routes)
+| Method | Path | RPC Method |
+|--------|------|------------|
+| POST | `/user/register` | registerUser |
+| POST | `/user/update` | updateUserInfo |
+| POST | `/user/get_users_info` | getUsersInfo |
+| POST | `/user/get_all_users` | getAllUsers |
+| POST | `/user/account_check` | accountCheck |
+| POST | `/user/count` | getUserCount |
+| POST | `/user/search` | searchUser |
+| POST | `/user/online_status` | getUsersOnlineStatus |
+| POST | `/user/global_recv` | setGlobalRecvMessageOpt |
+| POST | `/user/process_user_command` | processUserCommand |
+| POST | `/user/get_user_status` | getUserStatus |
+| POST | `/user/update_user_status` | updateUserStatus |
+| POST | `/user/set_user_status` | setUserStatus |
+| POST | `/user/get_subscribe_users` | getSubscribeUsersStatus |
+| POST | `/user/subscribe_or_cancel` | subscribeOrCancelUserStatus |
+| GET | `/user/get_users_info` | getUsersInfo |
+
+### Friend (15 routes)
+| Method | Path | RPC Method |
+|--------|------|------------|
+| POST | `/friend/add` | addFriend |
+| POST | `/friend/delete` | deleteFriend |
+| POST | `/friend/get_friend_list` | getFriendList |
+| POST | `/friend/set_friend_remark` | setFriendRemark |
+| POST | `/friend/is_friend` | isFriend |
+| POST | `/friend/get_friend_apply_list` | getFriendApplyList |
+| POST | `/friend/get_self_friend_apply_list` | getSelfApplyList |
+| POST | `/friend/get_designated_friends_apply` | getDesignatedFriendsApply |
+| POST | `/friend/add_black` | addBlack |
+| POST | `/friend/remove_black` | removeBlack |
+| POST | `/friend/get_black_list` | getBlackList |
+| POST | `/friend/import_friend` | importFriend |
+| POST | `/friend/is_in_black_list` | isInBlackList |
+| POST | `/friend/pagination_friend` | paginationFriend |
+| POST | `/friend/search_friend` | searchFriend |
+
+### Group (18 routes)
+| Method | Path | RPC Method |
+|--------|------|------------|
+| POST | `/group/create` | createGroup |
+| POST | `/group/set_group_info` | setGroupInfo |
+| POST | `/group/get_group_info` | getGroupInfo |
+| POST | `/group/join` | joinGroup |
+| POST | `/group/quit` | quitGroup |
+| POST | `/group/get_groups_info` | getGroupsInfo |
+| POST | `/group/set_group_member_info` | setGroupMemberInfo |
+| POST | `/group/get_group_member_list` | getGroupMemberList |
+| POST | `/group/get_group_all_member_list` | getGroupAllMemberList |
+| POST | `/group/get_group_members_info` | getGroupMembersInfo |
+| POST | `/group/kick_group` | kickGroup |
+| POST | `/group/transfer_group` | transferGroup |
+| POST | `/group/mute_group` | muteGroup |
+| POST | `/group/cancel_mute_group` | cancelMuteGroup |
+| POST | `/group/mute_group_member` | muteGroupMember |
+| POST | `/group/cancel_mute_group_member` | cancelMuteGroupMember |
+| POST | `/group/dismiss_group` | dismissGroup |
+| POST | `/group/count` | countGroup |
+
+### Message (21 routes)
+| Method | Path | RPC Method |
+|--------|------|------------|
+| POST | `/msg/send_msg` | sendMsg |
+| POST | `/msg/get_by_conv` | getMsgByConversation |
+| POST | `/msg/revoke` | revokeMsg |
+| POST | `/msg/mark_as_read` | markMsgAsRead |
+| POST | `/msg/get_conversations` | getConversations |
+| POST | `/msg/get_server_time` | getServerTime |
+| POST | `/msg/delete` | deleteMsg |
+| POST | `/msg/set_message_reaction_extensions` | setReactionExtensions |
+| POST | `/msg/get_message_list_reaction_extensions` | getReactionExtensions |
+| POST | `/msg/add_message_reaction_extensions` | addReactionExtensions |
+| POST | `/msg/delete_message_reaction_extensions` | deleteReactionExtensions |
+| POST | `/msg/get_users_in_category` | getUsersInCategory |
+| POST | `/msg/get_server_seq` | getServerSeq |
+| POST | `/msg/get_user_msg_by_seq` | getUserMsgBySeq |
+| POST | `/msg/get_seq_message` | getSeqMessage |
+| POST | `/msg/send_msg_not_ocr` | sendMsgNotOcr |
+| POST | `/msg/clear_msg` | clearMsg |
+| POST | `/msg/clear_all_msg` | clearAllMsg |
+| POST | `/msg/get_msg_receive_opt` | getMsgReceiveOpt |
+| POST | `/msg/set_msg_receive_opt` | setMsgReceiveOpt |
+| POST | `/msg/search_msg` | searchMsg |
+
+### Conversation (14 routes)
+| Method | Path | RPC Method |
+|--------|------|------------|
+| POST | `/conversation/get_all` | getAllConversations |
+| POST | `/conversation/get` | getConversation |
+| POST | `/conversation/create` | createConversation |
+| POST | `/conversation/update` | updateConversation |
+| POST | `/conversation/delete` | deleteConversation |
+| POST | `/conversation/set_recv_msg_opt` | setRecvMsgOpt |
+| POST | `/conversation/get_recv_msg_not_notify_user` | getRecvMsgNotNotifyUser |
+| POST | `/conversation/get_all_conversations` | getAllConversations |
+| POST | `/conversation/get_conversation` | getConversation |
+| POST | `/conversation/set_conversation` | setConversation |
+| POST | `/conversation/batch_set_conversation` | batchSetConversation |
+| POST | `/conversation/get_owner_conversation` | getOwnerConversation |
+| POST | `/conversation/get_not_notify_conversation` | getNotNotifyConversation |
+| POST | `/conversation/pinned_conversation` | pinnedConversation |
+
+### Third-Party (8 routes)
+| Method | Path | RPC Method |
+|--------|------|------------|
+| POST | `/third/get_upload_token` | getUploadToken |
+| POST | `/third/get_download_url` | getDownloadUrl |
+| POST | `/third/fcm_update_token` | fcmUpdateToken |
+| POST | `/third/set_app_badge` | setAppBadge |
+| POST | `/third/log` | log |
+| POST | `/third/upload_log` | uploadLog |
+| POST | `/third/delete_log` | deleteLog |
+| POST | `/third/search_server` | searchServer |
+
+### Admin (6 routes)
+| Method | Path | Handler |
+|--------|------|--------|
+| GET | `/health` | Health check |
+| GET | `/admin/stats` | Service stats (JSON) |
+| GET | `/admin/metrics` | Prometheus metrics |
+| GET | `/version` | Build version |
+| GET | `/admin/shutdown` | Trigger graceful shutdown |
+| OPTIONS | `*` | CORS preflight |
+
+---
+
+## 13. Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| Hash map deletion | Open addressing with tombstone (`HM_DELETED`) | Avoids pointer chaining, cache-friendly |
+| Token format | `miku_{userID}_{uuid}_{platform}` | Stateless, verifiable without DB lookup |
+| Token secret | `"openIM123"` | Matches OpenIM default for compatibility |
+| Error response | `{"errCode":N,"errMsg":"...","errDmg":"..."}` | Matches OpenIM error format |
+| HTTP server model | Synchronous/blocking (main thread) | Simple, correct; epoll-based I/O multiplexing |
+| Keep-alive | One request per epoll wake-up, fd stays registered | No pipelining complexity, simple state machine |
+| Connection tracking | `conn_fds[]`/`conn_last_active[]` arrays | Direct index by fd, O(1) lookup |
+| Middleware order | CORS -> request_id -> logging -> auth -> stats | CORS first (preflight), auth before business logic |
+| Conditional compilation | `MIKU_ENABLE_*` CMake flags | Stub fallbacks when external services unavailable |
+| TLS integration | `MIKU_READ`/`MIKU_WRITE` macros | Transparent SSL/non-SSL operation |
+| Log rotation | Size-based, sequential rename chain | Simple, no external dependencies |
+| Metrics format | Prometheus text format at `/admin/metrics` | Standard, compatible with any monitoring stack |
+| UUID generation | `miku_uuid_generate(char out[37])` | Single buffer, no allocation |
