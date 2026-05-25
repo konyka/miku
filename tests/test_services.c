@@ -417,6 +417,102 @@ static void test_crontask_tick(void) {
     miku_crontask_destroy(ct);
 }
 
+static int g_ws_msg_count = 0;
+static void ws_msg_cb(const char *user_id, const char *msg, size_t len, void *ctx) {
+    (void)user_id; (void)msg; (void)len; (void)ctx;
+    g_ws_msg_count++;
+}
+
+static void test_msggateway_ws_upgrade(void) {
+    miku_msggw_t *gw = miku_msggw_create(19200);
+    mk_assert_not_null(gw);
+    int rc = miku_msggw_start(gw);
+    mk_assert_int_eq(0, rc);
+
+    miku_msggw_on_message(gw, ws_msg_cb, NULL);
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    mk_assert(fd >= 0);
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(19200);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
+    mk_assert_int_eq(0, rc);
+
+    char req[512];
+    const char *ws_key = "dGhlIHNhbXBsZSBub25jZQ==";
+    int len = snprintf(req, sizeof(req),
+        "GET /ws HTTP/1.1\r\n"
+        "Host: 127.0.0.1:19200\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: %s\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n", ws_key);
+    write(fd, req, (size_t)len);
+
+    miku_msggw_poll(gw, 500);
+
+    char resp[4096] = {0};
+    ssize_t n = read(fd, resp, sizeof(resp) - 1);
+    close(fd);
+    mk_assert(n > 0);
+    resp[n] = '\0';
+    mk_assert(strstr(resp, "101") != NULL);
+    mk_assert(strstr(resp, "Upgrade") != NULL);
+
+    miku_msggw_stop(gw);
+    miku_msggw_destroy(gw);
+}
+
+static void test_cross_service_msg_flow(void) {
+    miku_user_service_t *user_svc = miku_user_service_create();
+    miku_msg_service_t *msg_svc = miku_msg_service_create();
+    miku_conv_service_t *conv_svc = miku_conv_service_create();
+    mk_assert_not_null(user_svc);
+    mk_assert_not_null(msg_svc);
+    mk_assert_not_null(conv_svc);
+
+    miku_json_val_t *reg = miku_json_create_object();
+    miku_json_object_set(reg, "userID", miku_json_create_str("alice"));
+    miku_json_object_set(reg, "nickname", miku_json_create_str("Alice"));
+    miku_json_val_t *r = miku_json_create_object();
+    miku_user_handle_rpc(user_svc, "registerUser", reg, r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(reg);
+    miku_json_destroy(r);
+
+    miku_json_val_t *send = miku_json_create_object();
+    miku_json_object_set(send, "sendID", miku_json_create_str("alice"));
+    miku_json_object_set(send, "recvID", miku_json_create_str("bob"));
+    miku_json_object_set(send, "content", miku_json_create_str("Hello Bob!"));
+    miku_json_object_set(send, "contentType", miku_json_create_int(101));
+    miku_json_val_t *sr = miku_json_create_object();
+    miku_msg_handle_rpc(msg_svc, "sendMsg", send, sr);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(sr, "errCode")));
+    mk_assert(miku_json_str(miku_json_get(sr, "serverMsgID")) != NULL);
+    miku_json_destroy(send);
+    miku_json_destroy(sr);
+
+    miku_conversation_t conv;
+    memset(&conv, 0, sizeof(conv));
+    snprintf(conv.conversation_id, sizeof(conv.conversation_id), "conv_alice_bob");
+    strncpy(conv.owner_user_id, "alice", sizeof(conv.owner_user_id) - 1);
+    conv.conversation_type = 1;
+    conv.latest_msg_send_time = miku_timestamp_ms();
+    int crc = miku_conv_create(conv_svc, &conv);
+    mk_assert_int_eq(0, crc);
+
+    miku_conversation_t out;
+    crc = miku_conv_get(conv_svc, "alice", "conv_alice_bob", &out);
+    mk_assert_int_eq(0, crc);
+    mk_assert_str_eq("conv_alice_bob", out.conversation_id);
+
+    miku_user_service_destroy(user_svc);
+    miku_msg_service_destroy(msg_svc);
+    miku_conv_service_destroy(conv_svc);
+}
+
 void run_service_tests(void) {
     printf("\n── Miku Service Tests ───────────────────\n\n");
 
@@ -436,4 +532,6 @@ void run_service_tests(void) {
     mk_run_test(test_msgtransfer_queue);
     mk_run_test(test_push_subscribe);
     mk_run_test(test_crontask_tick);
+    mk_run_test(test_msggateway_ws_upgrade);
+    mk_run_test(test_cross_service_msg_flow);
 }

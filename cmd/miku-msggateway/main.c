@@ -39,7 +39,7 @@ int main(int argc, char **argv) {
     MK_LOG_INFO("miku-msggateway ready (ws://0.0.0.0:%d)", port);
 
     while (g_running) {
-        usleep(100000);
+        miku_msggw_poll(gw, 100);
     }
 
     MK_LOG_INFO("miku-msggateway shutting down");

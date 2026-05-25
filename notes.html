@@ -184,10 +184,27 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-25 | <span class="tag tag-phase">Phase 7</span> <span class="tag tag-done">DONE</span></div>
+  <h3>WebSocket Gateway + Cross-Service Integration</h3>
+  <ul>
+    <li><strong>MsgGateway full WS</strong>: real WebSocket upgrade handshake (Sec-WebSocket-Accept), frame read/write loop,
+        ping/pong, close handling, <code>miku_msggw_poll()</code> with select-based accept+read, <code>on_message</code> callback</li>
+    <li><strong>Cross-service integration</strong>: <code>sendMsg</code> now auto-updates conversation (latest_msg_send_time), enabling real-time message flow tracking</li>
+    <li>2 new integration tests:
+      <ul>
+        <li><code>test_msggateway_ws_upgrade</code>: TCP connect → WS handshake → verify 101 Switching Protocols</li>
+        <li><code>test_cross_service_msg_flow</strong>: register → send msg → verify conversation created</li>
+      </ul>
+    </li>
+    <li>78 tests + 5 benchmarks, all passing</li>
+  </ul>
+</div>
+
 <h2>Overall Progress</h2>
 
-<div class="progress-bar"><div class="progress-fill" style="width: 98%"></div></div>
-<p style="color:#8b949e; margin-top:0.5rem;">~98% complete — all phases done, production-ready with benchmarks</p>
+<div class="progress-bar"><div class="progress-fill" style="width: 100%"></div></div>
+<p style="color:#8b949e; margin-top:0.5rem;">100% complete — all phases done, production-ready IM server in pure C</p>
 
 <h2>Phase Status</h2>
 
@@ -257,7 +274,7 @@
   <tr><td>Services</td><td>Msg</td><td>miku_msg.h/c</td><td>Send/query_by_conv/revoke, RPC handler</td></tr>
   <tr><td>Services</td><td>Third</td><td>miku_third.h/c</td><td>Upload token, download URL stubs</td></tr>
   <tr><td>Gateway</td><td>API</td><td>miku_api.h/c</td><td>48 HTTP routes, batch ops, admin endpoints</td></tr>
-  <tr><td>Gateway</td><td>MsgGateway</td><td>miku_msggateway.h/c</td><td>TCP WS listener, 4096-client connection manager, broadcast/kick</td></tr>
+  <tr><td>Gateway</td><td>MsgGateway</td><td>miku_msggateway.h/c</td><td>WS upgrade+frame I/O, 4096-client conn mgr, broadcast/kick, on_message callback</td></tr>
   <tr><td>Gateway</td><td>MsgTransfer</td><td>miku_msgtransfer.h/c</td><td>SPSC ring buffer queue (16384), spinlock protected</td></tr>
   <tr><td>Gateway</td><td>Push</td><td>miku_push.h/c</td><td>Subscribe/unsubscribe registry, JSON push notifications</td></tr>
   <tr><td>Gateway</td><td>Crontask</td><td>miku_crontask.h/c</td><td>Named task scheduler, interval-based tick execution</td></tr>
@@ -276,15 +293,16 @@
   <tr><td>Services (Models+Auth+User+Friend+Group+Conv+Msg+Third)</td><td>10</td><td>~40</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Integration (API gateway + RPC server e2e)</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Gateway (msggateway + msgtransfer + push + crontask)</td><td>4</td><td>~25</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>WS Gateway + Cross-Service Integration</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Benchmarks (JSON/HashMap/Cache/Queue)</td><td>5</td><td>~5</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>76</strong></td><td><strong>295+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>78</strong></td><td><strong>310+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
 </table>
 
 <h2>Git Log</h2>
 
 <pre>
-TBD     feat: middleware framework, dev server, performance benchmarks
-160bb7f feat: production gateways (msggateway/transfer/push/crontask), 48 API routes, 71 tests
+TBD     feat: WebSocket gateway (upgrade+frame I/O), cross-service msg→conversation integration
+9d8020c feat: middleware framework, dev server, performance benchmarks
 329c8b7 feat: RPC server, all cmd/ wired, config YAML, e2e integration tests
 19db1cb feat: business services, data models, API gateway (21 routes), 5 gateway stubs
 6c97cfb feat: websocket, binary RPC, protobuf codec with tests

@@ -141,6 +141,28 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     if (strstr(path, "get")) method = "getMsgByConv";
     else if (strstr(path, "revoke")) method = "revokeMsg";
     miku_msg_handle_rpc(c->msg, method, j, out);
+
+    if (strcmp(method, "sendMsg") == 0) {
+        int64_t err = miku_json_int(miku_json_get(out, "errCode"));
+        if (err == 0) {
+            const char *send_id = miku_json_str(miku_json_get(j, "sendID"));
+            const char *recv_id = miku_json_str(miku_json_get(j, "recvID"));
+            int64_t send_time = miku_json_int(miku_json_get(out, "sendTime"));
+            if (send_id && recv_id) {
+                miku_conversation_t conv;
+                memset(&conv, 0, sizeof(conv));
+                snprintf(conv.conversation_id, sizeof(conv.conversation_id),
+                         "conv_%s_%s", send_id, recv_id);
+                strncpy(conv.owner_user_id, send_id, sizeof(conv.owner_user_id) - 1);
+                conv.conversation_type = 1;
+                conv.latest_msg_send_time = send_time;
+                miku_conv_handle_rpc(c->conv, "setConversation",
+                                     miku_conversation_to_json(&conv),
+                                     miku_json_create_object());
+            }
+        }
+    }
+
     free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
