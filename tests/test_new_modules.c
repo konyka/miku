@@ -1203,6 +1203,58 @@ static void test_webhook_group_create_trigger(void) {
     miku_api_ctx_destroy(ctx);
 }
 
+static void test_ratelimit_per_key(void) {
+    miku_ratelimit_t *rl = miku_ratelimit_create(60000, 2);
+    mk_assert_int_eq(1, miku_ratelimit_allow(rl, "alice"));
+    mk_assert_int_eq(1, miku_ratelimit_allow(rl, "alice"));
+    mk_assert_int_eq(0, miku_ratelimit_allow(rl, "alice"));
+    mk_assert_int_eq(1, miku_ratelimit_allow(rl, "bob"));
+    mk_assert_int_eq(1, miku_ratelimit_allow(rl, "bob"));
+    mk_assert_int_eq(0, miku_ratelimit_allow(rl, "bob"));
+    miku_ratelimit_destroy(rl);
+}
+
+static void test_ratelimit_http_429(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_ratelimit_destroy(ctx->ratelimit);
+    ctx->ratelimit = miku_ratelimit_create(60000, 2);
+
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19784);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    for (int i = 0; i < 2; i++) {
+        char resp[8192] = {0};
+        http_post_to(19784, "/friend/add",
+            "{\"ownerUserID\":\"rl_z\",\"friendUserID\":\"rl_b\"}", resp, sizeof(resp));
+        mk_assert(resp[0] != '\0');
+    }
+
+    char resp3[8192] = {0};
+    http_post_to(19784, "/friend/add",
+        "{\"ownerUserID\":\"rl_z\",\"friendUserID\":\"rl_c\"}", resp3, sizeof(resp3));
+    char *body3 = extract_json_body(resp3);
+    mk_assert(body3 != NULL);
+    if (!strstr(body3, "429")) {
+        fprintf(stderr, "  expected 429 but got: %.200s\n", body3);
+    }
+    mk_assert(strstr(body3, "429") != NULL);
+
+    char resp4[8192] = {0};
+    http_post_to(19784, "/friend/add",
+        "{\"ownerUserID\":\"rl_other\",\"friendUserID\":\"rl_d\"}", resp4, sizeof(resp4));
+    char *body4 = extract_json_body(resp4);
+    mk_assert(body4 != NULL);
+    mk_assert(strstr(body4, "429") == NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
 void run_new_module_tests(void) {
     printf("\n── Miku New Module Tests ───────────────────\n\n");
     mk_run_test(test_ratelimit_basic);
@@ -1250,4 +1302,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_webhook_msg_send_trigger);
     mk_run_test(test_webhook_friend_add_trigger);
     mk_run_test(test_webhook_group_create_trigger);
+
+    mk_run_test(test_ratelimit_per_key);
+    mk_run_test(test_ratelimit_http_429);
 }
