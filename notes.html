@@ -718,6 +718,29 @@
 <h2>Git Log</h2>
 
 <pre>
+Phase 44 feat: 79 missing RPC method stubs added — all 166 service methods now dispatched (0 missing)
+  user:   16 new stubs (updateUserInfoEx, getAllUsersUID, getUsersOnlineTokenDetail, addNotificationAccount,
+          updateNotificationAccount, searchNotificationAccount, setUserClientConfig, getUserClientConfig,
+          delUserClientConfig, pageUserClientConfig, processUserCommand/Add/Delete/Update/Get/GetAll)
+  friend: 11 new stubs (getDesignatedFriends, getFriendIDs, getFullFriendUserIDs, getIncrementalFriends,
+          getIncrementalBlacks, getSelfUnhandledApplyCount, getSpecifiedBlacks, getSpecifiedFriendsInfo,
+          respondFriendApply, setFriendRemark, updateFriends)
+  group:  13 new stubs (getFullGroupMemberUserIDs, getFullJoinGroupIDs, getGroupAbstractInfo,
+          getGroupApplicationUnhandledCount, getGroupUsersReqApplicationList, getGroups,
+          getIncrementalGroupMemberBatch, getIncrementalGroupMembers, getIncrementalJoinGroups,
+          getRecvGroupApplicationList, getSpecifiedUserGroupRequestInfo, getUserReqGroupApplicationList,
+          setGroupInfoEx)
+  conv:    8 new stubs (deleteConversations, getFullConversationIDs, getIncrementalConversation,
+          getNotNotifyConversationIDs, getOwnerConversation, getPinnedConversationIDs,
+          getSortedConversationList, updateConversationsByUser)
+  msg:    20 new stubs (send, sendSimpleMsg, sendBusinessNotification, getMsg, getNewestSeq, pullMsgBySeq,
+          searchMsg, markMsgsAsRead, markConversationAsRead, setConversationHasReadSeq,
+          getConversationsHasReadAndMaxSeq, checkMsgIsSendSuccess, clearConversationMsg, userClearAllMsg,
+          deleteMsgPhysical, deleteMsgPhysicalBySeq, setMessageReactionExtensions,
+          getMessageListReactionExtensions, addMessageReactionExtensions, deleteMessageReactionExtensions)
+  third:  11 new stubs (authSign, completeFormData, deleteLogs, fcmUpdateToken, getPrometheus,
+          initiateFormData, partLimit, partSize, searchLogs, setAppBadge, uploadLogs)
+
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)
 TBD     test: 14 new tests for all phase 29 modules (ratelimit, webhook, seq, incr_sync, offline_push, cron_tasks, ws_subscription, gzip)

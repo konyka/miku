@@ -145,6 +145,53 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     } else if (strcmp(method, "muteGroupMember") == 0 ||
                strcmp(method, "cancelMuteGroupMember") == 0) {
         miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getFullGroupMemberUserIDs") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getFullJoinGroupIDs") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getGroupAbstractInfo") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getGroupApplicationUnhandledCount") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "count", 0);
+    } else if (strcmp(method, "getGroupUsersReqApplicationList") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getGroups") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getIncrementalGroupMemberBatch") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getIncrementalGroupMembers") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getIncrementalJoinGroups") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getRecvGroupApplicationList") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getSpecifiedUserGroupRequestInfo") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getUserReqGroupApplicationList") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "setGroupInfoEx") == 0) {
+        miku_ji(resp, "errCode", 0);
     } else {
         miku_ji(resp, "errCode", 404);
     }

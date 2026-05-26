@@ -145,6 +145,47 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
             miku_json_array_push(arr, fj);
         }
         miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getDesignatedFriends") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getFriendIDs") == 0) {
+        miku_json_val_t *arr = miku_json_create_array();
+        for (int i = 0; i < svc->count; i++)
+            miku_json_array_push(arr, miku_json_create_str(svc->friends[i].friend_user_id));
+        miku_ji(resp, "errCode", 0);
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getFullFriendUserIDs") == 0) {
+        miku_json_val_t *arr = miku_json_create_array();
+        for (int i = 0; i < svc->count; i++)
+            miku_json_array_push(arr, miku_json_create_str(svc->friends[i].friend_user_id));
+        miku_ji(resp, "errCode", 0);
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getIncrementalFriends") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getIncrementalBlacks") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getSelfUnhandledApplyCount") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "count", 0);
+    } else if (strcmp(method, "getSpecifiedBlacks") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getSpecifiedFriendsInfo") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "respondFriendApply") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "setFriendRemark") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "updateFriends") == 0) {
+        miku_ji(resp, "errCode", 0);
     } else {
         miku_ji(resp, "errCode", 404);
     }

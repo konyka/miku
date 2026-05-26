@@ -38,6 +38,33 @@ void miku_third_handle_rpc(miku_third_service_t *svc, const char *method,
         miku_ji(resp, "size", 0);
     } else if (strcmp(method, "getSignalInvitationInfo") == 0) {
         miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "authSign") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "completeFormData") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "deleteLogs") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "fcmUpdateToken") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getPrometheus") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "initiateFormData") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_jss(resp, "uploadURL", "https://placeholder.example.com/form-data");
+    } else if (strcmp(method, "partLimit") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "limit", 5);
+    } else if (strcmp(method, "partSize") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "size", 4194304);
+    } else if (strcmp(method, "searchLogs") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "setAppBadge") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "uploadLogs") == 0) {
+        miku_ji(resp, "errCode", 0);
     } else {
         miku_ji(resp, "errCode", 404);
     }

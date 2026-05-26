@@ -148,6 +148,53 @@ void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
                strcmp(method, "subscribeOrCancelUserStatus") == 0) {
         miku_ji(resp_json, "errCode", 0);
 
+    } else if (strcmp(method, "updateUserInfoEx") == 0) {
+        miku_user_t u;
+        memset(&u, 0, sizeof(u));
+        miku_user_from_json(req_json, &u);
+        miku_user_t *existing = miku_user_find(svc, u.user_id);
+        if (existing) { *existing = u; existing->update_time = miku_timestamp_ms(); }
+        miku_ji(resp_json, "errCode", existing ? 0 : 1001);
+    } else if (strcmp(method, "getAllUsersUID") == 0) {
+        miku_json_val_t *arr = miku_json_create_array();
+        for (int i = 0; i < svc->count; i++)
+            miku_json_array_push(arr, miku_json_create_str(svc->users[i].user_id));
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_object_set(resp_json, "data", arr);
+    } else if (strcmp(method, "getUsersOnlineTokenDetail") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "addNotificationAccount") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "updateNotificationAccount") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "searchNotificationAccount") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp_json, "data", arr);
+    } else if (strcmp(method, "setUserClientConfig") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "getUserClientConfig") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "delUserClientConfig") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "pageUserClientConfig") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp_json, "data", arr);
+    } else if (strcmp(method, "processUserCommand") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "processUserCommandAdd") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "processUserCommandDelete") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "processUserCommandUpdate") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "processUserCommandGet") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+    } else if (strcmp(method, "processUserCommandGetAll") == 0) {
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp_json, "data", arr);
     } else {
         miku_ji(resp_json, "errCode", 404);
         miku_jss(resp_json, "errMsg", "method not found");

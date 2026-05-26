@@ -105,6 +105,34 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "pinConversation") == 0) {
         miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "deleteConversations") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getFullConversationIDs") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getIncrementalConversation") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getNotNotifyConversationIDs") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getOwnerConversation") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getPinnedConversationIDs") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getSortedConversationList") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "updateConversationsByUser") == 0) {
+        miku_ji(resp, "errCode", 0);
     } else {
         miku_ji(resp, "errCode", 404);
     }

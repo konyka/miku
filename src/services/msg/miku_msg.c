@@ -102,6 +102,78 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } else if (strcmp(method, "getMsgBySeq") == 0) {
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", miku_json_create_array());
+    } else if (strcmp(method, "send") == 0) {
+        miku_msg_t m;
+        memset(&m, 0, sizeof(m));
+        miku_msg_from_json(req, &m);
+        int rc = miku_msg_send(svc, &m);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+        if (rc == 0) {
+            miku_jss(resp, "serverMsgID", m.server_msg_id);
+            miku_ji(resp, "seq", (int)m.seq);
+            miku_ji(resp, "sendTime", (int)m.send_time);
+        }
+    } else if (strcmp(method, "sendSimpleMsg") == 0) {
+        miku_msg_t m;
+        memset(&m, 0, sizeof(m));
+        miku_msg_from_json(req, &m);
+        int rc = miku_msg_send(svc, &m);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+        if (rc == 0) {
+            miku_jss(resp, "serverMsgID", m.server_msg_id);
+            miku_ji(resp, "seq", (int)m.seq);
+        }
+    } else if (strcmp(method, "sendBusinessNotification") == 0) {
+        miku_msg_t m;
+        memset(&m, 0, sizeof(m));
+        miku_msg_from_json(req, &m);
+        int rc = miku_msg_send(svc, &m);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+    } else if (strcmp(method, "getMsg") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "getNewestSeq") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "seq", (int)svc->seq);
+    } else if (strcmp(method, "pullMsgBySeq") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "searchMsg") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "markMsgsAsRead") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "markConversationAsRead") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "setConversationHasReadSeq") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getConversationsHasReadAndMaxSeq") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "checkMsgIsSendSuccess") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "clearConversationMsg") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "userClearAllMsg") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "deleteMsgPhysical") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "deleteMsgPhysicalBySeq") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "setMessageReactionExtensions") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "getMessageListReactionExtensions") == 0) {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } else if (strcmp(method, "addMessageReactionExtensions") == 0) {
+        miku_ji(resp, "errCode", 0);
+    } else if (strcmp(method, "deleteMessageReactionExtensions") == 0) {
+        miku_ji(resp, "errCode", 0);
     } else if (strncmp(method, "setMessage", 10) == 0 ||
                strncmp(method, "getMessage", 10) == 0 ||
                strncmp(method, "addMessage", 10) == 0 ||
