@@ -998,6 +998,7 @@ All phases complete. **130 tests + 5 benchmarks** passing. **63 modules** across
 | 45-46 | Flesh out RPC stubs with real logic + 7 dispatch coverage tests (150 methods) | DONE |
 | 47 | 6 functional integration tests (msg CRUD+search, friend remark+designated, group setInfoEx+members, conv update+get, msg seq range pull+delete) | DONE |
 | 48 | 4 HTTP-level e2e tests (start real server, POST requests, parse JSON responses — user register+get, auth token, friend add+list, msg send+search) | DONE |
+| 49-50 | Webhook triggers wired into 5 API handlers (registerUser, addFriend, createGroup, joinGroup, sendMsg, revokeMsg) + 3 e2e webhook tests | DONE |
 
 ### Performance Benchmarks
 - JSON parse: **1.36M ops/sec**

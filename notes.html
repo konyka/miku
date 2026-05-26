@@ -773,6 +773,22 @@ Phase 48 feat: 4 HTTP-level e2e integration tests
     in a pthread, sends real TCP HTTP requests, parses JSON responses
   Tests: 39 total (was 35), all pass, 0 warnings
 
+Phase 49-50 feat: webhook triggers wired into API handlers + 3 e2e webhook tests
+  Webhook triggers fire after successful RPC operations:
+    handle_user:   registerUser → MK_WH_USER_ONLINE ("userRegistered" payload)
+    handle_friend: addFriend    → MK_WH_AFTER_ADD_FRIEND ("friendAdded" payload)
+    handle_group:  createGroup  → MK_WH_AFTER_CREATE_GROUP ("groupCreated" payload)
+    handle_group:  joinGroup    → MK_WH_AFTER_JOIN_GROUP ("groupJoined" payload)
+    handle_msg:    sendMsg      → MK_WH_AFTER_SEND_MSG ("msgSent" payload)
+    handle_msg:    revokeMsg    → MK_WH_MSG_REVOKE ("msgRevoked" payload)
+  All payloads include relevant IDs (userID, friendUserID, groupID, serverMsgID)
+  3 HTTP-level e2e webhook tests verify full stack:
+    test_webhook_msg_send_trigger: POST /msg/send_msg → handler called with AFTER_SEND_MSG
+    test_webhook_friend_add_trigger: POST /friend/add → handler called with AFTER_ADD_FRIEND
+    test_webhook_group_create_trigger: POST /group/create → handler called with AFTER_CREATE_GROUP
+  Cross-service msg→conv integration already existed (sendMsg auto-creates conversation)
+  Tests: 42 total (was 39), all pass, 0 warnings
+
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)
 TBD     test: 14 new tests for all phase 29 modules (ratelimit, webhook, seq, incr_sync, offline_push, cron_tasks, ws_subscription, gzip)

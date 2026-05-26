@@ -130,6 +130,15 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     else if (strstr(path, "del_user_client_config")) method = "delUserClientConfig";
     else if (strstr(path, "page_user_client_config")) method = "pageUserClientConfig";
     miku_user_handle_rpc(c->user, method, j, out);
+    if (c->webhook && strcmp(method, "registerUser") == 0) {
+        int64_t err = miku_json_int(miku_json_get(out, "errCode"));
+        if (err == 0) {
+            const char *uid = miku_json_str(miku_json_get(j, "userID"));
+            char payload[256];
+            snprintf(payload, sizeof(payload), "{\"event\":\"userRegistered\",\"userID\":\"%s\"}", uid ? uid : "");
+            miku_webhook_fire(c->webhook, MK_WH_USER_ONLINE, payload);
+        }
+    }
     free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
@@ -167,6 +176,17 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
     else if (strstr(path, "update_friends")) method = "updateFriends";
     else if (strstr(path, "get_full_friend_user_ids")) method = "getFullFriendUserIDs";
     miku_friend_handle_rpc(c->friend_svc, method, j, out);
+    if (c->webhook && strcmp(method, "addFriend") == 0) {
+        int64_t err = miku_json_int(miku_json_get(out, "errCode"));
+        if (err == 0) {
+            const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
+            const char *fuid = miku_json_str(miku_json_get(j, "friendUserID"));
+            char payload[512];
+            snprintf(payload, sizeof(payload), "{\"event\":\"friendAdded\",\"ownerUserID\":\"%s\",\"friendUserID\":\"%s\"}",
+                     owner ? owner : "", fuid ? fuid : "");
+            miku_webhook_fire(c->webhook, MK_WH_AFTER_ADD_FRIEND, payload);
+        }
+    }
     free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
@@ -212,6 +232,24 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     else if (strstr(path, "get_full_join_group")) method = "getFullJoinGroupIDs";
     else if (strstr(path, "get_group_application_unhandled")) method = "getGroupApplicationUnhandledCount";
     miku_group_handle_rpc(c->group_svc, method, j, out);
+    if (c->webhook) {
+        int64_t err = miku_json_int(miku_json_get(out, "errCode"));
+        if (err == 0 && strcmp(method, "createGroup") == 0) {
+            const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
+            const char *gid = miku_json_str(miku_json_get(out, "data"));
+            char payload[512];
+            snprintf(payload, sizeof(payload), "{\"event\":\"groupCreated\",\"ownerUserID\":\"%s\",\"groupID\":\"%s\"}",
+                     owner ? owner : "", gid ? gid : "");
+            miku_webhook_fire(c->webhook, MK_WH_AFTER_CREATE_GROUP, payload);
+        } else if (err == 0 && strcmp(method, "joinGroup") == 0) {
+            const char *uid = miku_json_str(miku_json_get(j, "userID"));
+            const char *gid = miku_json_str(miku_json_get(j, "groupID"));
+            char payload[512];
+            snprintf(payload, sizeof(payload), "{\"event\":\"groupJoined\",\"userID\":\"%s\",\"groupID\":\"%s\"}",
+                     uid ? uid : "", gid ? gid : "");
+            miku_webhook_fire(c->webhook, MK_WH_AFTER_JOIN_GROUP, payload);
+        }
+    }
     free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
@@ -305,6 +343,24 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                                      miku_conversation_to_json(&conv),
                                      miku_json_create_object());
             }
+        }
+    }
+
+    if (c->webhook) {
+        int64_t wh_err = miku_json_int(miku_json_get(out, "errCode"));
+        if (wh_err == 0 && strcmp(method, "sendMsg") == 0) {
+            const char *sid = miku_json_str(miku_json_get(j, "sendID"));
+            const char *rid = miku_json_str(miku_json_get(j, "recvID"));
+            const char *smid = miku_json_str(miku_json_get(out, "serverMsgID"));
+            char payload[1024];
+            snprintf(payload, sizeof(payload), "{\"event\":\"msgSent\",\"sendID\":\"%s\",\"recvID\":\"%s\",\"serverMsgID\":\"%s\"}",
+                     sid ? sid : "", rid ? rid : "", smid ? smid : "");
+            miku_webhook_fire(c->webhook, MK_WH_AFTER_SEND_MSG, payload);
+        } else if (wh_err == 0 && strcmp(method, "revokeMsg") == 0) {
+            const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));
+            char payload[512];
+            snprintf(payload, sizeof(payload), "{\"event\":\"msgRevoked\",\"clientMsgID\":\"%s\"}", cmid ? cmid : "");
+            miku_webhook_fire(c->webhook, MK_WH_MSG_REVOKE, payload);
         }
     }
 

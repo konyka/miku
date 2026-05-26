@@ -1094,8 +1094,108 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_val_t *data = miku_json_get(r, "data");
     mk_assert_not_null(data);
-    mk_assert_int_eq(1, (int)miku_json_size(data));
+     mk_assert_int_eq(1, (int)miku_json_size(data));
+     miku_json_destroy(r);
+
+     miku_http_server_stop(srv);
+     pthread_join(tid, NULL);
+     miku_http_server_destroy(srv);
+     miku_api_ctx_destroy(ctx);
+}
+
+static int wh_trigger_count;
+static miku_webhook_event_t wh_trigger_last_event;
+static char wh_trigger_last_payload[1024];
+
+static void wh_trigger_handler(miku_webhook_event_t event, const char *payload, void *ctx) {
+    (void)ctx;
+    wh_trigger_count++;
+    wh_trigger_last_event = event;
+    strncpy(wh_trigger_last_payload, payload ? payload : "", sizeof(wh_trigger_last_payload) - 1);
+}
+
+static void test_webhook_msg_send_trigger(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    wh_trigger_count = 0;
+    wh_trigger_last_payload[0] = '\0';
+    miku_webhook_set_handler(ctx->webhook, wh_trigger_handler, NULL);
+
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19781);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19781, "/msg/send_msg",
+        "{\"sendID\":\"wh_s1\",\"recvID\":\"wh_r1\",\"content\":\"wh test\",\"msgType\":101,\"clientMsgID\":\"wh_c1\"}",
+        resp, sizeof(resp));
+
+    mk_assert_int_eq(1, wh_trigger_count);
+    mk_assert(wh_trigger_last_event == MK_WH_AFTER_SEND_MSG);
+    mk_assert(strstr(wh_trigger_last_payload, "msgSent") != NULL);
+    mk_assert(strstr(wh_trigger_last_payload, "wh_s1") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_webhook_friend_add_trigger(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    wh_trigger_count = 0;
+    wh_trigger_last_payload[0] = '\0';
+    miku_webhook_set_handler(ctx->webhook, wh_trigger_handler, NULL);
+
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19782);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19782, "/friend/add",
+        "{\"ownerUserID\":\"wh_u1\",\"friendUserID\":\"wh_u2\"}", resp, sizeof(resp));
+
+    mk_assert_int_eq(1, wh_trigger_count);
+    mk_assert(wh_trigger_last_event == MK_WH_AFTER_ADD_FRIEND);
+    mk_assert(strstr(wh_trigger_last_payload, "friendAdded") != NULL);
+    mk_assert(strstr(wh_trigger_last_payload, "wh_u1") != NULL);
+    mk_assert(strstr(wh_trigger_last_payload, "wh_u2") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_webhook_group_create_trigger(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    wh_trigger_count = 0;
+    wh_trigger_last_payload[0] = '\0';
+    miku_webhook_set_handler(ctx->webhook, wh_trigger_handler, NULL);
+
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19783);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    int n = http_post_to(19783, "/group/create",
+        "{\"groupName\":\"wh group\",\"ownerUserID\":\"wh_owner\"}", resp, sizeof(resp));
+    mk_assert(n > 0);
+    char *body = extract_json_body(resp);
+    miku_json_val_t *r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
+
+    mk_assert_int_eq(1, wh_trigger_count);
+    mk_assert(wh_trigger_last_event == MK_WH_AFTER_CREATE_GROUP);
+    mk_assert(strstr(wh_trigger_last_payload, "groupCreated") != NULL);
+    mk_assert(strstr(wh_trigger_last_payload, "wh_owner") != NULL);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1146,4 +1246,8 @@ void run_new_module_tests(void) {
     mk_run_test(test_http_e2e_auth_token);
     mk_run_test(test_http_e2e_friend_flow);
     mk_run_test(test_http_e2e_msg_send_and_search);
+
+    mk_run_test(test_webhook_msg_send_trigger);
+    mk_run_test(test_webhook_friend_add_trigger);
+    mk_run_test(test_webhook_group_create_trigger);
 }
