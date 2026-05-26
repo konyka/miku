@@ -1,4 +1,4 @@
-.PHONY: all build test clean dev dev-api dev-ws distclean
+.PHONY: all build test clean dev dev-api dev-ws distclean asan bench helm
 
 BUILD_DIR  := build
 BIN_DIR    := $(BUILD_DIR)/bin
@@ -54,6 +54,28 @@ docker-compose-up:
 
 docker-compose-down:
 	docker-compose -f deploy/docker/docker-compose.yml down
+
+asan:
+	@echo "Note: requires libasan and libubsan packages installed"
+	cmake -B $(BUILD_DIR)-asan \
+		-DCMAKE_BUILD_TYPE=Debug \
+		-DMIKU_ENABLE_TESTS=ON \
+		-DMIKU_ENABLE_MONGO=OFF \
+		-DMIKU_ENABLE_REDIS=OFF \
+		-DMIKU_ENABLE_KAFKA=OFF \
+		-DMIKU_ENABLE_S3=OFF \
+		-DCMAKE_C_FLAGS="-fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -g" \
+		-DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address -fsanitize=undefined"
+	cmake --build $(BUILD_DIR)-asan -j$(NPROC)
+	@echo "=== Running tests under ASAN ==="
+	timeout 60 $(BUILD_DIR)-asan/bin/miku_tests
+
+bench: build
+	bash scripts/bench.sh
+
+helm:
+	helm lint deploy/helm/miku
+	helm template miku deploy/helm/miku
 
 count:
 	@echo "=== Lines of Code ==="

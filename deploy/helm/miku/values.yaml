@@ -1,0 +1,58 @@
+replicaCount:
+  api: 2
+  msggateway: 2
+  msgtransfer: 1
+  push: 1
+  crontask: 1
+  rpcAuth: 2
+  rpcUser: 2
+  rpcFriend: 2
+  rpcGroup: 2
+  rpcConversation: 2
+  rpcMsg: 2
+  rpcThird: 1
+
+image:
+  repository: miku
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+
+config:
+  listenIP: "0.0.0.0"
+  api:
+    port: 10002
+  msggateway:
+    port: 10001
+  rpc:
+    auth:
+      port: 10100
+    user:
+      port: 10110
+    friend:
+      port: 10120
+    msg:
+      port: 10130
+    group:
+      port: 10150
+    conversation:
+      port: 10180
+    third:
+      port: 10200
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 32Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
+
+livenessProbe:
+  initialDelaySeconds: 5
+  periodSeconds: 10
+readinessProbe:
+  initialDelaySeconds: 2
+  periodSeconds: 5

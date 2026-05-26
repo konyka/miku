@@ -2,6 +2,7 @@
 set(MIKU_GATEWAY_SOURCES
     api/miku_api.c
     msggateway/miku_msggateway.c
+    msggateway/miku_im_message.c
     msgtransfer/miku_msgtransfer.c
     push/miku_push.c
     crontask/miku_crontask.c

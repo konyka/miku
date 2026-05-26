@@ -507,6 +507,7 @@
   <tr><td>24</td><td>OpenAPI 3.0 Specification</td><td><span class="tag tag-done">DONE</span></td><td>docs/openapi.yaml (3037 lines, 103 routes, 9 tags)</td></tr>
   <tr><td>25</td><td>README Update + Warning Cleanup</td><td><span class="tag tag-done">DONE</span></td><td>README updated, 108 to 0 source warnings</td></tr>
   <tr><td>26</td><td>Test Warning Cleanup + .gitignore</td><td><span class="tag tag-done">DONE</span></td><td>73 to 0 test warnings, 0 total warnings</td></tr>
+  <tr><td>27</td><td>Optional Enhancements</td><td><span class="tag tag-done">DONE</span></td><td>WS IM message protocol, Swagger UI, ASAN target, Helm chart, MongoDB msg store, Redis session cache</td></tr>
 </table>
 
 <h2>Module Inventory</h2>
@@ -560,6 +561,7 @@
   <tr><td>Services</td><td>Third</td><td>miku_third.h/c</td><td>Upload token, download URL stubs</td></tr>
   <tr><td>Gateway</td><td>API</td><td>miku_api.h/c</td><td>48 HTTP routes, batch ops, admin endpoints</td></tr>
   <tr><td>Gateway</td><td>MsgGateway</td><td>miku_msggateway.h/c</td><td>WS upgrade+frame I/O, 4096-client conn mgr, broadcast/kick, on_message callback</td></tr>
+  <tr><td>Gateway</td><td>IM Message</td><td>miku_im_message.h/c</td><td>WS IM message protocol: from_json/to_json/validate/generate_id, ack + hello structs</td></tr>
   <tr><td>Gateway</td><td>MsgTransfer</td><td>miku_msgtransfer.h/c</td><td>SPSC ring buffer queue (16384), spinlock protected</td></tr>
   <tr><td>Gateway</td><td>Push</td><td>miku_push.h/c</td><td>Subscribe/unsubscribe registry, JSON push notifications</td></tr>
   <tr><td>Gateway</td><td>Crontask</td><td>miku_crontask.h/c</td><td>Named task scheduler, interval-based tick execution</td></tr>
@@ -568,6 +570,8 @@
   <tr><td>Foundation</td><td>Stats</td><td>miku_stats.h/c</td><td>Atomic service metrics: requests, connections, bytes, uptime, thread-safe snapshot</td></tr>
   <tr><td>Foundation</td><td>JSON Util</td><td>miku_json_util.h</td><td>Shared helpers: miku_ji, miku_jss, miku_jerr (standard error response)</td></tr>
   <tr><td>Foundation</td><td>Version</td><td>miku_version.h</td><td>Compile-time version, git hash, build date (MIKU_VERSION_FULL)</td></tr>
+  <tr><td>Storage</td><td>Msg Store</td><td>miku_msg_store.h/c</td><td>MongoDB message persistence: insert/find/update/delete with stub fallback</td></tr>
+  <tr><td>Storage</td><td>Session Cache</td><td>miku_session_cache.h/c</td><td>Redis token session cache: set/validate/remove token, online status tracking</td></tr>
 </table>
 
 <h2>Test Summary</h2>
@@ -592,6 +596,7 @@
 <h2>Git Log</h2>
 
 <pre>
+TBD     feat: WS IM message protocol, Swagger UI, ASAN target, Helm chart, MongoDB msg store, Redis session cache
 TBD     fix: 73 to 0 test warnings, total 0 warnings across entire build, .gitignore update
 TBD     fix: README update, 108 to 0 source warnings (sign-conversion, format-truncation, pointer-sign, unused)
 TBD     docs: OpenAPI 3.0 spec (3037 lines, 103 routes, 9 tags)

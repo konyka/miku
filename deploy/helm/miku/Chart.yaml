@@ -1,0 +1,11 @@
+apiVersion: v2
+name: miku
+description: Miku IM Server - High-performance distributed IM server in pure C
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/konyka/miku
+sources:
+  - https://github.com/konyka/miku
+maintainers:
+  - name: konyka

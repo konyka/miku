@@ -1,0 +1,32 @@
+{{- $config := .Values.config -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: miku-config
+  labels:
+    app: miku
+data:
+  share.yml: |
+    listenIP: {{ $config.listenIP }}
+    api:
+      port: {{ $config.api.port }}
+      prometheus:
+        enable: true
+    msggateway:
+      port: {{ $config.msggateway.port }}
+      wsPort: {{ $config.msggateway.port }}
+    rpc:
+      auth:         { port: {{ $config.rpc.auth.port }} }
+      user:         { port: {{ $config.rpc.user.port }} }
+      friend:       { port: {{ $config.rpc.friend.port }} }
+      msg:          { port: {{ $config.rpc.msg.port }} }
+      group:        { port: {{ $config.rpc.group.port }} }
+      conversation: { port: {{ $config.rpc.conversation.port }} }
+      third:        { port: {{ $config.rpc.third.port }} }
+    msgtransfer:
+      topic: "miku_msg_transfer"
+      consumers: 2
+    push:
+      enable: true
+    crontask:
+      enable: true

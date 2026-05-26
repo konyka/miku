@@ -1,0 +1,96 @@
+{{- $replicas := .Values.replicaCount -}}
+{{- $image := .Values.image -}}
+{{- $config := .Values.config -}}
+{{- $res := .Values.resources -}}
+{{- $probe := .Values -}}
+{{- range $name, $svc := dict
+  "api" (dict "port" $config.api.port "cmd" "miku-api" "replicas" $replicas.api "args" "-h 0.0.0.0 -p 10002")
+  "msggateway" (dict "port" $config.msggateway.port "cmd" "miku-msggateway" "replicas" $replicas.msggateway "args" "")
+  "rpc-auth" (dict "port" $config.rpc.auth.port "cmd" "miku-rpc-auth" "replicas" $replicas.rpcAuth "args" "")
+  "rpc-user" (dict "port" $config.rpc.user.port "cmd" "miku-rpc-user" "replicas" $replicas.rpcUser "args" "")
+  "rpc-friend" (dict "port" $config.rpc.friend.port "cmd" "miku-rpc-friend" "replicas" $replicas.rpcFriend "args" "")
+  "rpc-group" (dict "port" $config.rpc.group.port "cmd" "miku-rpc-group" "replicas" $replicas.rpcGroup "args" "")
+  "rpc-conversation" (dict "port" $config.rpc.conversation.port "cmd" "miku-rpc-conversation" "replicas" $replicas.rpcConversation "args" "")
+  "rpc-msg" (dict "port" $config.rpc.msg.port "cmd" "miku-rpc-msg" "replicas" $replicas.rpcMsg "args" "")
+  "rpc-third" (dict "port" $config.rpc.third.port "cmd" "miku-rpc-third" "replicas" $replicas.rpcThird "args" "")
+}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: miku-{{ $name }}
+  labels:
+    app: miku
+    svc: {{ $name }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app: miku
+      svc: {{ $name }}
+  template:
+    metadata:
+      labels:
+        app: miku
+        svc: {{ $name }}
+      {{- if eq $name "api" }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "20100"
+        prometheus.io/path: "/admin/metrics"
+      {{- end }}
+    spec:
+      containers:
+        - name: miku-{{ $name }}
+          image: {{ $image.repository }}:{{ $image.tag }}
+          imagePullPolicy: {{ $image.pullPolicy }}
+          command: ["{{ $svc.cmd }}"]
+          args: ["-c", "/etc/miku", {{ $svc.args }}]
+          ports:
+            - containerPort: {{ $svc.port }}
+          resources:
+            requests:
+              cpu: {{ $res.requests.cpu }}
+              memory: {{ $res.requests.memory }}
+            limits:
+              cpu: {{ $res.limits.cpu }}
+              memory: {{ $res.limits.memory }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/miku
+              readOnly: true
+          {{- if eq $name "api" }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ $svc.port }}
+            initialDelaySeconds: {{ $probe.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $probe.readinessProbe.periodSeconds }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ $svc.port }}
+            initialDelaySeconds: {{ $probe.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $probe.livenessProbe.periodSeconds }}
+          {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: miku-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: miku-{{ $name }}
+  labels:
+    app: miku
+    svc: {{ $name }}
+spec:
+  type: {{ $probe.service.type }}
+  selector:
+    app: miku
+    svc: {{ $name }}
+  ports:
+    - port: {{ $svc.port }}
+      targetPort: {{ $svc.port }}
+{{- end }}
