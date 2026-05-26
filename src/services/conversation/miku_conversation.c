@@ -57,8 +57,8 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     if (!svc || !method || !resp) return;
     if (strcmp(method, "getAllConversations") == 0) {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        miku_conversation_t list[256];
-        int n = miku_conv_get_all(svc, owner, list, 256);
+        miku_conversation_t list[16];
+        int n = miku_conv_get_all(svc, owner, list, 16);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_conversation_to_json(&list[i]));
@@ -88,8 +88,8 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } else if (strcmp(method, "getConversationList") == 0 ||
                strcmp(method, "getConversations") == 0) {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        miku_conversation_t list[256];
-        int n = miku_conv_get_all(svc, owner, list, 256);
+        miku_conversation_t list[16];
+        int n = miku_conv_get_all(svc, owner, list, 16);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_conversation_to_json(&list[i]));
@@ -132,7 +132,21 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "updateConversationsByUser") == 0) {
-        miku_ji(resp, "errCode", 0);
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        int updated = 0;
+        if (owner && cid) {
+            for (int i = 0; i < svc->count; i++) {
+                if (strcmp(svc->convs[i].owner_user_id, owner) == 0 &&
+                    strcmp(svc->convs[i].conversation_id, cid) == 0) {
+                    const char *ex = req ? miku_json_str(miku_json_get(req, "ex")) : NULL;
+                    if (ex) strncpy(svc->convs[i].ex, ex, sizeof(svc->convs[i].ex) - 1);
+                    updated = 1;
+                    break;
+                }
+            }
+        }
+        miku_ji(resp, "errCode", updated ? 0 : 4001);
     } else {
         miku_ji(resp, "errCode", 404);
     }

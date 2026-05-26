@@ -942,7 +942,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete. **123 tests + 5 benchmarks** passing. **63 modules** across 6 layers. **13 binaries**. **203 routes**. Full feature parity with OpenIM Server.
+All phases complete. **130 tests + 5 benchmarks** passing. **63 modules** across 6 layers. **13 binaries**. **203 routes**. **166 RPC methods dispatched**. Full feature parity with OpenIM Server.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -992,6 +992,10 @@ All phases complete. **123 tests + 5 benchmarks** passing. **63 modules** across
 | 38 | New Module Tests (im_message, mt_pipeline, msg_store, session_cache — 9 tests) | DONE |
 | 39 | miku-dev Full Integration (all modules in single process) | DONE |
 | 40 | README + Docs Update (test count 34→123) | DONE |
+| 41-42 | ARCHITECTURE.md + README documentation full update | DONE |
+| 43 | Fix 6 API path→method strstr() chain ordering bugs | DONE |
+| 44 | Add 79 missing RPC method stubs — all 166 methods dispatched | DONE |
+| 45-46 | Flesh out RPC stubs with real logic + 7 dispatch coverage tests (150 methods) | DONE |
 
 ### Performance Benchmarks
 - JSON parse: **1.36M ops/sec**

@@ -14,6 +14,13 @@
 #include "miku_json.h"
 #include "miku_json_util.h"
 #include "miku_models.h"
+#include "miku_auth.h"
+#include "miku_user.h"
+#include "miku_friend.h"
+#include "miku_group.h"
+#include "miku_conversation.h"
+#include "miku_msg.h"
+#include "miku_third.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -449,6 +456,132 @@ void test_session_cache_stub(void) {
     miku_session_cache_destroy(c);
 }
 
+/* ── RPC dispatch coverage tests ────────────────────── */
+
+static void test_dispatch_no_404_helper(void *svc, const char **methods, int count,
+                                        void (*handle_rpc)(void *, const char *, const miku_json_val_t *, miku_json_val_t *)) {
+    for (int i = 0; i < count; i++) {
+        miku_json_val_t *req = miku_json_create_object();
+        miku_json_val_t *resp = miku_json_create_object();
+        handle_rpc(svc, methods[i], req, resp);
+        int64_t ec = miku_json_int(miku_json_get(resp, "errCode"));
+        char msg[128];
+        snprintf(msg, sizeof(msg), "method %s returned errCode %lld (expected != 404)", methods[i], (long long)ec);
+        mk_assert_msg(ec != 404, msg);
+    }
+}
+
+typedef void (*rpc_fn_generic)(void *, const char *, const miku_json_val_t *, miku_json_val_t *);
+
+static void test_rpc_user_dispatch(void) {
+    miku_user_service_t *svc = miku_user_service_create();
+    const char *methods[] = {
+        "registerUser", "getUserInfo", "updateUserInfo", "updateUserInfoEx",
+        "getAllUsersUID", "getUsersOnlineTokenDetail",
+        "addNotificationAccount", "updateNotificationAccount", "searchNotificationAccount",
+        "setUserClientConfig", "getUserClientConfig", "delUserClientConfig", "pageUserClientConfig",
+        "processUserCommand", "processUserCommandAdd", "processUserCommandDelete",
+        "processUserCommandUpdate", "processUserCommandGet", "processUserCommandGetAll",
+        "getGlobalRecvMessageOpt", "setGlobalRecvMessageOpt", "accountCheck"
+    };
+    test_dispatch_no_404_helper(svc, methods, 22,
+        (rpc_fn_generic)miku_user_handle_rpc);
+    miku_user_service_destroy(svc);
+}
+
+static void test_rpc_friend_dispatch(void) {
+    miku_friend_service_t *svc = miku_friend_service_create();
+    const char *methods[] = {
+        "addFriend", "deleteFriend", "getFriendList", "isFriend",
+        "addBlack", "removeBlack", "getBlackList",
+        "getFriendApplyList", "getSelfApplyList", "getDesignatedFriendApply",
+        "acceptFriendApply", "refuseFriendApply", "respondFriendApply",
+        "importFriend", "syncFriend",
+        "getDesignatedFriends", "getFriendIDs", "getFullFriendUserIDs",
+        "getIncrementalFriends", "getIncrementalBlacks",
+        "getSelfUnhandledApplyCount", "getSpecifiedBlacks", "getSpecifiedFriendsInfo",
+        "setFriendRemark", "updateFriends"
+    };
+    test_dispatch_no_404_helper(svc, methods, 25,
+        (rpc_fn_generic)miku_friend_handle_rpc);
+    miku_friend_service_destroy(svc);
+}
+
+static void test_rpc_group_dispatch(void) {
+    miku_group_service_t *svc = miku_group_service_create();
+    const char *methods[] = {
+        "createGroup", "joinGroup", "quitGroup", "dismissGroup",
+        "getGroupInfo", "setGroupInfo", "setGroupInfoEx", "setGroupMemberInfo",
+        "getGroupMemberList", "getGroupMemberUserID",
+        "getJoinedGroupList", "getGroupApplicationList", "getGroupApplicantList",
+        "acceptGroupApplication", "refuseGroupApplication",
+        "kickGroupMember", "transferGroupOwner",
+        "muteGroup", "cancelMuteGroup", "muteGroupMember", "cancelMuteGroupMember",
+        "getFullGroupMemberUserIDs", "getFullJoinGroupIDs", "getGroupAbstractInfo",
+        "getGroupApplicationUnhandledCount", "getGroupUsersReqApplicationList",
+        "getGroups", "getIncrementalGroupMemberBatch", "getIncrementalGroupMembers",
+        "getIncrementalJoinGroups", "getRecvGroupApplicationList",
+        "getSpecifiedUserGroupRequestInfo", "getUserReqGroupApplicationList"
+    };
+    test_dispatch_no_404_helper(svc, methods, 33,
+        (rpc_fn_generic)miku_group_handle_rpc);
+    miku_group_service_destroy(svc);
+}
+
+static void test_rpc_conv_dispatch(void) {
+    miku_conv_service_t *svc = miku_conv_service_create();
+    const char *methods[] = {
+        "getAllConversations", "getConversation", "setConversation",
+        "setConversations", "deleteConversation",
+        "getConversationList", "getConversations",
+        "getTotalUnreadMsgCount",
+        "setConversationMinSeq", "markConversationMessageAsRead",
+        "clearConversationMsg", "pinConversation",
+        "deleteConversations", "getFullConversationIDs",
+        "getIncrementalConversation", "getNotNotifyConversationIDs",
+        "getOwnerConversation", "getPinnedConversationIDs",
+        "getSortedConversationList", "updateConversationsByUser"
+    };
+    test_dispatch_no_404_helper(svc, methods, 17,
+        (rpc_fn_generic)miku_conv_handle_rpc);
+    miku_conv_service_destroy(svc);
+}
+
+static void test_rpc_msg_dispatch(void) {
+    miku_msg_service_t *svc = miku_msg_service_create();
+    const char *methods[] = {
+        "sendMsg", "getMsgByConv", "revokeMsg", "getServerTime",
+        "getSendMsgStatus", "cleanUpMsg", "deleteMsg", "batchSendMsg",
+        "markMsgAsRead", "getMsgBySeq",
+        "send", "sendSimpleMsg", "sendBusinessNotification",
+        "getMsg", "getNewestSeq", "pullMsgBySeq", "searchMsg",
+        "markMsgsAsRead", "markConversationAsRead", "setConversationHasReadSeq",
+        "getConversationsHasReadAndMaxSeq", "checkMsgIsSendSuccess",
+        "clearConversationMsg", "userClearAllMsg",
+        "deleteMsgPhysical", "deleteMsgPhysicalBySeq",
+        "setMessageReactionExtensions", "getMessageListReactionExtensions",
+        "addMessageReactionExtensions", "deleteMessageReactionExtensions"
+    };
+    test_dispatch_no_404_helper(svc, methods, 30,
+        (rpc_fn_generic)miku_msg_handle_rpc);
+    miku_msg_service_destroy(svc);
+}
+
+static void test_rpc_third_dispatch(void) {
+    miku_third_service_t *svc = miku_third_service_create();
+    const char *methods[] = {
+        "getUploadToken", "getDownloadURL", "accessURL", "deleteObject",
+        "initiateMultipartUpload", "completeMultipartUpload",
+        "getUploadInfo", "getObjectInfo", "getSignalInvitationInfo",
+        "authSign", "completeFormData", "deleteLogs", "fcmUpdateToken",
+        "getPrometheus", "initiateFormData", "partLimit", "partSize",
+        "searchLogs", "setAppBadge", "uploadLogs"
+    };
+    test_dispatch_no_404_helper(svc, methods, 20,
+        (rpc_fn_generic)miku_third_handle_rpc);
+    miku_third_service_destroy(svc);
+}
+
 void run_new_module_tests(void) {
     printf("\n── Miku New Module Tests ───────────────────\n\n");
     mk_run_test(test_ratelimit_basic);
@@ -474,4 +607,10 @@ void run_new_module_tests(void) {
     mk_run_test(test_mt_pipeline_read_seq);
     mk_run_test(test_msg_store_stub);
     mk_run_test(test_session_cache_stub);
+    mk_run_test(test_rpc_user_dispatch);
+    mk_run_test(test_rpc_friend_dispatch);
+    mk_run_test(test_rpc_group_dispatch);
+    mk_run_test(test_rpc_conv_dispatch);
+    mk_run_test(test_rpc_msg_dispatch);
+    mk_run_test(test_rpc_third_dispatch);
 }

@@ -17,7 +17,7 @@ miku_group_service_t *miku_group_service_create(void) {
 void miku_group_service_destroy(miku_group_service_t *svc) { free(svc); }
 
 int miku_group_create(miku_group_service_t *svc, miku_group_t *g, const char *owner_uid) {
-    if (!svc || !g || svc->group_count >= MK_MAX_GROUPS) return -1;
+    if (!svc || !g || !owner_uid || svc->group_count >= MK_MAX_GROUPS) return -1;
     miku_uuid_generate(g->group_id);
     strncpy(g->owner_user_id, owner_uid, sizeof(g->owner_user_id) - 1);
     g->create_time = miku_timestamp_ms();
@@ -80,8 +80,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
     } else if (strcmp(method, "getGroupMemberList") == 0) {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        miku_group_member_t list[256];
-        int n = miku_group_get_members(svc, gid, list, 256);
+        miku_group_member_t list[16];
+        int n = miku_group_get_members(svc, gid, list, 16);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_group_member_to_json(&list[i]));
@@ -136,8 +136,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "getGroupMemberUserID") == 0) {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        miku_group_member_t list[256];
-        int n = miku_group_get_members(svc, gid, list, 256);
+        miku_group_member_t list[16];
+        int n = miku_group_get_members(svc, gid, list, 16);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_json_create_str(list[i].user_id));
@@ -191,7 +191,15 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "setGroupInfoEx") == 0) {
-        miku_ji(resp, "errCode", 0);
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        miku_group_t *g = miku_group_find(svc, gid);
+        if (g) {
+            const char *name = req ? miku_json_str(miku_json_get(req, "groupName")) : NULL;
+            const char *ex = req ? miku_json_str(miku_json_get(req, "ex")) : NULL;
+            if (name) strncpy(g->group_name, name, sizeof(g->group_name) - 1);
+            if (ex) strncpy(g->ex, ex, sizeof(g->ex) - 1);
+        }
+        miku_ji(resp, "errCode", g ? 0 : 3001);
     } else {
         miku_ji(resp, "errCode", 404);
     }

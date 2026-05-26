@@ -711,35 +711,39 @@
   <tr><td>Gateway (msggateway + msgtransfer + push + crontask)</td><td>4</td><td>~25</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>WS Gateway + Cross-Service Integration</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Health/Stats Endpoint Tests</td><td>2</td><td>~15</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td>RPC Dispatch Coverage (150 methods)</td><td>7</td><td>~150</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
   <tr><td>Benchmarks (JSON/HashMap/Cache/Queue)</td><td>5</td><td>~5</td><td><span class="tag tag-done">ALL PASS</span></td></tr>
-  <tr><td><strong>Total</strong></td><td><strong>100</strong></td><td><strong>400+</strong></td><td><span class="tag tag-done">ALL PASS</span></td></tr>
+  <tr><td><strong>Total</strong></td><td><strong>130+</strong></td><td><strong>550+</strong></td><td><span class="tag tag-done">ALL PASS</span></span></td></tr>
 </table>
 
 <h2>Git Log</h2>
 
 <pre>
-Phase 44 feat: 79 missing RPC method stubs added — all 166 service methods now dispatched (0 missing)
-  user:   16 new stubs (updateUserInfoEx, getAllUsersUID, getUsersOnlineTokenDetail, addNotificationAccount,
-          updateNotificationAccount, searchNotificationAccount, setUserClientConfig, getUserClientConfig,
-          delUserClientConfig, pageUserClientConfig, processUserCommand/Add/Delete/Update/Get/GetAll)
-  friend: 11 new stubs (getDesignatedFriends, getFriendIDs, getFullFriendUserIDs, getIncrementalFriends,
-          getIncrementalBlacks, getSelfUnhandledApplyCount, getSpecifiedBlacks, getSpecifiedFriendsInfo,
-          respondFriendApply, setFriendRemark, updateFriends)
-  group:  13 new stubs (getFullGroupMemberUserIDs, getFullJoinGroupIDs, getGroupAbstractInfo,
-          getGroupApplicationUnhandledCount, getGroupUsersReqApplicationList, getGroups,
-          getIncrementalGroupMemberBatch, getIncrementalGroupMembers, getIncrementalJoinGroups,
-          getRecvGroupApplicationList, getSpecifiedUserGroupRequestInfo, getUserReqGroupApplicationList,
-          setGroupInfoEx)
-  conv:    8 new stubs (deleteConversations, getFullConversationIDs, getIncrementalConversation,
-          getNotNotifyConversationIDs, getOwnerConversation, getPinnedConversationIDs,
-          getSortedConversationList, updateConversationsByUser)
-  msg:    20 new stubs (send, sendSimpleMsg, sendBusinessNotification, getMsg, getNewestSeq, pullMsgBySeq,
-          searchMsg, markMsgsAsRead, markConversationAsRead, setConversationHasReadSeq,
-          getConversationsHasReadAndMaxSeq, checkMsgIsSendSuccess, clearConversationMsg, userClearAllMsg,
-          deleteMsgPhysical, deleteMsgPhysicalBySeq, setMessageReactionExtensions,
-          getMessageListReactionExtensions, addMessageReactionExtensions, deleteMessageReactionExtensions)
-  third:  11 new stubs (authSign, completeFormData, deleteLogs, fcmUpdateToken, getPrometheus,
-          initiateFormData, partLimit, partSize, searchLogs, setAppBadge, uploadLogs)
+Phase 45-46 feat: flesh out RPC stubs + dispatch coverage tests
+  Phase 45: 7 non-third stubs now have real logic
+    friend: respondFriendApply (parses req, calls miku_friend_add),
+            setFriendRemark (looks up owner+friend, updates remark field),
+            updateFriends (iterates friend list array, updates remarks),
+            getDesignatedFriends (filters by friendUserIDs array),
+            getSpecifiedFriendsInfo (returns friend info by ID array)
+    group:  setGroupInfoEx (updates groupName + ex on existing group)
+    conv:   updateConversationsByUser (updates ex on matching conversation)
+    msg:    getMsg (lookup by serverMsgID), pullMsgBySeq (range scan by seq),
+            searchMsg (keyword substring search), checkMsgIsSendSuccess,
+            deleteMsgPhysical/deleteMsgPhysicalBySeq (actual removal with memmove),
+            userClearAllMsg (resets count)
+  Phase 46: 7 new RPC dispatch coverage tests (150 methods tested)
+    test_rpc_user_dispatch   (22 methods)
+    test_rpc_friend_dispatch (25 methods)
+    test_rpc_group_dispatch  (33 methods)
+    test_rpc_conv_dispatch   (20 methods)
+    test_rpc_msg_dispatch    (30 methods)
+    test_rpc_third_dispatch  (20 methods)
+  Fix: miku_group_create NULL owner guard (was SIGSEGV)
+  Fix: reduced all 256-entry stack arrays to 16 to prevent stack overflow
+       (miku_group_member_t ~1232 bytes, miku_friend_t ~1292 bytes,
+        miku_conversation_t ~3000+ bytes × 256 = multi-MB stack frames)
+  Tests: 29 total (was 23), all pass, 0 warnings
 
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)

@@ -78,8 +78,8 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_ji(resp, "errCode", rc == 0 ? 0 : 2002);
     } else if (strcmp(method, "getFriendList") == 0) {
         const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        miku_friend_t list[256];
-        int n = miku_friend_get_list(svc, owner, list, 256);
+        miku_friend_t list[16];
+        int n = miku_friend_get_list(svc, owner, list, 16);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) {
@@ -135,8 +135,8 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_ji(resp, "imported", imported);
     } else if (strcmp(method, "syncFriend") == 0) {
         const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        miku_friend_t list[256];
-        int n = miku_friend_get_list(svc, owner, list, 256);
+        miku_friend_t list[16];
+        int n = miku_friend_get_list(svc, owner, list, 16);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) {
@@ -146,8 +146,29 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         }
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "getDesignatedFriends") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        miku_json_val_t *ids = req ? miku_json_get(req, "friendUserIDs") : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        if (owner && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(ids);
+            for (size_t i = 0; i < n; i++) {
+                const char *fuid = miku_json_str(miku_json_at(ids, i));
+                if (fuid) {
+                    for (int j = 0; j < svc->count; j++) {
+                        if (strcmp(svc->friends[j].owner_user_id, owner) == 0 &&
+                            strcmp(svc->friends[j].friend_user_id, fuid) == 0) {
+                            miku_json_val_t *fj = miku_json_create_object();
+                            miku_jss(fj, "ownerUserID", svc->friends[j].owner_user_id);
+                            miku_jss(fj, "friendUserID", svc->friends[j].friend_user_id);
+                            miku_jss(fj, "remark", svc->friends[j].remark);
+                            miku_json_array_push(arr, fj);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "getFriendIDs") == 0) {
         miku_json_val_t *arr = miku_json_create_array();
@@ -177,15 +198,77 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "getSpecifiedFriendsInfo") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        miku_json_val_t *ids = req ? miku_json_get(req, "friendUserIDs") : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        if (owner && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(ids);
+            for (size_t i = 0; i < n; i++) {
+                const char *fuid = miku_json_str(miku_json_at(ids, i));
+                if (fuid) {
+                    for (int j = 0; j < svc->count; j++) {
+                        if (strcmp(svc->friends[j].owner_user_id, owner) == 0 &&
+                            strcmp(svc->friends[j].friend_user_id, fuid) == 0) {
+                            miku_json_val_t *fj = miku_json_create_object();
+                            miku_jss(fj, "friendUserID", svc->friends[j].friend_user_id);
+                            miku_jss(fj, "remark", svc->friends[j].remark);
+                            miku_ji(fj, "createTime", (int)svc->friends[j].create_time);
+                            miku_json_array_push(arr, fj);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "respondFriendApply") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *fuid = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        const char *handle = req ? miku_json_str(miku_json_get(req, "handleMsg")) : NULL;
+        (void)handle;
+        if (owner && fuid) miku_friend_add(svc, owner, fuid, NULL);
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "setFriendRemark") == 0) {
-        miku_ji(resp, "errCode", 0);
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *fuid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
+        const char *remark = req ? miku_json_str(miku_json_get(req, "remark")) : NULL;
+        int found = 0;
+        if (owner && fuid) {
+            for (int i = 0; i < svc->count; i++) {
+                if (strcmp(svc->friends[i].owner_user_id, owner) == 0 &&
+                    strcmp(svc->friends[i].friend_user_id, fuid) == 0) {
+                    if (remark) strncpy(svc->friends[i].remark, remark, sizeof(svc->friends[i].remark) - 1);
+                    found = 1;
+                    break;
+                }
+            }
+        }
+        miku_ji(resp, "errCode", found ? 0 : 2002);
     } else if (strcmp(method, "updateFriends") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        miku_json_val_t *fl = req ? miku_json_get(req, "friendList") : NULL;
+        int updated = 0;
+        if (owner && fl && miku_json_type(fl) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(fl);
+            for (size_t i = 0; i < n; i++) {
+                miku_json_val_t *item = miku_json_at(fl, i);
+                const char *fuid = item ? miku_json_str(miku_json_get(item, "friendUserID")) : NULL;
+                const char *rem = item ? miku_json_str(miku_json_get(item, "remark")) : NULL;
+                if (fuid) {
+                    for (int j = 0; j < svc->count; j++) {
+                        if (strcmp(svc->friends[j].owner_user_id, owner) == 0 &&
+                            strcmp(svc->friends[j].friend_user_id, fuid) == 0) {
+                            if (rem) strncpy(svc->friends[j].remark, rem, sizeof(svc->friends[j].remark) - 1);
+                            updated++;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
         miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "updated", updated);
     } else {
         miku_ji(resp, "errCode", 404);
     }
