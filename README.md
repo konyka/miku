@@ -13,7 +13,7 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 | C Modules | 63 |
 | C Headers | 70 |
 | Binaries | 13 |
-| Tests | 34 |
+| Tests | 123 |
 | Lines of C Code | ~11K |
 | Build Warnings | 0 |
 

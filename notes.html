@@ -531,6 +531,35 @@
 
 <p style="color:#8b949e; margin-top:0.5rem;">100% complete — all phases done, all binaries wired, production-ready IM server in pure C</p>
 
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 38</span> <span class="tag tag-done">DONE</span></div>
+  <h3>New Module Tests</h3>
+  <ul>
+    <li>9 new tests added: <code>miku_im_message</code> (roundtrip, validate, generate_id), <code>miku_im_ack</code> (roundtrip), <code>miku_im_ws_hello</code> (parse), <code>miku_mt_pipeline</code> (submit+flush, read_seq), <code>miku_msg_store</code> (stub CRUD), <code>miku_session_cache</code> (stub token/online)</li>
+    <li>Total tests: 123 (was 114), all passing, 0 failures</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 39</span> <span class="tag tag-done">DONE</span></div>
+  <h3>miku-dev Full Integration</h3>
+  <ul>
+    <li><strong>miku-dev</strong> now wires ALL feature modules in a single process</li>
+    <li>Added: offline push (DUMMY), MT pipeline (redis/mongo/push callbacks), cron task implementations, WS subscriptions, auth middleware</li>
+    <li>Poll loop drains SPSC→pipeline, flushes every 10 ticks, ticks cron scheduler</li>
+    <li>Route count fixed: 203 (was showing 48)</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 40</span> <span class="tag tag-done">DONE</span></div>
+  <h3>README + Docs Update</h3>
+  <ul>
+    <li>README test count updated: 34 → 123</li>
+    <li>All documentation current with latest stats: 203 routes, 63 modules, 123 tests, 13 binaries, 0 warnings</li>
+  </ul>
+</div>
+
 <h2>Phase Status</h2>
 
 <table>
@@ -575,6 +604,9 @@
   <tr><td>35</td><td>Push Binary Offline Push Wiring</td><td><span class="tag tag-done">DONE</span></td><td>miku-push: online + offline push, DUMMY provider, device token management</td></tr>
   <tr><td>36</td><td>CronTask Binary Task Wiring</td><td><span class="tag tag-done">DONE</span></td><td>miku-crontask: scheduler + task impls, deleteMsg(24h) + clearS3(7d)</td></tr>
   <tr><td>37</td><td>API Binary Rate Limit + Webhook</td><td><span class="tag tag-done">DONE</span></td><td>miku-api: rate limit middleware (100/min), webhook startup event, ctx owns ratelimit+webhook</td></tr>
+  <tr><td>38</td><td>New Module Tests</td><td><span class="tag tag-done">DONE</span></td><td>9 new tests: im_message(3), im_ack(1), im_ws_hello(1), mt_pipeline(2), msg_store(1), session_cache(1). Total 123 tests.</td></tr>
+  <tr><td>39</td><td>miku-dev Full Integration</td><td><span class="tag tag-done">DONE</span></td><td>miku-dev wires all modules: offline push, MT pipeline, cron impls, WS subs, auth middleware, 203 routes</td></tr>
+  <tr><td>40</td><td>README + Docs Update</td><td><span class="tag tag-done">DONE</span></td><td>README test count 34→123, notes.html updated</td></tr>
 </table>
 
 <h2>Module Inventory</h2>

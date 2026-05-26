@@ -7,6 +7,13 @@
 #include "miku_gzip.h"
 #include "miku_cron_tasks.h"
 #include "miku_ws_subscription.h"
+#include "miku_im_message.h"
+#include "miku_mt_pipeline.h"
+#include "miku_msg_store.h"
+#include "miku_session_cache.h"
+#include "miku_json.h"
+#include "miku_json_util.h"
+#include "miku_models.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -17,6 +24,19 @@ static void wh_handler(miku_webhook_event_t event, const char *payload, void *ct
     (void)payload; (void)ctx;
     wh_received++;
     wh_last_event = event;
+}
+
+static int mt_redis_flush_count = 0;
+static int mt_mongo_flush_count = 0;
+
+static void mt_to_redis_cb(const miku_msg_t *msgs, int count, void *ctx) {
+    (void)msgs; (void)ctx;
+    mt_redis_flush_count += count;
+}
+
+static void mt_to_mongo_cb(const miku_msg_t *msgs, int count, void *ctx) {
+    (void)msgs; (void)ctx;
+    mt_mongo_flush_count += count;
 }
 
 void test_ratelimit_basic(void) {
@@ -237,6 +257,198 @@ void test_gzip_detect_encoding(void) {
     mk_assert_int_eq(0, (int)miku_gzip_accepts_encoding(NULL));
 }
 
+void test_im_message_roundtrip(void) {
+    miku_json_val_t *j = miku_json_create_object();
+    miku_jss(j, "msgID", "m1");
+    miku_jss(j, "clientMsgID", "cm1");
+    miku_jss(j, "sendID", "user_a");
+    miku_jss(j, "recvID", "user_b");
+    miku_jss(j, "groupID", "g1");
+    miku_jss(j, "conversationID", "conv_1");
+    miku_ji(j, "contentType", 101);
+    miku_ji(j, "conversationType", 1);
+    miku_jss(j, "content", "hello world");
+    miku_jss(j, "senderNickname", "Alice");
+    miku_jss(j, "senderFaceURL", "https://face.url");
+
+    miku_im_msg_t msg;
+    mk_assert_int_eq(0, miku_im_msg_from_json(&msg, j));
+    miku_json_destroy(j);
+
+    mk_assert_str_eq("m1", msg.msg_id);
+    mk_assert_str_eq("cm1", msg.client_msg_id);
+    mk_assert_str_eq("user_a", msg.send_id);
+    mk_assert_str_eq("user_b", msg.recv_id);
+    mk_assert_str_eq("g1", msg.group_id);
+    mk_assert_str_eq("conv_1", msg.conversation_id);
+    mk_assert_int_eq(101, msg.content_type);
+    mk_assert_int_eq(1, msg.conversation_type);
+    mk_assert_str_eq("hello world", msg.content);
+    mk_assert_str_eq("Alice", msg.sender_nickname);
+
+    miku_json_val_t *out = miku_im_msg_to_json(&msg);
+    mk_assert_not_null(out);
+    mk_assert_str_eq("m1", miku_json_str(miku_json_get(out, "msgID")));
+    mk_assert_str_eq("user_a", miku_json_str(miku_json_get(out, "sendID")));
+    miku_json_destroy(out);
+}
+
+void test_im_message_validate(void) {
+    miku_im_msg_t msg;
+    miku_im_msg_init(&msg);
+    mk_assert_int_eq(-1, miku_im_msg_validate(&msg));
+
+    strncpy(msg.send_id, "user_a", sizeof(msg.send_id) - 1);
+    strncpy(msg.recv_id, "user_b", sizeof(msg.recv_id) - 1);
+    msg.content_type = MK_IM_MSG_TYPE_TEXT;
+    msg.conversation_type = MK_IM_CONV_SINGLE;
+    strncpy(msg.content, "hi", sizeof(msg.content) - 1);
+    mk_assert_int_eq(0, miku_im_msg_validate(&msg));
+}
+
+void test_im_message_generate_id(void) {
+    miku_im_msg_t msg;
+    miku_im_msg_init(&msg);
+    mk_assert_int_eq(0, (int)msg.msg_id[0]);
+    miku_im_msg_generate_id(&msg);
+    mk_assert_int_ne(0, (int)msg.msg_id[0]);
+}
+
+void test_im_ack_roundtrip(void) {
+    miku_json_val_t *j = miku_json_create_object();
+    miku_ji(j, "type", 1);
+    miku_jss(j, "userID", "u1");
+    miku_ji(j, "seq", 42);
+
+    miku_im_ack_t ack;
+    mk_assert_int_eq(0, miku_im_ack_from_json(&ack, j));
+    miku_json_destroy(j);
+
+    mk_assert_int_eq(1, ack.type);
+    mk_assert_str_eq("u1", ack.user_id);
+    mk_assert_long_eq(42, ack.seq);
+
+    miku_json_val_t *out = miku_im_ack_to_json(&ack);
+    mk_assert_not_null(out);
+    miku_json_destroy(out);
+}
+
+void test_im_ws_hello_parse(void) {
+    miku_json_val_t *j = miku_json_create_object();
+    miku_ji(j, "type", 1);
+    miku_jss(j, "userID", "user_x");
+    miku_ji(j, "serverTime", 1000000);
+
+    miku_im_ws_hello_t hello;
+    mk_assert_int_eq(0, miku_im_ws_hello_from_json(&hello, j));
+    miku_json_destroy(j);
+
+    mk_assert_int_eq(1, hello.type);
+    mk_assert_str_eq("user_x", hello.user_id);
+    mk_assert_long_eq(1000000, hello.server_time);
+}
+
+void test_mt_pipeline_submit_flush(void) {
+    miku_mt_pipeline_t *p = miku_mt_pipeline_create();
+    mk_assert_not_null(p);
+    mk_assert_int_eq(0, miku_mt_pipeline_pending(p));
+
+    mt_redis_flush_count = 0;
+    mt_mongo_flush_count = 0;
+
+    miku_mt_pipeline_on_redis(p, mt_to_redis_cb, NULL);
+    miku_mt_pipeline_on_mongo(p, mt_to_mongo_cb, NULL);
+
+    miku_msg_t msg;
+    memset(&msg, 0, sizeof(msg));
+    strncpy(msg.send_id, "u1", sizeof(msg.send_id) - 1);
+    strncpy(msg.recv_id, "u2", sizeof(msg.recv_id) - 1);
+
+    for (int i = 0; i < 5; i++) {
+        msg.seq = miku_mt_pipeline_seq_next(p, "conv_1");
+        mk_assert_long_eq(i + 1, msg.seq);
+        miku_mt_pipeline_submit(p, &msg);
+    }
+    mk_assert_int_eq(5, miku_mt_pipeline_pending(p));
+
+    miku_mt_pipeline_flush(p);
+    mk_assert_int_eq(0, miku_mt_pipeline_pending(p));
+    mk_assert_int_eq(5, mt_redis_flush_count);
+    mk_assert_int_eq(5, mt_mongo_flush_count);
+
+    miku_mt_pipeline_destroy(p);
+}
+
+void test_mt_pipeline_read_seq(void) {
+    miku_mt_pipeline_t *p = miku_mt_pipeline_create();
+    mk_assert_not_null(p);
+
+    mk_assert_int_eq(0, miku_mt_pipeline_process_read_seq(p, "user1", "conv1", 10));
+    mk_assert_long_eq(10, miku_mt_pipeline_get_read_seq(p, "user1", "conv1"));
+    mk_assert_long_eq(0, miku_mt_pipeline_get_read_seq(p, "user1", "conv2"));
+    mk_assert_long_eq(0, miku_mt_pipeline_get_read_seq(p, "user2", "conv1"));
+
+    miku_mt_pipeline_process_read_seq(p, "user1", "conv1", 20);
+    mk_assert_long_eq(20, miku_mt_pipeline_get_read_seq(p, "user1", "conv1"));
+
+    miku_mt_pipeline_destroy(p);
+}
+
+void test_msg_store_stub(void) {
+    miku_msg_store_t *s = miku_msg_store_create(NULL);
+    mk_assert_not_null(s);
+
+    char msg_id[64] = {0};
+    int rc = miku_msg_store_insert(s, "conv_1", "user_a", 101, "hello", 1000000, msg_id, sizeof(msg_id));
+    mk_assert_int_eq(0, rc);
+    mk_assert_int_ne(0, (int)msg_id[0]);
+
+    char *results = NULL;
+    rc = miku_msg_store_find_by_conv(s, "conv_1", 0, 100, &results);
+    mk_assert_int_eq(0, rc);
+    mk_assert_not_null(results);
+    mk_assert_str_eq("[]", results);
+    free(results);
+
+    char *one = NULL;
+    rc = miku_msg_store_find_one(s, msg_id, &one);
+    mk_assert_int_eq(0, rc);
+    mk_assert_not_null(one);
+    free(one);
+
+    rc = miku_msg_store_update_status(s, msg_id, 2);
+    mk_assert_int_eq(0, rc);
+
+    rc = miku_msg_store_delete(s, msg_id);
+    mk_assert_int_eq(0, rc);
+
+    mk_assert_int_eq(-1, miku_msg_store_insert(s, NULL, "u", 1, "c", 0, NULL, 0));
+
+    miku_msg_store_destroy(s);
+}
+
+void test_session_cache_stub(void) {
+    miku_session_cache_t *c = miku_session_cache_create(NULL);
+    mk_assert_not_null(c);
+
+    mk_assert_int_eq(0, miku_session_set_token(c, "u1", "tok_abc", 1, 3600000));
+    mk_assert_int_eq(0, miku_session_validate_token(c, "u1", "tok_abc"));
+    mk_assert_int_eq(0, miku_session_remove_token(c, "u1", 1));
+    mk_assert_int_eq(0, miku_session_remove_all(c, "u1"));
+
+    mk_assert_int_eq(0, miku_session_set_online(c, "u1", 1, "127.0.0.1:10001"));
+    char *platforms = NULL;
+    mk_assert_int_eq(0, miku_session_get_online(c, "u1", &platforms));
+    mk_assert_not_null(platforms);
+    free(platforms);
+
+    mk_assert_int_eq(0, miku_session_set_offline(c, "u1", 1));
+
+    mk_assert_int_eq(-1, miku_session_set_token(c, NULL, "t", 1, 0));
+
+    miku_session_cache_destroy(c);
+}
+
 void run_new_module_tests(void) {
     printf("\n── Miku New Module Tests ───────────────────\n\n");
     mk_run_test(test_ratelimit_basic);
@@ -253,4 +465,13 @@ void run_new_module_tests(void) {
     mk_run_test(test_ws_subscription_basic);
     mk_run_test(test_gzip_roundtrip);
     mk_run_test(test_gzip_detect_encoding);
+    mk_run_test(test_im_message_roundtrip);
+    mk_run_test(test_im_message_validate);
+    mk_run_test(test_im_message_generate_id);
+    mk_run_test(test_im_ack_roundtrip);
+    mk_run_test(test_im_ws_hello_parse);
+    mk_run_test(test_mt_pipeline_submit_flush);
+    mk_run_test(test_mt_pipeline_read_seq);
+    mk_run_test(test_msg_store_stub);
+    mk_run_test(test_session_cache_stub);
 }
