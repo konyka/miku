@@ -20,8 +20,11 @@ struct miku_msggw_s {
     int                  client_count;
     miku_msggw_on_msg_fn on_msg;
     void                *on_msg_ctx;
+    miku_msggw_on_op_fn  on_op;
+    void                *on_op_ctx;
     int64_t              total_msgs_in;
     int64_t              total_msgs_out;
+    int64_t              global_seq;
 };
 
 miku_msggw_t *miku_msggw_create(int port) {
@@ -123,6 +126,58 @@ void miku_msggw_on_message(miku_msggw_t *gw, miku_msggw_on_msg_fn fn, void *ctx)
     gw->on_msg_ctx = ctx;
 }
 
+void miku_msggw_on_opcode(miku_msggw_t *gw, miku_msggw_on_op_fn fn, void *ctx) {
+    if (!gw) return;
+    gw->on_op = fn;
+    gw->on_op_ctx = ctx;
+}
+
+int miku_msggw_send_op(miku_msggw_t *gw, int client_idx, int opcode,
+                         const char *payload, size_t len) {
+    if (!gw || client_idx < 0 || client_idx >= gw->client_count) return -1;
+    miku_msggw_client_t *c = &gw->clients[client_idx];
+    if (!c->online || !c->upgraded) return -1;
+
+    char buf[8192];
+    int n = snprintf(buf, sizeof(buf), "{\"reqIdentifier\":%d,\"data\":%.*s}",
+                     opcode, (int)len, payload ? payload : "{}");
+    if (n < 0 || (size_t)n >= sizeof(buf)) return -1;
+    miku_ws_send_text(c->fd, buf, (size_t)n);
+    gw->total_msgs_out++;
+    return 0;
+}
+
+int miku_msggw_broadcast_op(miku_msggw_t *gw, int opcode,
+                              const char *payload, size_t len) {
+    if (!gw) return -1;
+    char buf[8192];
+    int n = snprintf(buf, sizeof(buf), "{\"reqIdentifier\":%d,\"data\":%.*s}",
+                     opcode, (int)len, payload ? payload : "{}");
+    if (n < 0 || (size_t)n >= sizeof(buf)) return -1;
+    int sent = 0;
+    for (int i = 0; i < gw->client_count; i++) {
+        if (gw->clients[i].online && gw->clients[i].upgraded) {
+            miku_ws_send_text(gw->clients[i].fd, buf, (size_t)n);
+            sent++;
+        }
+    }
+    gw->total_msgs_out += sent;
+    return sent;
+}
+
+int miku_msggw_get_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq) {
+    if (!gw || !seq) return -1;
+    (void)conversation_id;
+    *seq = ++gw->global_seq;
+    return 0;
+}
+
+int miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background) {
+    if (!gw || client_idx < 0 || client_idx >= gw->client_count) return -1;
+    gw->clients[client_idx].is_background = background;
+    return 0;
+}
+
 static void do_ws_upgrade(int fd) {
     char buf[4096] = {0};
     ssize_t n = read(fd, buf, sizeof(buf) - 1);
@@ -174,15 +229,29 @@ static void read_client_frames(miku_msggw_t *gw, int idx) {
             gw->total_msgs_in++;
             miku_json_val_t *j = miku_json_parse_str((const char *)frame->payload);
             if (j) {
-                const char *uid = miku_json_str(miku_json_get(j, "userID"));
+                const char *uid = miku_json_str(miku_json_get(j, "sendID"));
+                if (!uid) uid = miku_json_str(miku_json_get(j, "userID"));
                 if (uid && c->user_id[0] == '\0') {
                     strncpy(c->user_id, uid, sizeof(c->user_id) - 1);
                 }
-                miku_json_destroy(j);
-            }
-            if (gw->on_msg) {
-                gw->on_msg(c->user_id, (const char *)frame->payload,
-                           frame->payload_len, gw->on_msg_ctx);
+                int64_t req_op = miku_json_int(miku_json_get(j, "reqIdentifier"));
+                if (req_op > 0 && gw->on_op) {
+                    gw->on_op(idx, (int)req_op,
+                              (const char *)frame->payload, frame->payload_len,
+                              gw->on_op_ctx);
+                    miku_json_destroy(j);
+                } else {
+                    if (gw->on_msg) {
+                        gw->on_msg(c->user_id, (const char *)frame->payload,
+                                   frame->payload_len, gw->on_msg_ctx);
+                    }
+                    miku_json_destroy(j);
+                }
+            } else {
+                if (gw->on_msg) {
+                    gw->on_msg(c->user_id, (const char *)frame->payload,
+                               frame->payload_len, gw->on_msg_ctx);
+                }
             }
         } else if (frame->opcode == MK_WS_PING) {
             miku_ws_send_pong(c->fd, frame->payload, frame->payload_len);

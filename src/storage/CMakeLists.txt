@@ -5,6 +5,8 @@ set(MIKU_STORAGE_SOURCES
     miku_kafka.c
     miku_msg_store.c
     miku_session_cache.c
+    miku_seq.c
+    miku_incr_sync.c
 )
 
 add_library(miku_storage STATIC ${MIKU_STORAGE_SOURCES})

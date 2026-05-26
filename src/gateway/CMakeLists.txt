@@ -3,9 +3,13 @@ set(MIKU_GATEWAY_SOURCES
     api/miku_api.c
     msggateway/miku_msggateway.c
     msggateway/miku_im_message.c
+    msggateway/miku_ws_subscription.c
     msgtransfer/miku_msgtransfer.c
+    msgtransfer/miku_mt_pipeline.c
     push/miku_push.c
+    push/miku_offline_push.c
     crontask/miku_crontask.c
+    crontask/miku_cron_tasks.c
 )
 
 add_library(miku_gateway STATIC ${MIKU_GATEWAY_SOURCES})

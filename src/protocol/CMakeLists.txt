@@ -8,6 +8,9 @@ set(MIKU_PROTOCOL_SOURCES
     miku_rpc_server.c
     miku_middleware.c
     miku_pb.c
+    miku_webhook.c
+    miku_ratelimit.c
+    miku_gzip.c
 )
 
 add_library(miku_protocol STATIC ${MIKU_PROTOCOL_SOURCES})
@@ -20,4 +23,5 @@ target_include_directories(miku_protocol PUBLIC
 target_link_libraries(miku_protocol PUBLIC
     miku_runtime
     miku_foundation
+    ZLIB::ZLIB
 )

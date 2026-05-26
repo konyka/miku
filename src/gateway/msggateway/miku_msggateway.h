@@ -6,15 +6,34 @@
 
 #define MK_GW_MAX_CLIENTS 4096
 
+#define MK_WS_OP_GET_NEWEST_SEQ       1001
+#define MK_WS_OP_PULL_MSG_BY_SEQ      1002
+#define MK_WS_OP_SEND_MSG             1003
+#define MK_WS_OP_SEND_SIGNAL_MSG      1004
+#define MK_WS_OP_PULL_MSG             1005
+#define MK_WS_OP_GET_CONV_MAX_READ_SEQ 1006
+#define MK_WS_OP_PULL_CONV_LAST_MSG   1007
+#define MK_WS_OP_PUSH_MSG             2001
+#define MK_WS_OP_KICK_ONLINE          2002
+#define MK_WS_OP_LOGOUT               2003
+#define MK_WS_OP_SET_BACKGROUND       2004
+#define MK_WS_OP_SUB_USER_STATUS      2005
+#define MK_WS_OP_DATA_ERROR           3001
+
 typedef void (*miku_msggw_on_msg_fn)(const char *user_id, const char *msg, size_t len, void *ctx);
+typedef void (*miku_msggw_on_op_fn)(int client_idx, int opcode, const char *payload, size_t len, void *ctx);
 
 typedef struct miku_msggw_client_s {
     int            fd;
     char           user_id[64];
+    char           conn_id[64];
     int            platform;
     int64_t        connect_time;
     bool           online;
     bool           upgraded;
+    bool           is_background;
+    char           sdk_type[16];
+    char           sdk_version[16];
 } miku_msggw_client_t;
 
 typedef struct miku_msggw_s miku_msggw_t;
@@ -31,6 +50,13 @@ MIKU_API int  miku_msggw_send_to_user(miku_msggw_t *gw, const char *user_id,
 MIKU_API int  miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id);
 
 MIKU_API void miku_msggw_on_message(miku_msggw_t *gw, miku_msggw_on_msg_fn fn, void *ctx);
+MIKU_API void miku_msggw_on_opcode(miku_msggw_t *gw, miku_msggw_on_op_fn fn, void *ctx);
 MIKU_API int  miku_msggw_poll(miku_msggw_t *gw, int timeout_ms);
+MIKU_API int  miku_msggw_send_op(miku_msggw_t *gw, int client_idx, int opcode,
+                                   const char *payload, size_t len);
+MIKU_API int  miku_msggw_broadcast_op(miku_msggw_t *gw, int opcode,
+                                        const char *payload, size_t len);
+MIKU_API int  miku_msggw_get_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq);
+MIKU_API int  miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background);
 
 #endif
