@@ -11,6 +11,8 @@
 #include "miku_msg.h"
 #include "miku_third.h"
 #include "miku_stats.h"
+#include "miku_ratelimit.h"
+#include "miku_webhook.h"
 
 typedef struct {
     miku_auth_service_t       *auth;
@@ -21,6 +23,8 @@ typedef struct {
     miku_msg_service_t        *msg;
     miku_third_service_t      *third;
     miku_stats_t              stats;
+    miku_ratelimit_t          *ratelimit;
+    miku_webhook_t            *webhook;
 } miku_api_ctx_t;
 
 MIKU_API miku_api_ctx_t *miku_api_ctx_create(void);

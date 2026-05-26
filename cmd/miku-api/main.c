@@ -49,7 +49,15 @@ int main(int argc, char **argv) {
     miku_http_server_use(srv, miku_mw_auth, &auth_cfg);
     miku_http_server_use(srv, miku_mw_stats, &ctx->stats);
     miku_api_register_routes(srv, ctx);
-    MK_LOG_INFO("Registered 100 API routes");
+
+    static miku_rate_limit_cfg_t rl_cfg = { .window_ms = 60000, .max_requests = 100, .enabled = 1 };
+    miku_http_server_use(srv, miku_mw_rate_limit, &rl_cfg);
+
+    miku_webhook_add_url(ctx->webhook, "http://localhost:8080/webhook");
+    miku_webhook_fire(ctx->webhook, MK_WH_USER_ONLINE,
+                       "{\"userID\":\"system\",\"event\":\"api_startup\"}");
+
+    MK_LOG_INFO("Registered 203 API routes");
 
     if (miku_http_server_start(srv) != 0) {
         MK_LOG_ERROR("Failed to start HTTP server");

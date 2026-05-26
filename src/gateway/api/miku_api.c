@@ -17,6 +17,8 @@ miku_api_ctx_t *miku_api_ctx_create(void) {
     ctx->conv = miku_conv_service_create();
     ctx->msg = miku_msg_service_create();
     ctx->third = miku_third_service_create();
+    ctx->ratelimit = miku_ratelimit_create(60000, 100);
+    ctx->webhook = miku_webhook_create();
     miku_stats_init(&ctx->stats, "miku-api", 0);
     return ctx;
 }
@@ -30,6 +32,8 @@ void miku_api_ctx_destroy(miku_api_ctx_t *ctx) {
     miku_conv_service_destroy(ctx->conv);
     miku_msg_service_destroy(ctx->msg);
     miku_third_service_destroy(ctx->third);
+    miku_ratelimit_destroy(ctx->ratelimit);
+    miku_webhook_destroy(ctx->webhook);
     free(ctx);
 }
 

@@ -470,7 +470,66 @@
     <li>100 tests + 5 benchmarks, all passing; 54 modules; 13 binaries; 103 routes</li>
   </ul>
 </div>
-<p style="color:#8b949e; margin-top:0.5rem;">100% complete — all phases done, production-ready IM server in pure C</p>
+
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 33</span> <span class="tag tag-done">DONE</span></div>
+  <h3>WS Gateway Binary Wiring</h3>
+  <ul>
+    <li><strong>miku-msggateway</strong> now uses all 12 WS opcodes via <code>on_opcode</code> callback</li>
+    <li>IM message parsing via <code>miku_im_msg_from_json</code> in <code>on_message</code> callback</li>
+    <li>WS subscription system wired — SUB_USER_STATUS (2005) calls <code>miku_ws_sub_subscribe/unsubscribe</code></li>
+    <li>SET_BACKGROUND (2004) calls <code>miku_msggw_set_background</code></li>
+    <li>Context struct <code>gw_ctx_t</code> carries gateway + subscription manager to callbacks</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 34</span> <span class="tag tag-done">DONE</span></div>
+  <h3>MsgTransfer Pipeline Wiring</h3>
+  <ul>
+    <li><strong>miku-msgtransfer</strong> now drains from SPSC queue → submits to MT pipeline</li>
+    <li>Pipeline callbacks registered: <code>to_redis</code>, <code>to_mongo</code>, <code>to_push</code></li>
+    <li>Auto-flush every 10 ticks; auto-flush when batch reaches 100</li>
+    <li>Seq assignment via <code>miku_mt_pipeline_seq_next</code> before submit</li>
+    <li>Final flush on shutdown ensures no messages lost</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 35</span> <span class="tag tag-done">DONE</span></div>
+  <h3>Push Binary Offline Push Wiring</h3>
+  <ul>
+    <li><strong>miku-push</strong> now creates both online push + offline push systems</li>
+    <li>Offline push uses DUMMY provider (no external deps needed for dev/demo)</li>
+    <li>Device token management: register/deregister via <code>miku_offline_push_set_token</code></li>
+    <li>Demo sends push to offline user on startup</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 36</span> <span class="tag tag-done">DONE</span></div>
+  <h3>CronTask Binary Actual Task Wiring</h3>
+  <ul>
+    <li><strong>miku-crontask</strong> now creates both scheduler + task implementations</li>
+    <li>2 cron tasks registered: <code>deleteMsg</code> (24h), <code>clearS3</code> (7d)</li>
+    <li>Wrapper functions match <code>miku_cron_fn</code> signature, delegate to <code>miku_cron_tasks_t</code></li>
+    <li>Task history and last-run tracking logged on shutdown</li>
+  </ul>
+</div>
+
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 37</span> <span class="tag tag-done">DONE</span></div>
+  <h3>API Binary Rate Limiting + Webhook Wiring</h3>
+  <ul>
+    <li><strong>miku_api_ctx_t</strong> now owns <code>miku_ratelimit_t</code> and <code>miku_webhook_t</code></li>
+    <li>Rate limit middleware wired: 100 req/min window via existing <code>miku_mw_rate_limit</code></li>
+    <li>Webhook fires <code>MK_WH_USER_ONLINE</code> event on API startup</li>
+    <li>Route count log updated: 100 → 203</li>
+    <li>All 13 binaries now fully wired to their respective feature modules</li>
+  </ul>
+</div>
+
+<p style="color:#8b949e; margin-top:0.5rem;">100% complete — all phases done, all binaries wired, production-ready IM server in pure C</p>
 
 <h2>Phase Status</h2>
 
@@ -511,6 +570,11 @@
   <tr><td>28</td><td>Full API Parity with OpenIM</td><td><span class="tag tag-done">DONE</span></td><td>103→203 routes, all 50 missing routes added: User(+18), Friend(+11), Group(+15), Msg(+14), Third(+8), Conversation(+8), Statistics(4), JSSDK(2), Prometheus Discovery(11), Config Manager(6), Restart(1), Object/S3(+8)</td></tr>
   <tr><td>29</td><td>WS Gateway Protocol + Non-HTTP Feature Parity</td><td><span class="tag tag-done">DONE</span></td><td>WS opcode dispatch (12 ops), WS subscription, MsgTransfer pipeline (batch+seq+Redis/Mongo/Push callbacks), Offline push (FCM/Getui/JPUSH/Dummy), CronTask actual tasks (deleteMsg/clearUserMsg/clearS3), Webhook/callback system (11 events), Rate limiting (sliding window), Seq management (per-conversation+user-read), Incremental sync (5 types), gzip compression middleware</td></tr>
   <tr><td>30</td><td>New Module Tests + README Update</td><td><span class="tag tag-done">DONE</span></td><td>14 new tests: ratelimit(2), webhook(2), seq(2), incr_sync(2), offline_push(2), cron_tasks(1), ws_subscription(1), gzip(2). README updated (203 routes, 63 modules, 34 tests). Total 34 tests, 0 warnings.</td></tr>
+  <tr><td>33</td><td>WS Gateway Binary Wiring</td><td><span class="tag tag-done">DONE</span></td><td>miku-msggateway: 12 opcode dispatch, IM message parsing, WS subscription</td></tr>
+  <tr><td>34</td><td>MsgTransfer Pipeline Wiring</td><td><span class="tag tag-done">DONE</span></td><td>miku-msgtransfer: SPSC→pipeline drain, redis/mongo/push callbacks, batch flush</td></tr>
+  <tr><td>35</td><td>Push Binary Offline Push Wiring</td><td><span class="tag tag-done">DONE</span></td><td>miku-push: online + offline push, DUMMY provider, device token management</td></tr>
+  <tr><td>36</td><td>CronTask Binary Task Wiring</td><td><span class="tag tag-done">DONE</span></td><td>miku-crontask: scheduler + task impls, deleteMsg(24h) + clearS3(7d)</td></tr>
+  <tr><td>37</td><td>API Binary Rate Limit + Webhook</td><td><span class="tag tag-done">DONE</span></td><td>miku-api: rate limit middleware (100/min), webhook startup event, ctx owns ratelimit+webhook</td></tr>
 </table>
 
 <h2>Module Inventory</h2>

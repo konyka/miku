@@ -3,12 +3,24 @@
 #include "miku_service_config.h"
 #include "miku_graceful.h"
 #include "miku_crontask.h"
+#include "miku_cron_tasks.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static miku_graceful_t g_graceful;
+static miku_cron_tasks_t *g_tasks;
+
+static void cron_delete_msg(void *ctx) {
+    miku_cron_tasks_t *t = (miku_cron_tasks_t *)ctx;
+    miku_cron_delete_expired_msgs(t, 180);
+}
+
+static void cron_clear_s3(void *ctx) {
+    miku_cron_tasks_t *t = (miku_cron_tasks_t *)ctx;
+    miku_cron_clear_s3_files(t, 30);
+}
 
 int main(int argc, char **argv) {
     const char *config_dir = "config/";
@@ -23,19 +35,30 @@ int main(int argc, char **argv) {
     miku_graceful_init(&g_graceful, 300);
     MK_LOG_INFO("miku-crontask starting");
 
-    miku_crontask_t *ct = miku_crontask_create();
-    if (!ct) { MK_LOG_ERROR("Failed to create crontask"); return 1; }
-    miku_crontask_start(ct);
-    MK_LOG_INFO("miku-crontask ready");
+    g_tasks = miku_cron_tasks_create();
+    if (!g_tasks) { MK_LOG_ERROR("Failed to create cron tasks"); return 1; }
+
+    miku_crontask_t *sched = miku_crontask_create();
+    if (!sched) { MK_LOG_ERROR("Failed to create crontask scheduler"); miku_cron_tasks_destroy(g_tasks); return 1; }
+
+    miku_crontask_add(sched, "deleteMsg",  cron_delete_msg, g_tasks, 86400000);
+    miku_crontask_add(sched, "clearS3",    cron_clear_s3,   g_tasks, 604800000);
+
+    miku_crontask_start(sched);
+    MK_LOG_INFO("miku-crontask ready — %d tasks registered", miku_crontask_task_count(sched));
 
     while (miku_graceful_running(&g_graceful)) {
-        miku_crontask_tick(ct);
+        miku_crontask_tick(sched);
         usleep(50000);
     }
 
     MK_LOG_INFO("miku-crontask shutting down");
-    miku_crontask_stop(ct);
-    miku_crontask_destroy(ct);
+    MK_LOG_INFO("  deleteMsg last_run=%ld", (long)miku_cron_get_last_run(g_tasks, "deleteMsg"));
+    MK_LOG_INFO("  clearS3   last_run=%ld", (long)miku_cron_get_last_run(g_tasks, "clearS3"));
+
+    miku_crontask_stop(sched);
+    miku_crontask_destroy(sched);
+    miku_cron_tasks_destroy(g_tasks);
     miku_graceful_cleanup(&g_graceful);
     return 0;
 }
