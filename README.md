@@ -4,6 +4,19 @@ High-performance, distributed instant messaging server written in pure C (C99-C2
 
 A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-server) (Go, 12 microservices, 100+ API endpoints) with memory pools, thread pools, ucontext coroutines, and cross-platform I/O.
 
+## Stats
+
+| Metric | Count |
+|--------|-------|
+| HTTP Routes | 203 |
+| WS Protocol Opcodes | 12 |
+| C Modules | 63 |
+| C Headers | 70 |
+| Binaries | 13 |
+| Tests | 34 |
+| Lines of C Code | ~11K |
+| Build Warnings | 0 |
+
 ## Architecture
 
 ```
@@ -33,7 +46,7 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 
 | Service | Port | Description |
 |---------|------|-------------|
-| `miku-api` | 10002 | HTTP API gateway (103 routes) |
+| `miku-api` | 10002 | HTTP API gateway (203 routes) |
 | `miku-msggateway` | 10001 | WebSocket message gateway |
 | `miku-msgtransfer` | — | Message transfer queue |
 | `miku-push` | — | Push notification service |

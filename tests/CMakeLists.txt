@@ -1,4 +1,4 @@
-add_executable(miku_tests test_foundation.c test_runtime.c test_protocol.c test_storage.c test_services.c test_benchmark.c)
+add_executable(miku_tests test_foundation.c test_runtime.c test_protocol.c test_storage.c test_services.c test_benchmark.c test_new_modules.c)
 
 target_include_directories(miku_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
