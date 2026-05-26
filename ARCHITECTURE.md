@@ -1045,7 +1045,46 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`):
 
 ---
 
-## 12. API Route Table
+## 12. Request Lifecycle (API Gateway)
+
+Every HTTP request passes through this pipeline in `miku_api.c`:
+
+```
+Client POST → HTTP parse → route dispatch → handler → response
+                                         │
+                                         ├─ 1. check_ratelimit()  → 429 if exceeded
+                                         ├─ 2. parse_body()       → JSON object
+                                         ├─ 3. require_fields()   → 400 if missing
+                                         ├─ 4. method dispatch    → strstr chain
+                                         ├─ 5. RPC handler        → business logic
+                                         ├─ 6. webhook fire       → post-success
+                                         └─ 7. json_resp()        → serialize
+```
+
+### Rate Limiting
+- `miku_ratelimit_create(60000, 100)` — 100 requests/minute per user key
+- Key extraction: `userID` or `ownerUserID` from request body, fallback `"global"`
+- Key copied to stack buffer to avoid use-after-free (JSON parser returns views)
+- Returns `HTTP 429 + {"errCode":429,"errMsg":"rate limit exceeded"}`
+
+### Request Validation
+- `require_fields(j, resp, "field1", "field2", ..., NULL)` — variadic helper
+- Checks each field exists in JSON and string values are non-empty
+- Returns `HTTP 400 + {"errCode":400,"errMsg":"missing required fields: field1,field2"}`
+- Applied to write endpoints: auth (userID,secret), user (userID),
+  friend (ownerUserID,friendUserID), group (ownerUserID,groupName),
+  conv (userID,conversationID), msg (sendID,recvID,content)
+
+### Webhook Triggers
+Fired after successful RPC completion (errCode == 0):
+- `registerUser` → `MK_WH_USER_ONLINE`
+- `addFriend` → `MK_WH_AFTER_ADD_FRIEND`
+- `createGroup` → `MK_WH_AFTER_CREATE_GROUP`
+- `joinGroup` → `MK_WH_AFTER_JOIN_GROUP`
+- `sendMsg` → `MK_WH_AFTER_SEND_MSG`
+- `revokeMsg` → `MK_WH_MSG_REVOKE`
+
+## 13. API Route Table
 
 203 routes across 17 service groups:
 
@@ -1319,7 +1358,7 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`):
 
 ---
 
-## 13. Key Design Decisions
+## 14. Key Design Decisions
 
 | Decision | Choice | Rationale |
 |----------|--------|-----------|
@@ -1336,3 +1375,6 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`):
 | Log rotation | Size-based, sequential rename chain | Simple, no external dependencies |
 | Metrics format | Prometheus text format at `/admin/metrics` | Standard, compatible with any monitoring stack |
 | UUID generation | `miku_uuid_generate(char out[37])` | Single buffer, no allocation |
+| Rate limiting | Per-user sliding window (userID/ownerUserID from body) | 100 req/min default, returns 429 when exceeded |
+| Request validation | `require_fields()` variadic helper | Returns 400 with missing field names for write endpoints |
+| Webhook triggers | API gateway layer, post-success | Fires AFTER_ADD_FRIEND, AFTER_CREATE_GROUP, AFTER_SEND_MSG etc. |
