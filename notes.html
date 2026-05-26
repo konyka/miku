@@ -745,6 +745,21 @@ Phase 45-46 feat: flesh out RPC stubs + dispatch coverage tests
         miku_conversation_t ~3000+ bytes × 256 = multi-MB stack frames)
   Tests: 29 total (was 23), all pass, 0 warnings
 
+Phase 47 feat: 6 functional integration tests for service flows
+  test_msg_send_get_search_delete: send 2 msgs → getMsg by serverMsgID →
+    searchMsg by keyword → deleteMsgPhysical → verify gone → getNewestSeq
+  test_friend_remark_update_flow: addFriend → setFriendRemark → verify in
+    getFriendList → respondFriendApply (adds friend) → count=2
+  test_group_create_setinfo_member_flow: createGroup → setGroupInfoEx
+    (update name+ex) → getGroupInfo (verify) → joinGroup → getGroupMemberUserID (count=2)
+  test_conv_set_update_flow: setConversation → updateConversationsByUser (change ex)
+    → getConversation (verify ex updated) → getAllConversations (count=1)
+  test_msg_pull_by_seq_range: send 5 msgs → pullMsgBySeq(2..4) = 3 msgs →
+    deleteMsgPhysicalBySeq(3) → pull again = 2 msgs
+  test_friend_designated_friends_flow: addFriend(f1,f2) → getDesignatedFriends
+    with [f1,f2,f99] = 2 results → getSpecifiedFriendsInfo([f1]) → verify remark
+  Tests: 35 total (was 29), all pass, 0 warnings
+
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)
 TBD     test: 14 new tests for all phase 29 modules (ratelimit, webhook, seq, incr_sync, offline_push, cron_tasks, ws_subscription, gzip)

@@ -996,6 +996,7 @@ All phases complete. **130 tests + 5 benchmarks** passing. **63 modules** across
 | 43 | Fix 6 API path→method strstr() chain ordering bugs | DONE |
 | 44 | Add 79 missing RPC method stubs — all 166 methods dispatched | DONE |
 | 45-46 | Flesh out RPC stubs with real logic + 7 dispatch coverage tests (150 methods) | DONE |
+| 47 | 6 functional integration tests (msg CRUD+search, friend remark+designated, group setInfoEx+members, conv update+get, msg seq range pull+delete) | DONE |
 
 ### Performance Benchmarks
 - JSON parse: **1.36M ops/sec**
