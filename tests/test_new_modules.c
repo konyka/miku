@@ -1255,6 +1255,107 @@ static void test_ratelimit_http_429(void) {
     miku_api_ctx_destroy(ctx);
 }
 
+static void test_validation_missing_userID(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19790);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19790, "/auth/user_token",
+        "{\"secret\":\"pass\"}", resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":400") != NULL);
+    mk_assert(strstr(body, "userID") != NULL);
+
+    char resp2[8192] = {0};
+    http_post_to(19790, "/auth/user_token",
+        "{\"userID\":\"alice\",\"secret\":\"pass\"}", resp2, sizeof(resp2));
+    body = extract_json_body(resp2);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":400") == NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_validation_missing_friend_fields(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19791);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19791, "/friend/add",
+        "{\"ownerUserID\":\"u1\"}", resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":400") != NULL);
+    mk_assert(strstr(body, "friendUserID") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_validation_missing_send_fields(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19792);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19792, "/msg/send_msg",
+        "{\"sendID\":\"s1\"}", resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":400") != NULL);
+    mk_assert(strstr(body, "recvID") != NULL);
+
+    char resp2[8192] = {0};
+    http_post_to(19792, "/msg/send_msg",
+        "{\"sendID\":\"s1\",\"recvID\":\"r1\",\"content\":\"hi\"}", resp2, sizeof(resp2));
+    body = extract_json_body(resp2);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":400") == NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_validation_valid_request_passes(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19793);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19793, "/group/create",
+        "{\"ownerUserID\":\"g1\",\"groupName\":\"test group\"}", resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":400") == NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
 void run_new_module_tests(void) {
     printf("\n── Miku New Module Tests ───────────────────\n\n");
     mk_run_test(test_ratelimit_basic);
@@ -1305,4 +1406,9 @@ void run_new_module_tests(void) {
 
     mk_run_test(test_ratelimit_per_key);
     mk_run_test(test_ratelimit_http_429);
+
+    mk_run_test(test_validation_missing_userID);
+    mk_run_test(test_validation_missing_friend_fields);
+    mk_run_test(test_validation_missing_send_fields);
+    mk_run_test(test_validation_valid_request_passes);
 }

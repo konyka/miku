@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <stdarg.h>
 
 miku_api_ctx_t *miku_api_ctx_create(void) {
     miku_api_ctx_t *ctx = (miku_api_ctx_t *)calloc(1, sizeof(*ctx));
@@ -83,6 +84,39 @@ static miku_json_val_t *parse_body(miku_http_request_t *req) {
     return miku_json_create_object();
 }
 
+static int require_fields(miku_json_val_t *j, miku_http_response_t *resp, ...) {
+    va_list ap;
+    va_start(ap, resp);
+    const char *field;
+    int missing = 0;
+    char missing_names[512] = {0};
+    size_t pos = 0;
+    while ((field = va_arg(ap, const char *)) != NULL) {
+        miku_json_val_t *v = miku_json_get(j, field);
+        if (!v || (v->type == MK_JSON_STRING && (!v->u.str_val || v->u.str_val[0] == '\0'))) {
+            if (pos > 0 && pos < sizeof(missing_names) - 2) missing_names[pos++] = ',';
+            size_t flen = strlen(field);
+            if (pos + flen < sizeof(missing_names) - 1) {
+                memcpy(missing_names + pos, field, flen);
+                pos += flen;
+            }
+            missing++;
+        }
+    }
+    va_end(ap);
+    if (missing > 0) {
+        miku_json_val_t *body = miku_json_create_object();
+        miku_ji(body, "errCode", 400);
+        char msg[600];
+        snprintf(msg, sizeof(msg), "missing required fields: %s", missing_names);
+        miku_jss(body, "errMsg", msg);
+        resp->status = 400;
+        json_resp(resp, body);
+        return -1;
+    }
+    return 0;
+}
+
 static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
@@ -90,6 +124,7 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);
     if (strstr(path, "user_token")) {
+        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         const char *secret = miku_json_str(miku_json_get(j, "secret"));
         int64_t plat = miku_json_int(miku_json_get(j, "platformID"));
@@ -103,6 +138,7 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
         miku_jss(out, "userID", token ? "parsed_uid" : "");
         miku_jss(out, "platform", "linux");
     } else if (strstr(path, "admin_token")) {
+        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         const char *secret = miku_json_str(miku_json_get(j, "secret"));
         char token[512] = {0};
@@ -160,6 +196,10 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     else if (strstr(path, "set_user_client_config")) method = "setUserClientConfig";
     else if (strstr(path, "del_user_client_config")) method = "delUserClientConfig";
     else if (strstr(path, "page_user_client_config")) method = "pageUserClientConfig";
+    if (strcmp(method, "registerUser") == 0 || strcmp(method, "updateUserInfo") == 0
+        || strcmp(method, "updateUserInfoEx") == 0 || strcmp(method, "setGlobalRecvMessageOpt") == 0) {
+        if (require_fields(j, resp, "userID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    }
     miku_user_handle_rpc(c->user, method, j, out);
     if (c->webhook && strcmp(method, "registerUser") == 0) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
@@ -207,6 +247,14 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
     else if (strstr(path, "get_specified_friends_info")) method = "getSpecifiedFriendsInfo";
     else if (strstr(path, "update_friends")) method = "updateFriends";
     else if (strstr(path, "get_full_friend_user_ids")) method = "getFullFriendUserIDs";
+    if (strcmp(method, "addFriend") == 0 || strcmp(method, "addBlack") == 0
+        || strcmp(method, "deleteFriend") == 0 || strcmp(method, "removeBlack") == 0) {
+        if (require_fields(j, resp, "ownerUserID", "friendUserID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(method, "setFriendRemark") == 0) {
+        if (require_fields(j, resp, "ownerUserID", "friendUserID", "remark", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(method, "isFriend") == 0) {
+        if (require_fields(j, resp, "userID", "friendUserID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    }
     miku_friend_handle_rpc(c->friend_svc, method, j, out);
     if (c->webhook && strcmp(method, "addFriend") == 0) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
@@ -264,6 +312,14 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     else if (strstr(path, "get_full_group_member")) method = "getFullGroupMemberUserIDs";
     else if (strstr(path, "get_full_join_group")) method = "getFullJoinGroupIDs";
     else if (strstr(path, "get_group_application_unhandled")) method = "getGroupApplicationUnhandledCount";
+    if (strcmp(method, "createGroup") == 0) {
+        if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(method, "joinGroup") == 0 || strcmp(method, "quitGroup") == 0
+               || strcmp(method, "dismissGroup") == 0) {
+        if (require_fields(j, resp, "userID", "groupID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(method, "inviteToGroup") == 0 || strcmp(method, "kickGroupMember") == 0) {
+        if (require_fields(j, resp, "groupID", "invitedUserIDs", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    }
     miku_group_handle_rpc(c->group_svc, method, j, out);
     if (c->webhook) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
@@ -315,6 +371,9 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
     else if (strstr(path, "get_pinned")) method = "getPinnedConversationIDs";
     else if (strstr(path, "delete_conversations")) method = "deleteConversations";
     else if (strstr(path, "update_conversations_by_user")) method = "updateConversationsByUser";
+    if (strcmp(method, "setConversation") == 0 || strcmp(method, "deleteConversation") == 0) {
+        if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    }
     miku_conv_handle_rpc(c->conv, method, j, out);
     free(path);
     miku_json_destroy(j);
@@ -358,6 +417,13 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     else if (strstr(path, "search_msg")) method = "searchMsg";
     else if (strstr(path, "clear_conversation_msg")) method = "clearConversationMsg";
     else if (strstr(path, "user_clear_all_msg")) method = "userClearAllMsg";
+    if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0) {
+        if (require_fields(j, resp, "sendID", "recvID", "content", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0) {
+        if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(method, "searchMsg") == 0) {
+        if (require_fields(j, resp, "keyword", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    }
     miku_msg_handle_rpc(c->msg, method, j, out);
 
     if (strcmp(method, "sendMsg") == 0) {

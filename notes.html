@@ -817,6 +817,26 @@ TBD     stage 51: per-user rate limiting in API gateway
     test_ratelimit_http_429: HTTP e2e — 2 requests OK, 3rd gets 429, different user NOT limited
   Tests: 22 modules, 0 failures, 0 warnings
 
+TBD     stage 52: request validation (require_fields)
+  require_fields(j, resp, ...) — variadic helper checks each field exists and non-empty
+  Returns HTTP 400 + {"errCode":400,"errMsg":"missing required fields: field1,field2"}
+  Validation added to key write methods across 6 handlers:
+    handle_auth:  user_token → userID,secret; admin_token → userID,secret
+    handle_user:  registerUser,updateUserInfo,updateUserInfoEx,setGlobalRecvMessageOpt → userID
+    handle_friend: addFriend,addBlack,deleteFriend,removeBlack → ownerUserID,friendUserID
+                   setFriendRemark → ownerUserID,friendUserID,remark; isFriend → userID,friendUserID
+    handle_group:  createGroup → ownerUserID,groupName; joinGroup,quitGroup,dismissGroup → userID,groupID
+                   inviteToGroup,kickGroupMember → groupID,invitedUserIDs
+    handle_conv:   setConversation,deleteConversation → userID,conversationID
+    handle_msg:    sendMsg,sendSimpleMsg → sendID,recvID,content; deleteMsg,revokeMsg → userID,conversationID
+                   searchMsg → keyword
+  4 new HTTP e2e validation tests:
+    test_validation_missing_userID: auth without userID → 400, with userID → passes
+    test_validation_missing_friend_fields: add friend without friendUserID → 400
+    test_validation_missing_send_fields: send msg without recvID → 400, with all fields → passes
+    test_validation_valid_request_passes: group create with required fields → not 400
+  148 test cases, 0 failures, 0 warnings
+
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)
 TBD     test: 14 new tests for all phase 29 modules (ratelimit, webhook, seq, incr_sync, offline_push, cron_tasks, ws_subscription, gzip)
