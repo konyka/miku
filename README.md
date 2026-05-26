@@ -127,18 +127,26 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 
 ## Project Stats
 
-- **54 modules** across 6 layers
+- **63 modules** across 6 layers
 - **13 binaries** (12 microservices + dev server)
-- **103 API routes** (Auth 5, User 16, Friend 15, Group 22, Msg 16, Conv 13, Third 9, Batch 2, Admin 4)
-- **100 tests + 5 benchmarks**, all passing
+- **203 API routes** (Auth 5, User 32, Friend 26, Group 35, Msg 30, Conv 21, Third 15, Object 8, Batch 2, Statistics 4, JSSDK 2, Prometheus 11, Config 6, Restart 1, Admin 4, Version 1)
+- **123 tests + 5 benchmarks**, all passing
 - **Benchmarks**: JSON 1.36M/s, HashMap 7.09M/s, Cache 3.97M/s, Queue 38.4M/s
 
 ## Features
 
 - HTTP/1.1 server with keep-alive, TLS (OpenSSL), idle timeout, body size limit
 - Middleware pipeline: CORS, request ID, access logging, auth, stats
-- WebSocket gateway (RFC 6455) with frame codec
+- WebSocket gateway (RFC 6455) with 12 protocol opcodes, IM message parsing, user status subscriptions
 - Custom binary RPC with Protobuf codec
+- MsgTransfer pipeline with batch flush (Redis/Mongo/Push callbacks)
+- Offline push notifications (FCM/Getui/JPUSH/Dummy providers)
+- Cron task scheduler with task implementations (deleteMsg, clearS3)
+- Webhook/callback system (11 event types)
+- Rate limiting (sliding window)
+- Per-conversation sequence number management + user read tracking
+- Incremental sync (friends/blacks/groups/members/conversations)
+- gzip compression/decompression
 - Prometheus metrics at `/admin/metrics`
 - Log rotation (size-based)
 - Graceful shutdown (SIGTERM/SIGINT) + config reload (SIGHUP)
@@ -148,7 +156,7 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 ## Documentation
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) - Full architecture design document (13 sections)
-- [docs/openapi.yaml](docs/openapi.yaml) - OpenAPI 3.0 spec (103 routes)
+- [docs/openapi.yaml](docs/openapi.yaml) - OpenAPI 3.0 spec (203 routes)
 - [config/miku-example.yml](config/miku-example.yml) - Config example with all options
 - [notes.html](notes.html) - Development progress log
 

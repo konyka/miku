@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 34 tests, 63 modules, 13 binaries, 7 RPC services — full feature parity with OpenIM Server.
+> **Status**: 203 API routes, 123 tests, 63 modules, 13 binaries, 7 RPC services — full feature parity with OpenIM Server.
 
 ## 1. Overview
 
@@ -149,11 +149,16 @@ miku/
 │   │   └── CMakeLists.txt
 │   │
 │   └── gateway/                      # Gateway services
-│       ├── api/miku_api.h/c          # HTTP API gateway (103 routes, 7 service groups)
-│       ├── msggateway/miku_msggateway.h/c  # WebSocket message gateway (4096 clients)
+│       ├── api/miku_api.h/c          # HTTP API gateway (203 routes, 17 service groups)
+│       ├── msggateway/miku_msggateway.h/c  # WebSocket message gateway (4096 clients, 12 opcodes)
+│       ├── msggateway/miku_im_message.h/c   # IM message protocol (JSON encode/decode)
+│       ├── msggateway/miku_ws_subscription.h/c  # WS user status subscription
 │       ├── msgtransfer/miku_msgtransfer.h/c  # Message transfer queue (SPSC ring buffer)
-│       ├── push/miku_push.h/c        # Push notification service
+│       ├── msgtransfer/miku_mt_pipeline.h/c  # Batch pipeline (Redis/Mongo/Push callbacks)
+│       ├── push/miku_push.h/c        # Online push notification service
+│       ├── push/miku_offline_push.h/c  # Offline push (FCM/Getui/JPUSH/Dummy)
 │       ├── crontask/miku_crontask.h/c  # Cron task scheduler
+│       ├── crontask/miku_cron_tasks.h/c  # Cron task implementations (deleteMsg/clearS3)
 │       └── CMakeLists.txt
 │
 ├── cmd/                              # Service entry points (13 binaries)
@@ -172,12 +177,14 @@ miku/
 │   ├── miku-dev/main.c               # All-in-one dev server
 │   └── CMakeLists.txt
 │
-└── tests/                            # Test suite (100 tests + 5 benchmarks)
+└── tests/                            # Test suite (123 tests + 5 benchmarks)
     ├── test_foundation.c             # Foundation tests (20 tests)
     ├── test_runtime.c                # Runtime tests (9 tests)
     ├── test_protocol.c               # Protocol + middleware + route tests (40 tests)
     ├── test_storage.c                # Storage tests (9 tests)
     ├── test_services.c               # Service + integration tests (22 tests)
+    ├── test_new_modules.c            # New module tests (23 tests)
+    ├── test_benchmark.c              # Benchmarks (5 benchmarks)
     └── CMakeLists.txt
 ```
 
@@ -935,7 +942,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete. **34 tests + 5 benchmarks** passing. **63 modules** across 6 layers. **13 binaries**. **203 routes**. Full feature parity with OpenIM Server.
+All phases complete. **123 tests + 5 benchmarks** passing. **63 modules** across 6 layers. **13 binaries**. **203 routes**. Full feature parity with OpenIM Server.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -976,6 +983,15 @@ All phases complete. **34 tests + 5 benchmarks** passing. **63 modules** across 
 | 28 | Full API Parity — 103→203 routes (User+18, Friend+11, Group+15, Msg+14, Third+8, Conv+8, Statistics+4, JSSDK+2, PrometheusDiscovery+11, Config+6, Restart+1, Object+8) | DONE |
 | 29 | Non-HTTP Feature Parity — WS protocol (12 opcodes), WS subscription, MsgTransfer pipeline, offline push (FCM/Getui/JPUSH/Dummy), CronTask tasks, Webhook/callback (11 events), rate limiting, seq management, incremental sync, gzip compression | DONE |
 | 30 | New Module Tests (14 tests) + README/notes.html Update | DONE |
+| 31-32 | OpenAPI spec updated to 203 routes, ARCHITECTURE.md updated | DONE |
+| 33 | WS Gateway Binary Wiring (12 opcodes, IM message, subscriptions) | DONE |
+| 34 | MsgTransfer Pipeline Wiring (SPSC→pipeline, batch flush, callbacks) | DONE |
+| 35 | Push Binary Offline Push Wiring (DUMMY provider, device tokens) | DONE |
+| 36 | CronTask Binary Task Wiring (scheduler + impls, deleteMsg/clearS3) | DONE |
+| 37 | API Binary Rate Limit + Webhook (100/min, startup event) | DONE |
+| 38 | New Module Tests (im_message, mt_pipeline, msg_store, session_cache — 9 tests) | DONE |
+| 39 | miku-dev Full Integration (all modules in single process) | DONE |
+| 40 | README + Docs Update (test count 34→123) | DONE |
 
 ### Performance Benchmarks
 - JSON parse: **1.36M ops/sec**
@@ -1024,7 +1040,7 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`):
 
 ## 12. API Route Table
 
-103 routes across 7 service groups + admin:
+203 routes across 17 service groups:
 
 ### Auth (5 routes)
 | Method | Path | RPC Method |
@@ -1035,27 +1051,44 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`):
 | POST | `/auth/force_logout` | forceLogout |
 | POST | `/auth/force_logout_all` | forceLogoutAll |
 
-### User (16 routes)
+### User (32 routes)
 | Method | Path | RPC Method |
 |--------|------|------------|
 | POST | `/user/register` | registerUser |
-| POST | `/user/update` | updateUserInfo |
+| POST | `/user/update_user_info` | updateUserInfo |
+| POST | `/user/update_user_info_ex` | updateUserInfoEx |
 | POST | `/user/get_users_info` | getUsersInfo |
 | POST | `/user/get_all_users` | getAllUsers |
+| POST | `/user/get_all_users_uid` | getAllUsersUID |
+| POST | `/user/get_users` | getUsers |
 | POST | `/user/account_check` | accountCheck |
 | POST | `/user/count` | getUserCount |
 | POST | `/user/search` | searchUser |
-| POST | `/user/online_status` | getUsersOnlineStatus |
-| POST | `/user/global_recv` | setGlobalRecvMessageOpt |
+| POST | `/user/get_users_online_status` | getUsersOnlineStatus |
+| POST | `/user/get_users_online_token_detail` | getUsersOnlineTokenDetail |
+| POST | `/user/set_global_recv_opt` | setGlobalRecvMessageOpt |
+| POST | `/user/get_global_recv_opt` | getGlobalRecvMessageOpt |
 | POST | `/user/process_user_command` | processUserCommand |
+| POST | `/user/process_user_command_add` | processUserCommandAdd |
+| POST | `/user/process_user_command_delete` | processUserCommandDelete |
+| POST | `/user/process_user_command_get` | processUserCommandGet |
+| POST | `/user/process_user_command_get_all` | processUserCommandGetAll |
+| POST | `/user/process_user_command_update` | processUserCommandUpdate |
 | POST | `/user/get_user_status` | getUserStatus |
 | POST | `/user/update_user_status` | updateUserStatus |
 | POST | `/user/set_user_status` | setUserStatus |
-| POST | `/user/get_subscribe_users` | getSubscribeUsersStatus |
-| POST | `/user/subscribe_or_cancel` | subscribeOrCancelUserStatus |
+| POST | `/user/get_subscribe_users_status` | getSubscribeUsersStatus |
+| POST | `/user/subscribe_or_cancel_user_status` | subscribeOrCancelUserStatus |
+| POST | `/user/add_notification_account` | addNotificationAccount |
+| POST | `/user/update_notification_account` | updateNotificationAccount |
+| POST | `/user/search_notification_account` | searchNotificationAccount |
+| POST | `/user/set_user_client_config` | setUserClientConfig |
+| POST | `/user/get_user_client_config` | getUserClientConfig |
+| POST | `/user/del_user_client_config` | delUserClientConfig |
+| POST | `/user/page_user_client_config` | pageUserClientConfig |
 | GET | `/user/get_users_info` | getUsersInfo |
 
-### Friend (15 routes)
+### Friend (26 routes)
 | Method | Path | RPC Method |
 |--------|------|------------|
 | POST | `/friend/add` | addFriend |
@@ -1064,82 +1097,126 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`):
 | POST | `/friend/set_friend_remark` | setFriendRemark |
 | POST | `/friend/is_friend` | isFriend |
 | POST | `/friend/get_friend_apply_list` | getFriendApplyList |
-| POST | `/friend/get_self_friend_apply_list` | getSelfApplyList |
-| POST | `/friend/get_designated_friends_apply` | getDesignatedFriendsApply |
+| POST | `/friend/get_self_apply_list` | getSelfApplyList |
+| POST | `/friend/get_designated_apply` | getDesignatedFriendsApply |
 | POST | `/friend/add_black` | addBlack |
 | POST | `/friend/remove_black` | removeBlack |
 | POST | `/friend/get_black_list` | getBlackList |
 | POST | `/friend/import_friend` | importFriend |
-| POST | `/friend/is_in_black_list` | isInBlackList |
-| POST | `/friend/pagination_friend` | paginationFriend |
-| POST | `/friend/search_friend` | searchFriend |
+| POST | `/friend/get_specified_friends_info` | getSpecifiedFriendsInfo |
+| POST | `/friend/get_designated_friends` | getDesignatedFriends |
+| POST | `/friend/get_friend_id` | getFriendID |
+| POST | `/friend/get_full_friend_user_ids` | getFullFriendUserIDs |
+| POST | `/friend/get_self_unhandled_apply_count` | getSelfUnhandledApplyCount |
+| POST | `/friend/get_incremental_friends` | getIncrementalFriends |
+| POST | `/friend/get_incremental_blacks` | getIncrementalBlacks |
+| POST | `/friend/get_specified_blacks` | getSpecifiedBlacks |
+| POST | `/friend/sync_friend` | syncFriend |
+| POST | `/friend/update_friends` | updateFriends |
+| POST | `/friend/add_friend_response` | addFriendResponse |
+| POST | `/friend/accept_apply` | acceptFriendApply |
+| POST | `/friend/refuse_apply` | refuseFriendApply |
+| POST | `/friend/delete_friend` | deleteFriend |
 
-### Group (18 routes)
+### Group (35 routes)
 | Method | Path | RPC Method |
 |--------|------|------------|
 | POST | `/group/create` | createGroup |
 | POST | `/group/set_group_info` | setGroupInfo |
+| POST | `/group/set_group_info_ex` | setGroupInfoEx |
 | POST | `/group/get_group_info` | getGroupInfo |
+| POST | `/group/get_groups_info` | getGroupsInfo |
+| POST | `/group/get_groups` | getGroups |
 | POST | `/group/join` | joinGroup |
 | POST | `/group/quit` | quitGroup |
-| POST | `/group/get_groups_info` | getGroupsInfo |
+| POST | `/group/invite` | inviteToGroup |
+| POST | `/group/kick` | kickGroup |
+| POST | `/group/transfer` | transferGroup |
+| POST | `/group/dismiss` | dismissGroup |
+| POST | `/group/mute` | muteGroup |
+| POST | `/group/cancel_mute` | cancelMuteGroup |
+| POST | `/group/mute_member` | muteGroupMember |
+| POST | `/group/cancel_mute_member` | cancelMuteMember |
 | POST | `/group/set_group_member_info` | setGroupMemberInfo |
 | POST | `/group/get_group_member_list` | getGroupMemberList |
-| POST | `/group/get_group_all_member_list` | getGroupAllMemberList |
-| POST | `/group/get_group_members_info` | getGroupMembersInfo |
-| POST | `/group/kick_group` | kickGroup |
-| POST | `/group/transfer_group` | transferGroup |
-| POST | `/group/mute_group` | muteGroup |
-| POST | `/group/cancel_mute_group` | cancelMuteGroup |
-| POST | `/group/mute_group_member` | muteGroupMember |
-| POST | `/group/cancel_mute_group_member` | cancelMuteGroupMember |
-| POST | `/group/dismiss_group` | dismissGroup |
-| POST | `/group/count` | countGroup |
+| POST | `/group/get_group_member_user_id` | getGroupMemberUserID |
+| POST | `/group/get_groups_info` | getGroupsInfo |
+| POST | `/group/get_joined_group_list` | getJoinedGroupList |
+| POST | `/group/get_full_join_group_ids` | getFullJoinGroupIDs |
+| POST | `/group/get_full_group_member_user_ids` | getFullGroupMemberUserIDs |
+| POST | `/group/get_group_abstract_info` | getGroupAbstractInfo |
+| POST | `/group/get_incremental_join_groups` | getIncrementalJoinGroups |
+| POST | `/group/get_incremental_group_members` | getIncrementalGroupMembers |
+| POST | `/group/get_incremental_group_members_batch` | getIncrementalGroupMembersBatch |
+| POST | `/group/get_group_application_list` | getGroupApplicationList |
+| POST | `/group/get_user_req_group_applicationList` | getUserReqGroupApplicationList |
+| POST | `/group/get_group_users_req_application_list` | getGroupUsersReqApplicationList |
+| POST | `/group/get_recv_group_applicationList` | getRecvGroupApplicationList |
+| POST | `/group/get_specified_user_group_request_info` | getSpecifiedUserGroupRequestInfo |
+| POST | `/group/get_group_application_unhandled_count` | getGroupApplicationUnhandledCount |
+| POST | `/group/accept_group_application` | acceptGroupApplication |
+| POST | `/group/refuse_group_application` | refuseGroupApplication |
 
-### Message (21 routes)
+### Message (30 routes)
 | Method | Path | RPC Method |
 |--------|------|------------|
 | POST | `/msg/send_msg` | sendMsg |
-| POST | `/msg/get_by_conv` | getMsgByConversation |
-| POST | `/msg/revoke` | revokeMsg |
-| POST | `/msg/mark_as_read` | markMsgAsRead |
-| POST | `/msg/get_conversations` | getConversations |
+| POST | `/msg/send` | send |
+| POST | `/msg/send_simple_msg` | sendSimpleMsg |
+| POST | `/msg/send_business_notification` | sendBusinessNotification |
+| POST | `/msg/batch_send` | batchSend |
+| POST | `/msg/get_msg` | getMsg |
+| POST | `/msg/get` | get |
+| POST | `/msg/get_by_seq` | getBySeq |
+| POST | `/msg/pull_msg_by_seq` | pullMsgBySeq |
+| POST | `/msg/newest_seq` | newestSeq |
 | POST | `/msg/get_server_time` | getServerTime |
-| POST | `/msg/delete` | deleteMsg |
+| POST | `/msg/get_send_status` | getSendStatus |
+| POST | `/msg/check_msg_is_send_success` | checkMsgIsSendSuccess |
+| POST | `/msg/delete_msg` | deleteMsg |
+| POST | `/msg/delete_msg_physical` | deleteMsgPhysical |
+| POST | `/msg/delete_msg_phsical_by_seq` | deleteMsgPhysicalBySeq |
+| POST | `/msg/clean_up` | cleanUp |
+| POST | `/msg/clear_conversation_msg` | clearConversationMsg |
+| POST | `/msg/user_clear_all_msg` | userClearAllMsg |
+| POST | `/msg/revoke` | revokeMsg |
+| POST | `/msg/mark_as_read` | markAsRead |
+| POST | `/msg/mark_conversation_as_read` | markConversationAsRead |
+| POST | `/msg/mark_msgs_as_read` | markMsgsAsRead |
+| POST | `/msg/set_conversation_has_read_seq` | setConversationHasReadSeq |
+| POST | `/msg/get_conversations_has_read_and_max_seq` | getConversationsHasReadAndMaxSeq |
 | POST | `/msg/set_message_reaction_extensions` | setReactionExtensions |
 | POST | `/msg/get_message_list_reaction_extensions` | getReactionExtensions |
 | POST | `/msg/add_message_reaction_extensions` | addReactionExtensions |
 | POST | `/msg/delete_message_reaction_extensions` | deleteReactionExtensions |
-| POST | `/msg/get_users_in_category` | getUsersInCategory |
-| POST | `/msg/get_server_seq` | getServerSeq |
-| POST | `/msg/get_user_msg_by_seq` | getUserMsgBySeq |
-| POST | `/msg/get_seq_message` | getSeqMessage |
-| POST | `/msg/send_msg_not_ocr` | sendMsgNotOcr |
-| POST | `/msg/clear_msg` | clearMsg |
-| POST | `/msg/clear_all_msg` | clearAllMsg |
-| POST | `/msg/get_msg_receive_opt` | getMsgReceiveOpt |
-| POST | `/msg/set_msg_receive_opt` | setMsgReceiveOpt |
 | POST | `/msg/search_msg` | searchMsg |
 
-### Conversation (14 routes)
+### Conversation (21 routes)
 | Method | Path | RPC Method |
 |--------|------|------------|
 | POST | `/conversation/get_all` | getAllConversations |
-| POST | `/conversation/get` | getConversation |
-| POST | `/conversation/create` | createConversation |
-| POST | `/conversation/update` | updateConversation |
-| POST | `/conversation/delete` | deleteConversation |
-| POST | `/conversation/set_recv_msg_opt` | setRecvMsgOpt |
-| POST | `/conversation/get_recv_msg_not_notify_user` | getRecvMsgNotNotifyUser |
 | POST | `/conversation/get_all_conversations` | getAllConversations |
-| POST | `/conversation/get_conversation` | getConversation |
-| POST | `/conversation/set_conversation` | setConversation |
-| POST | `/conversation/batch_set_conversation` | batchSetConversation |
+| POST | `/conversation/get_conversation_list` | getConversationList |
+| POST | `/conversation/get_conversations` | getConversations |
+| POST | `/conversation/get_conv` | getConv |
+| POST | `/conversation/get_full_conversation_ids` | getFullConversationIDs |
+| POST | `/conversation/get_incremental_conversations` | getIncrementalConversations |
+| POST | `/conversation/get_sorted_conversation_list` | getSortedConversationList |
 | POST | `/conversation/get_owner_conversation` | getOwnerConversation |
-| POST | `/conversation/get_not_notify_conversation` | getNotNotifyConversation |
-| POST | `/conversation/pinned_conversation` | pinnedConversation |
+| POST | `/conversation/get_not_notify_conversation_ids` | getNotNotifyConversationIDs |
+| POST | `/conversation/get_pinned_conversation_ids` | getPinnedConversationIDs |
+| POST | `/conversation/get_total_unread` | getTotalUnread |
+| POST | `/conversation/set` | setConversation |
+| POST | `/conversation/set_conversations` | setConversations |
+| POST | `/conversation/set_conversation_min_seq` | setConversationMinSeq |
+| POST | `/conversation/update_conversations_by_user` | updateConversationsByUser |
+| POST | `/conversation/delete_conversation` | deleteConversation |
+| POST | `/conversation/delete_conversations` | deleteConversations |
+| POST | `/conversation/clear_conv_msg` | clearConvMsg |
+| POST | `/conversation/mark_as_read` | markAsRead |
+| POST | `/conversation/pin_conversation` | pinConversation |
 
-### Third-Party (8 routes)
+### Third-Party (15 routes)
 | Method | Path | RPC Method |
 |--------|------|------------|
 | POST | `/third/get_upload_token` | getUploadToken |
@@ -1150,16 +1227,88 @@ GitHub Actions pipeline (`.github/workflows/ci.yml`):
 | POST | `/third/upload_log` | uploadLog |
 | POST | `/third/delete_log` | deleteLog |
 | POST | `/third/search_server` | searchServer |
+| POST | `/third/get_upload_token_v2` | getUploadTokenV2 |
+| POST | `/third/access_url` | accessURL |
+| POST | `/third/initiate_multipart_upload` | initiateMultipartUpload |
+| POST | `/third/complete_multipart_upload` | completeMultipartUpload |
+| POST | `/third/get_signal_invitation_info` | getSignalInvitationInfo |
+| POST | `/third/get_signal_invitation_info_start_app` | getSignalInvitationInfoStartApp |
+| POST | `/third/fcm_update_token_v2` | fcmUpdateTokenV2 |
 
-### Admin (6 routes)
+### Object/S3 (8 routes)
+| Method | Path | Handler |
+|--------|------|---------|
+| POST | `/object/put` | objectPut |
+| POST | `/object/get` | objectGet |
+| POST | `/object/delete` | objectDelete |
+| POST | `/object/list` | objectList |
+| POST | `/object/initiate_multipart` | initiateMultipart |
+| POST | `/object/complete_multipart` | completeMultipart |
+| POST | `/object/upload_part` | uploadPart |
+| POST | `/object/abort_multipart` | abortMultipart |
+
+### Batch (2 routes)
+| Method | Path | Handler |
+|--------|------|---------|
+| POST | `/batch/get_users_info` | batchGetUsersInfo |
+| POST | `/batch/delete_friend` | batchDeleteFriend |
+
+### Statistics (4 routes)
+| Method | Path | Handler |
+|--------|------|---------|
+| POST | `/statistics/user/active` | activeUserCount |
+| POST | `/statistics/user/register` | registerUserCount |
+| POST | `/statistics/group/active` | activeGroupCount |
+| POST | `/statistics/msg/send` | msgSendCount |
+
+### JSSDK (2 routes)
+| Method | Path | Handler |
+|--------|------|---------|
+| POST | `/jssdk/get_download_url` | jssdkGetDownloadUrl |
+| POST | `/jssdk/get_upload_token` | jssdkGetUploadToken |
+
+### Prometheus Discovery (11 routes)
+| Method | Path | Handler |
+|--------|------|---------|
+| GET | `/prometheus_discovery/api` | API service |
+| GET | `/prometheus_discovery/user` | User RPC |
+| GET | `/prometheus_discovery/friend` | Friend RPC |
+| GET | `/prometheus_discovery/group` | Group RPC |
+| GET | `/prometheus_discovery/msg` | Message RPC |
+| GET | `/prometheus_discovery/conversation` | Conversation RPC |
+| GET | `/prometheus_discovery/third` | Third-party RPC |
+| GET | `/prometheus_discovery/auth` | Auth RPC |
+| GET | `/prometheus_discovery/push` | Push service |
+| GET | `/prometheus_discovery/msg_gateway` | WS Gateway |
+| GET | `/prometheus_discovery/msg_transfer` | MsgTransfer |
+
+### Config Manager (6 routes)
+| Method | Path | Handler |
+|--------|------|---------|
+| POST | `/config/get_config` | getConfig |
+| POST | `/config/set_config` | setConfig |
+| POST | `/config/reset_config` | resetConfig |
+| POST | `/config/get_config_list` | getConfigList |
+| POST | `/config/get_enable_config_manager` | getEnableConfigManager |
+| POST | `/config/set_enable_config_manager` | setEnableConfigManager |
+
+### Restart (1 route)
+| Method | Path | Handler |
+|--------|------|---------|
+| POST | `/restart` | restartServer |
+
+### Admin (4 routes)
 | Method | Path | Handler |
 |--------|------|--------|
-| GET | `/health` | Health check |
+| GET | `/admin/health` | Health check |
 | GET | `/admin/stats` | Service stats (JSON) |
 | GET | `/admin/metrics` | Prometheus metrics |
+| POST | `/admin/shutdown` | Trigger graceful shutdown |
+
+### Version (1 route)
+| Method | Path | Handler |
+|--------|------|--------|
 | GET | `/version` | Build version |
-| GET | `/admin/shutdown` | Trigger graceful shutdown |
-| OPTIONS | `*` | CORS preflight |
 
 ---
 
