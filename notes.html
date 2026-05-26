@@ -529,6 +529,20 @@
   </ul>
 </div>
 
+<div class="entry">
+  <div class="meta">2026-05-26 | <span class="tag tag-phase">Phase 43</span> <span class="tag tag-done">DONE</span></div>
+  <h3>API Path→Method Mapping Bug Fixes</h3>
+  <ul>
+    <li>Fixed <code>get_global_recv_opt</code> falling through to <code>setGlobalRecvMessageOpt</code></li>
+    <li>Fixed <code>set_group_info_ex</code> falling through to <code>setGroupInfo</code></li>
+    <li>Fixed <code>add_friend_response</code> falling through to <code>addFriend</code></li>
+    <li>Fixed <code>get_designated_friends</code> falling through to <code>getDesignatedFriendApply</code></li>
+    <li>Fixed <code>update_user_info_ex</code> falling through to <code>updateUserInfo</code></li>
+    <li>Fixed <code>get_by_seq</code> falling through to generic <code>get</code> in msg handler</li>
+    <li>Reordered all 5 service handlers: most-specific-first <code>strstr</code> chains</li>
+  </ul>
+</div>
+
 <p style="color:#8b949e; margin-top:0.5rem;">100% complete — all phases done, all binaries wired, production-ready IM server in pure C</p>
 
 <div class="entry">
