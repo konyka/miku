@@ -760,6 +760,19 @@ Phase 47 feat: 6 functional integration tests for service flows
     with [f1,f2,f99] = 2 results → getSpecifiedFriendsInfo([f1]) → verify remark
   Tests: 35 total (was 29), all pass, 0 warnings
 
+Phase 48 feat: 4 HTTP-level e2e integration tests
+  test_http_e2e_user_register_and_get: POST /user/register → verify errCode=0,
+    POST /user/get_users_info → verify errCode=0
+  test_http_e2e_auth_token: POST /auth/user_token with userID+secret → verify
+    token starts with "miku_alice_", errCode=0
+  test_http_e2e_friend_flow: POST /friend/add (owner=u1, friend=u2, remark) →
+    POST /friend/get_friend_list → verify data has 1 entry with "test remark"
+  test_http_e2e_msg_send_and_search: POST /msg/send_msg → verify serverMsgID,
+    POST /msg/search_msg keyword="e2e test" → verify data has 1 match
+  Architecture: each test starts a real HTTP server on a unique port (19777-19780)
+    in a pthread, sends real TCP HTTP requests, parses JSON responses
+  Tests: 39 total (was 35), all pass, 0 warnings
+
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)
 TBD     test: 14 new tests for all phase 29 modules (ratelimit, webhook, seq, incr_sync, offline_push, cron_tasks, ws_subscription, gzip)

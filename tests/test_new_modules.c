@@ -21,8 +21,15 @@
 #include "miku_conversation.h"
 #include "miku_msg.h"
 #include "miku_third.h"
+#include "miku_api.h"
+#include "miku_http_server.h"
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
 
 static int wh_received = 0;
 static miku_webhook_event_t wh_last_event = 0;
@@ -906,6 +913,196 @@ static void test_friend_designated_friends_flow(void) {
     miku_friend_service_destroy(svc);
 }
 
+static void *http_server_thread(void *arg) {
+    miku_http_server_t *srv = (miku_http_server_t *)arg;
+    miku_http_server_start(srv);
+    return NULL;
+}
+
+static int http_post_to(int port, const char *path, const char *body, char *resp, int cap) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    struct timeval tv = {2, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    int retries = 5;
+    while (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 && retries-- > 0) {
+        usleep(50000);
+    }
+    if (retries <= 0) { close(fd); return -1; }
+    char req[8192];
+    int len = snprintf(req, sizeof(req),
+        "POST %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",
+        path, port, strlen(body), body);
+    write(fd, req, (size_t)len);
+    int total = 0;
+    while (total < cap - 1) {
+        ssize_t n = read(fd, resp + total, (size_t)(cap - total - 1));
+        if (n <= 0) break;
+        total += (int)n;
+    }
+    resp[total] = '\0';
+    close(fd);
+    return total;
+}
+
+static char *extract_json_body(char *http_resp) {
+    char *body = strstr(http_resp, "\r\n\r\n");
+    return body ? body + 4 : http_resp;
+}
+
+static void test_http_e2e_user_register_and_get(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19777);
+    mk_assert_not_null(srv);
+    miku_api_register_routes(srv, ctx);
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    int n = http_post_to(19777, "/user/register",
+        "{\"userID\":\"http_u1\",\"nickname\":\"HTTP Alice\"}", resp, sizeof(resp));
+    mk_assert(n > 0);
+    char *body = extract_json_body(resp);
+    miku_json_val_t *r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char resp2[8192] = {0};
+    n = http_post_to(19777, "/user/get_users_info",
+        "{\"userIDList\":[\"http_u1\"]}", resp2, sizeof(resp2));
+    mk_assert(n > 0);
+    body = extract_json_body(resp2);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_http_e2e_auth_token(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19778);
+    mk_assert_not_null(srv);
+    miku_api_register_routes(srv, ctx);
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    int n = http_post_to(19778, "/auth/user_token",
+        "{\"userID\":\"alice\",\"secret\":\"openIM123\",\"platformID\":1}", resp, sizeof(resp));
+    mk_assert(n > 0);
+    char *body = extract_json_body(resp);
+    miku_json_val_t *r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    const char *token = miku_json_str(miku_json_get(r, "token"));
+    mk_assert_not_null(token);
+    mk_assert(strncmp(token, "miku_alice_", 11) == 0);
+    miku_json_destroy(r);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_http_e2e_friend_flow(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19779);
+    mk_assert_not_null(srv);
+    miku_api_register_routes(srv, ctx);
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19779, "/friend/add",
+        "{\"ownerUserID\":\"u1\",\"friendUserID\":\"u2\",\"remark\":\"test remark\"}", resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    miku_json_val_t *r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char resp2[8192] = {0};
+    http_post_to(19779, "/friend/get_friend_list",
+        "{\"userID\":\"u1\"}", resp2, sizeof(resp2));
+    body = extract_json_body(resp2);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_val_t *data = miku_json_get(r, "data");
+    mk_assert_not_null(data);
+    mk_assert_int_eq(1, (int)miku_json_size(data));
+    mk_assert_str_eq("test remark", miku_json_str(miku_json_get(miku_json_at(data, 0), "remark")));
+    miku_json_destroy(r);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_http_e2e_msg_send_and_search(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19780);
+    mk_assert_not_null(srv);
+    miku_api_register_routes(srv, ctx);
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19780, "/msg/send_msg",
+        "{\"sendID\":\"s1\",\"recvID\":\"r1\",\"content\":\"e2e test message\",\"msgType\":101,\"clientMsgID\":\"cm_e2e_1\"}",
+        resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    miku_json_val_t *r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    const char *smid = miku_json_str(miku_json_get(r, "serverMsgID"));
+    mk_assert_not_null(smid);
+    mk_assert(strlen(smid) > 0);
+    miku_json_destroy(r);
+
+    char resp2[8192] = {0};
+    http_post_to(19780, "/msg/search_msg",
+        "{\"keyword\":\"e2e test\"}", resp2, sizeof(resp2));
+    body = extract_json_body(resp2);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_val_t *data = miku_json_get(r, "data");
+    mk_assert_not_null(data);
+    mk_assert_int_eq(1, (int)miku_json_size(data));
+    miku_json_destroy(r);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
 void run_new_module_tests(void) {
     printf("\n── Miku New Module Tests ───────────────────\n\n");
     mk_run_test(test_ratelimit_basic);
@@ -944,4 +1141,9 @@ void run_new_module_tests(void) {
     mk_run_test(test_conv_set_update_flow);
     mk_run_test(test_msg_pull_by_seq_range);
     mk_run_test(test_friend_designated_friends_flow);
+
+    mk_run_test(test_http_e2e_user_register_and_get);
+    mk_run_test(test_http_e2e_auth_token);
+    mk_run_test(test_http_e2e_friend_flow);
+    mk_run_test(test_http_e2e_msg_send_and_search);
 }
