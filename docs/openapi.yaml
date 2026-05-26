@@ -2,7 +2,7 @@ openapi: 3.0.3
 info:
   title: Miku IM Server API
   version: 0.1.0
-  description: High-performance IM server API — pure C rewrite of OpenIM Server
+  description: High-performance IM server API - pure C rewrite of OpenIM Server with 203 routes
   contact:
     name: Miku IM
     url: https://github.com/konyka/miku
@@ -28,10 +28,20 @@ tags:
     description: Conversation management
   - name: Third
     description: Third-party services (file upload/download)
+  - name: Object
+    description: Object storage (S3-compatible)
   - name: Batch
     description: Batch operations
   - name: Admin
     description: Administrative endpoints
+  - name: Statistics
+    description: Usage statistics
+  - name: JSSDK
+    description: JavaScript SDK aggregation endpoints
+  - name: PrometheusDiscovery
+    description: Prometheus service discovery endpoints
+  - name: Config
+    description: Runtime configuration management
 
 components:
   securitySchemes:
@@ -46,13 +56,10 @@ components:
       properties:
         errCode:
           type: integer
-          description: Error code (0 = success)
         errMsg:
           type: string
-          description: Error message
         errDmg:
           type: string
-          description: Detailed error message
       required: [errCode]
 
     UserInfo:
@@ -117,31 +124,6 @@ components:
           type: integer
         status:
           type: integer
-        creator:
-          type: string
-        groupType:
-          type: integer
-        ex:
-          type: string
-
-    GroupMemberInfo:
-      type: object
-      properties:
-        groupID:
-          type: string
-        userID:
-          type: string
-        nickname:
-          type: string
-        faceURL:
-          type: string
-        roleLevel:
-          type: integer
-        joinTime:
-          type: integer
-          format: int64
-        joinSource:
-          type: integer
         ex:
           type: string
 
@@ -152,37 +134,27 @@ components:
           type: string
         recvID:
           type: string
-        groupID:
-          type: string
-        clientMsgID:
-          type: string
-        serverMsgID:
-          type: string
-        senderPlatformID:
-          type: integer
-        senderNickname:
-          type: string
-        senderFaceURL:
+        content:
           type: string
         contentType:
           type: integer
-        content:
+        sessionType:
+          type: integer
+        clientMsgID:
           type: string
-        seq:
+        createTime:
           type: integer
           format: int64
         sendTime:
           type: integer
           format: int64
-        createTime:
-          type: integer
-          format: int64
         status:
           type: integer
         isRead:
-          type: boolean
-        conversationType:
           type: integer
+        seq:
+          type: integer
+          format: int64
 
     ConversationInfo:
       type: object
@@ -203,8 +175,12 @@ components:
           type: integer
         unreadCount:
           type: integer
-          format: int64
         latestMsg:
+          type: string
+        latestMsgSendTime:
+          type: integer
+          format: int64
+        draftText:
           type: string
         isPinned:
           type: boolean
@@ -213,2825 +189,3638 @@ components:
         ex:
           type: string
 
-    Pagination:
-      type: object
-      properties:
-        pageNumber:
-          type: integer
-        showNumber:
-          type: integer
-
 paths:
-  /auth/user_token:
-    post:
-      tags: [Auth]
-      summary: Generate user token
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [userID, secret, platformID]
-              properties:
-                userID:
-                  type: string
-                secret:
-                  type: string
-                platformID:
-                  type: integer
-      responses:
-        "200":
-          description: Token response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  token:
-                    type: string
-                  expireTimeSeconds:
-                    type: integer
-
-  /auth/parse_token:
-    post:
-      tags: [Auth]
-      summary: Parse and validate token
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [token]
-              properties:
-                token:
-                  type: string
-      responses:
-        "200":
-          description: Parsed token info
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  userID:
-                    type: string
-                  platform:
-                    type: string
-
-  /auth/admin_token:
-    post:
-      tags: [Auth]
-      summary: Generate admin token
-      security: []
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [userID, secret]
-              properties:
-                userID:
-                  type: string
-                secret:
-                  type: string
-      responses:
-        "200":
-          description: Admin token response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  token:
-                    type: string
-                  expireTimeSeconds:
-                    type: integer
-
-  /auth/force_logout:
-    post:
-      tags: [Auth]
-      summary: Force user logout on specific platform
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [userID, platformID]
-              properties:
-                userID:
-                  type: string
-                platformID:
-                  type: integer
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /auth/force_logout_all:
-    post:
-      tags: [Auth]
-      summary: Force user logout on all platforms
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [userID]
-              properties:
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /user/register:
-    post:
-      tags: [User]
-      summary: Register new user
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [userID]
-              properties:
-                userID:
-                  type: string
-                nickname:
-                  type: string
-                faceURL:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /user/get_users_info:
-    post:
-      tags: [User]
-      summary: Get user info by ID list
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [userIDList]
-              properties:
-                userIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: User list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  users:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/UserInfo"
-
-  /user/update_user_info:
-    post:
-      tags: [User]
-      summary: Update user profile
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                nickname:
-                  type: string
-                faceURL:
-                  type: string
-                ex:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /user/account_check:
-    post:
-      tags: [User]
-      summary: Check account existence
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: Check results
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  results:
-                    type: array
-                    items:
-                      type: object
-
-  /user/get_all_users:
-    post:
-      tags: [User]
-      summary: Get all users
-      security: [{tokenAuth: []}]
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        "200":
-          description: User list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  users:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/UserInfo"
-
-  /user/count:
-    post:
-      tags: [User]
-      summary: Get total user count
-      security: [{tokenAuth: []}]
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        "200":
-          description: User count
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  count:
-                    type: integer
-
-  /user/search:
-    post:
-      tags: [User]
-      summary: Search users
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                keyword:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Search results
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  users:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/UserInfo"
-
-  /user/get_users_online_status:
-    post:
-      tags: [User]
-      summary: Get online status for users
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: Online status list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  statusList:
-                    type: array
-                    items:
-                      type: object
-
-  /user/set_global_recv_opt:
-    post:
-      tags: [User]
-      summary: Set global message receive option
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                globalRecvMsgOpt:
-                  type: integer
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /user/get_global_recv_opt:
-    post:
-      tags: [User]
-      summary: Get global message receive option
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: Global receive option
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  globalRecvMsgOpt:
-                    type: integer
-
-  /user/update_user_status:
-    post:
-      tags: [User]
-      summary: Update user online status
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                status:
-                  type: integer
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /user/process_user_command:
-    post:
-      tags: [User]
-      summary: Process user command
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                type:
-                  type: integer
-                uuid:
-                  type: string
-                value:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /user/get_user_status:
-    post:
-      tags: [User]
-      summary: Get user status
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: User status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  status:
-                    type: integer
-
-  /user/get_subscribe_users_status:
-    post:
-      tags: [User]
-      summary: Get subscribed users status
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: Status list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  statusList:
-                    type: array
-                    items:
-                      type: object
-
-  /user/subscribe_or_cancel_user_status:
-    post:
-      tags: [User]
-      summary: Subscribe or cancel user status
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                userIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /user/set_user_status:
-    post:
-      tags: [User]
-      summary: Set user status
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                status:
-                  type: integer
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /friend/add:
-    post:
-      tags: [Friend]
-      summary: Add friend request
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [fromUserID, toUserID]
-              properties:
-                fromUserID:
-                  type: string
-                toUserID:
-                  type: string
-                reqMsg:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /friend/delete:
-    post:
-      tags: [Friend]
-      summary: Delete friend
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [ownerUserID, friendUserID]
-              properties:
-                ownerUserID:
-                  type: string
-                friendUserID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /friend/get_friend_list:
-    post:
-      tags: [Friend]
-      summary: Get friend list
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Friend list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  friendInfoList:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/FriendInfo"
-
-  /friend/is_friend:
-    post:
-      tags: [Friend]
-      summary: Check friendship
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID1:
-                  type: string
-                userID2:
-                  type: string
-      responses:
-        "200":
-          description: Friendship check
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  isFriend:
-                    type: boolean
-
-  /friend/add_black:
-    post:
-      tags: [Friend]
-      summary: Add to blacklist
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                blackUserID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /friend/remove_black:
-    post:
-      tags: [Friend]
-      summary: Remove from blacklist
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                blackUserID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /friend/get_black_list:
-    post:
-      tags: [Friend]
-      summary: Get blacklist
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: Blacklist
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  blackList:
-                    type: array
-                    items:
-                      type: object
-
-  /friend/delete_friend:
-    post:
-      tags: [Friend]
-      summary: Delete friend (alternative endpoint)
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                friendUserID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /friend/get_friend_apply_list:
-    post:
-      tags: [Friend]
-      summary: Get received friend requests
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Friend requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  friendRequests:
-                    type: array
-                    items:
-                      type: object
-
-  /friend/get_self_apply_list:
-    post:
-      tags: [Friend]
-      summary: Get sent friend requests
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Friend requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  friendRequests:
-                    type: array
-                    items:
-                      type: object
-
-  /friend/get_designated_apply:
-    post:
-      tags: [Friend]
-      summary: Get specific friend request
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                fromUserID:
-                  type: string
-                toUserID:
-                  type: string
-      responses:
-        "200":
-          description: Friend request detail
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  friendRequest:
-                    type: object
-
-  /friend/accept_apply:
-    post:
-      tags: [Friend]
-      summary: Accept friend request
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                fromUserID:
-                  type: string
-                toUserID:
-                  type: string
-                handleMsg:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /friend/refuse_apply:
-    post:
-      tags: [Friend]
-      summary: Refuse friend request
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                fromUserID:
-                  type: string
-                toUserID:
-                  type: string
-                handleMsg:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /friend/sync_friend:
-    post:
-      tags: [Friend]
-      summary: Sync friend list
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: Friend list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  friendList:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/FriendInfo"
-
-  /friend/import_friend:
-    post:
-      tags: [Friend]
-      summary: Import friends
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                friendUserList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/create:
-    post:
-      tags: [Group]
-      summary: Create group
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupInfo:
-                  $ref: "#/components/schemas/GroupInfo"
-                memberList:
-                  type: array
-                  items:
-                    type: object
-      responses:
-        "200":
-          description: Created group
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  groupInfo:
-                    $ref: "#/components/schemas/GroupInfo"
-
-  /group/set_group_info:
-    post:
-      tags: [Group]
-      summary: Update group info
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupInfo:
-                  $ref: "#/components/schemas/GroupInfo"
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/get_group_info:
-    post:
-      tags: [Group]
-      summary: Get group info
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-      responses:
-        "200":
-          description: Group info
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  groupInfo:
-                    $ref: "#/components/schemas/GroupInfo"
-
-  /group/join:
-    post:
-      tags: [Group]
-      summary: Join group
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                reqMessage:
-                  type: string
-                joinSource:
-                  type: integer
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/quit:
-    post:
-      tags: [Group]
-      summary: Quit group
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/get_groups_info:
-    post:
-      tags: [Group]
-      summary: Get groups info by ID list
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: Group info list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  groupInfoList:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/GroupInfo"
-
-  /group/set_group_member_info:
-    post:
-      tags: [Group]
-      summary: Set group member info
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                userID:
-                  type: string
-                nickname:
-                  type: string
-                faceURL:
-                  type: string
-                roleLevel:
-                  type: integer
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/get_group_member_list:
-    post:
-      tags: [Group]
-      summary: Get group members (paginated)
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Member list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  memberList:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/GroupMemberInfo"
-
-  /group/get_group_member_user_id:
-    post:
-      tags: [Group]
-      summary: Get group member user IDs
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-      responses:
-        "200":
-          description: User ID list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  userIDList:
-                    type: array
-                    items:
-                      type: string
-
-  /group/get_joined_group_list:
-    post:
-      tags: [Group]
-      summary: Get joined groups
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Group list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  groupList:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/GroupInfo"
-
-  /group/invite:
-    post:
-      tags: [Group]
-      summary: Invite users to group
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                reason:
-                  type: string
-                invitedUserIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/kick:
-    post:
-      tags: [Group]
-      summary: Kick users from group
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                reason:
-                  type: string
-                kickedUserIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/transfer:
-    post:
-      tags: [Group]
-      summary: Transfer group ownership
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                newOwnerUserID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/mute:
-    post:
-      tags: [Group]
-      summary: Mute group
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/cancel_mute:
-    post:
-      tags: [Group]
-      summary: Unmute group
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/mute_member:
-    post:
-      tags: [Group]
-      summary: Mute group member
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                userID:
-                  type: string
-                mutedSeconds:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/cancel_mute_member:
-    post:
-      tags: [Group]
-      summary: Unmute group member
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/dismiss:
-    post:
-      tags: [Group]
-      summary: Dismiss group
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/get_group_application_list:
-    post:
-      tags: [Group]
-      summary: Get group join requests (as admin)
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Group requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  groupRequests:
-                    type: array
-                    items:
-                      type: object
-
-  /group/get_group_applicant_list:
-    post:
-      tags: [Group]
-      summary: Get group join applications (as applicant)
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Group requests
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  groupRequests:
-                    type: array
-                    items:
-                      type: object
-
-  /group/accept_group_application:
-    post:
-      tags: [Group]
-      summary: Accept group join request
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                fromUserID:
-                  type: string
-                handleMsg:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /group/refuse_group_application:
-    post:
-      tags: [Group]
-      summary: Refuse group join request
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                groupID:
-                  type: string
-                fromUserID:
-                  type: string
-                handleMsg:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /msg/send_msg:
-    post:
-      tags: [Message]
-      summary: Send message
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                sendID:
-                  type: string
-                recvID:
-                  type: string
-                groupID:
-                  type: string
-                senderPlatformID:
-                  type: integer
-                contentType:
-                  type: integer
-                content:
-                  type: string
-                conversationType:
-                  type: integer
-      responses:
-        "200":
-          description: Message sent
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  serverMsgID:
-                    type: string
-                  clientMsgID:
-                    type: string
-                  sendTime:
-                    type: integer
-                    format: int64
-
-  /msg/get_msg:
-    post:
-      tags: [Message]
-      summary: Get message by conversation and sequence
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                userID:
-                  type: string
-                sequence:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: Message data
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  msgData:
-                    $ref: "#/components/schemas/MsgData"
-
-  /msg/get_by_seq:
-    post:
-      tags: [Message]
-      summary: Get messages by sequence range
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                userID:
-                  type: string
-                beginSeq:
-                  type: integer
-                  format: int64
-                endSeq:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: Message list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  msgDataList:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/MsgData"
-
-  /msg/revoke:
-    post:
-      tags: [Message]
-      summary: Revoke message
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                conversationID:
-                  type: string
-                seq:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /msg/mark_as_read:
-    post:
-      tags: [Message]
-      summary: Mark message as read
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                conversationID:
-                  type: string
-                seq:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /msg/get_send_status:
-    post:
-      tags: [Message]
-      summary: Get message send status
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                userID:
-                  type: string
-                clientMsgID:
-                  type: string
-      responses:
-        "200":
-          description: Send status
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  status:
-                    type: integer
-
-  /msg/delete_msg:
-    post:
-      tags: [Message]
-      summary: Delete message
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                userID:
-                  type: string
-                seq:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /msg/get_server_time:
-    post:
-      tags: [Message]
-      summary: Get server timestamp
-      security: [{tokenAuth: []}]
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-      responses:
-        "200":
-          description: Server time
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  serverTime:
-                    type: integer
-                    format: int64
-
-  /msg/clean_up:
-    post:
-      tags: [Message]
-      summary: Clean up conversation messages
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /msg/batch_send:
-    post:
-      tags: [Message]
-      summary: Batch send messages
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                sendID:
-                  type: string
-                recvIDList:
-                  type: array
-                  items:
-                    type: string
-                contentType:
-                  type: integer
-                content:
-                  type: string
-      responses:
-        "200":
-          description: Batch results
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  results:
-                    type: array
-                    items:
-                      type: object
-
-  /msg/send:
-    post:
-      tags: [Message]
-      summary: Send message (simplified)
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                sendID:
-                  type: string
-                recvID:
-                  type: string
-                contentType:
-                  type: integer
-                content:
-                  type: string
-                conversationType:
-                  type: integer
-      responses:
-        "200":
-          description: Message sent
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  serverMsgID:
-                    type: string
-                  sendTime:
-                    type: integer
-                    format: int64
-
-  /msg/get:
-    post:
-      tags: [Message]
-      summary: Get message by conversation ID and sequence
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                seq:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: Message data
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  msgData:
-                    $ref: "#/components/schemas/MsgData"
-
-  /msg/set_message_reaction_extensions:
-    post:
-      tags: [Message]
-      summary: Set message reaction extensions
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                clientMsgID:
-                  type: string
-                reactionExtensions:
-                  type: object
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /msg/get_message_list_reaction_extensions:
-    post:
-      tags: [Message]
-      summary: Get message reaction extensions
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                clientMsgID:
-                  type: string
-      responses:
-        "200":
-          description: Reaction extensions
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  reactionExtensions:
-                    type: object
-
-  /msg/add_message_reaction_extensions:
-    post:
-      tags: [Message]
-      summary: Add message reaction extensions
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                clientMsgID:
-                  type: string
-                reactionExtensions:
-                  type: object
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /msg/delete_message_reaction_extensions:
-    post:
-      tags: [Message]
-      summary: Delete message reaction extensions
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                clientMsgID:
-                  type: string
-                reactionExtensionKeys:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /conversation/get_all:
-    post:
-      tags: [Conversation]
-      summary: Get all conversations for user
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: Conversation list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  conversations:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ConversationInfo"
-
-  /conversation/get_conv:
-    post:
-      tags: [Conversation]
-      summary: Get single conversation
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                userID:
-                  type: string
-      responses:
-        "200":
-          description: Conversation
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  conversation:
-                    $ref: "#/components/schemas/ConversationInfo"
-
-  /conversation/get_all_conversations:
-    post:
-      tags: [Conversation]
-      summary: Get all conversations for owner
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-      responses:
-        "200":
-          description: Conversation list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  conversations:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ConversationInfo"
-
-  /conversation/get_conversation_list:
-    post:
-      tags: [Conversation]
-      summary: Get conversations (paginated)
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                pagination:
-                  $ref: "#/components/schemas/Pagination"
-      responses:
-        "200":
-          description: Conversation list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  conversations:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ConversationInfo"
-
-  /conversation/get_conversations:
-    post:
-      tags: [Conversation]
-      summary: Get conversations by ID list
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                conversationIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: Conversation list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  conversations:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/ConversationInfo"
-
-  /conversation/set:
-    post:
-      tags: [Conversation]
-      summary: Set conversation properties
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                userID:
-                  type: string
-                recvMsgOpt:
-                  type: integer
-                isPinned:
-                  type: boolean
-                ex:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /conversation/set_conversations:
-    post:
-      tags: [Conversation]
-      summary: Batch set conversation properties
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                conversationID:
-                  type: string
-                recvMsgOpt:
-                  type: integer
-                isPinned:
-                  type: boolean
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /conversation/set_conversation_min_seq:
-    post:
-      tags: [Conversation]
-      summary: Set conversation minimum sequence
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationID:
-                  type: string
-                ownerUserID:
-                  type: string
-                minSeq:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /conversation/delete_conversation:
-    post:
-      tags: [Conversation]
-      summary: Delete conversation
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                conversationID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /conversation/clear_conv_msg:
-    post:
-      tags: [Conversation]
-      summary: Clear conversation messages
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                conversationID:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /conversation/mark_as_read:
-    post:
-      tags: [Conversation]
-      summary: Mark conversation as read
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                conversationID:
-                  type: string
-                hasReadSeq:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /conversation/get_total_unread:
-    post:
-      tags: [Conversation]
-      summary: Get total unread message count
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-      responses:
-        "200":
-          description: Unread count
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  totalUnread:
-                    type: integer
-                    format: int64
-
-  /conversation/pin_conversation:
-    post:
-      tags: [Conversation]
-      summary: Pin or unpin conversation
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                conversationID:
-                  type: string
-                isPinned:
-                  type: boolean
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /third/upload_token:
-    post:
-      tags: [Third]
-      summary: Get file upload token
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                fileType:
-                  type: integer
-      responses:
-        "200":
-          description: Upload info
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  uploadURL:
-                    type: string
-                  token:
-                    type: string
-
-  /third/download_url:
-    post:
-      tags: [Third]
-      summary: Get file download URL
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                fileURL:
-                  type: string
-      responses:
-        "200":
-          description: Download URL
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  downloadURL:
-                    type: string
-
-  /third/access_url:
-    post:
-      tags: [Third]
-      summary: Get access URL
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                url:
-                  type: string
-      responses:
-        "200":
-          description: Access URL
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  accessURL:
-                    type: string
-
-  /third/get_object_info:
-    post:
-      tags: [Third]
-      summary: Get object info
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                objectKey:
-                  type: string
-      responses:
-        "200":
-          description: Object info
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  objectInfo:
-                    type: object
-
-  /third/get_upload_info:
-    post:
-      tags: [Third]
-      summary: Get upload info
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                fileType:
-                  type: integer
-                fileName:
-                  type: string
-      responses:
-        "200":
-          description: Upload info
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  uploadInfo:
-                    type: object
-
-  /third/initiate_multipart:
-    post:
-      tags: [Third]
-      summary: Initiate multipart upload
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userID:
-                  type: string
-                fileName:
-                  type: string
-                fileSize:
-                  type: integer
-                  format: int64
-      responses:
-        "200":
-          description: Upload initiated
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  uploadID:
-                    type: string
-
-  /third/complete_multipart:
-    post:
-      tags: [Third]
-      summary: Complete multipart upload
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                uploadID:
-                  type: string
-                parts:
-                  type: array
-                  items:
-                    type: object
-      responses:
-        "200":
-          description: Upload completed
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  objectURL:
-                    type: string
-
-  /third/delete_object:
-    post:
-      tags: [Third]
-      summary: Delete object
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                objectKey:
-                  type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
-  /third/get_signal_invitation_info:
-    post:
-      tags: [Third]
-      summary: Get signal invitation info
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                invitationID:
-                  type: string
-      responses:
-        "200":
-          description: Invitation info
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  invitationInfo:
-                    type: object
-
-  /batch/get_users_info:
-    post:
-      tags: [Batch]
-      summary: Batch get user info
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                userIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: User list
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  errCode:
-                    type: integer
-                  users:
-                    type: array
-                    items:
-                      $ref: "#/components/schemas/UserInfo"
-
-  /batch/delete_friend:
-    post:
-      tags: [Batch]
-      summary: Batch delete friends
-      security: [{tokenAuth: []}]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                ownerUserID:
-                  type: string
-                friendUserIDList:
-                  type: array
-                  items:
-                    type: string
-      responses:
-        "200":
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
   /admin/health:
     get:
-      tags: [Admin]
-      summary: Health check
+      tags: ["Admin"]
+      operationId: admin_health
       security: []
       responses:
         "200":
-          description: Health status
+          description: Success
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: ok
-
+                $ref: '#/components/schemas/ErrorResponse'
   /admin/metrics:
     get:
-      tags: [Admin]
-      summary: Prometheus metrics
+      tags: ["Admin"]
+      operationId: admin_metrics
       security: []
       responses:
         "200":
-          description: Prometheus text format metrics
+          description: Success
           content:
-            text/plain:
+            application/json:
               schema:
-                type: string
-
+                $ref: '#/components/schemas/ErrorResponse'
   /admin/shutdown:
     post:
-      tags: [Admin]
-      summary: Trigger graceful shutdown
-      security: [{tokenAuth: []}]
+      tags: ["Admin"]
+      operationId: admin_shutdown
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
       responses:
         "200":
-          description: OK
+          description: Success
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/ErrorResponse"
-
+                $ref: '#/components/schemas/ErrorResponse'
+  /admin/stats:
+    post:
+      tags: ["Admin"]
+      operationId: admin_stats
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/admin_token:
+    post:
+      tags: ["Auth"]
+      operationId: auth_admin_token
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/force_logout:
+    post:
+      tags: ["Auth"]
+      operationId: auth_force_logout
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/force_logout_all:
+    post:
+      tags: ["Auth"]
+      operationId: auth_force_logout_all
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/parse_token:
+    post:
+      tags: ["Auth"]
+      operationId: auth_parse_token
+      security: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/user_token:
+    post:
+      tags: ["Auth"]
+      operationId: auth_user_token
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /batch/delete_friend:
+    post:
+      tags: ["Batch"]
+      operationId: batch_delete_friend
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /batch/get_users_info:
+    post:
+      tags: ["Batch"]
+      operationId: batch_get_users_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /config/get_config:
+    post:
+      tags: ["Config"]
+      operationId: config_get_config
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /config/get_config_list:
+    post:
+      tags: ["Config"]
+      operationId: config_get_config_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /config/get_enable_config_manager:
+    post:
+      tags: ["Config"]
+      operationId: config_get_enable_config_manager
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /config/reset_config:
+    post:
+      tags: ["Config"]
+      operationId: config_reset_config
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /config/set_config:
+    post:
+      tags: ["Config"]
+      operationId: config_set_config
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /config/set_enable_config_manager:
+    post:
+      tags: ["Config"]
+      operationId: config_set_enable_config_manager
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/clear_conv_msg:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_clear_conv_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/delete_conversation:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_delete_conversation
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/delete_conversations:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_delete_conversations
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_all:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_all
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_all_conversations:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_all_conversations
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_conv:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_conv
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_conversation_list:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_conversation_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_conversations:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_conversations
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_full_conversation_ids:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_full_conversation_ids
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_incremental_conversations:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_incremental_conversations
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_not_notify_conversation_ids:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_not_notify_conversation_ids
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_owner_conversation:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_owner_conversation
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_pinned_conversation_ids:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_pinned_conversation_ids
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_sorted_conversation_list:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_sorted_conversation_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/get_total_unread:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_get_total_unread
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/mark_as_read:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_mark_as_read
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/pin_conversation:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_pin_conversation
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/set:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_set
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/set_conversation_min_seq:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_set_conversation_min_seq
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/set_conversations:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_set_conversations
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /conversation/update_conversations_by_user:
+    post:
+      tags: ["Conversation"]
+      operationId: conversation_update_conversations_by_user
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/accept_apply:
+    post:
+      tags: ["Friend"]
+      operationId: friend_accept_apply
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/add:
+    post:
+      tags: ["Friend"]
+      operationId: friend_add
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/add_black:
+    post:
+      tags: ["Friend"]
+      operationId: friend_add_black
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/add_friend_response:
+    post:
+      tags: ["Friend"]
+      operationId: friend_add_friend_response
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/delete:
+    post:
+      tags: ["Friend"]
+      operationId: friend_delete
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/delete_friend:
+    post:
+      tags: ["Friend"]
+      operationId: friend_delete_friend
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_black_list:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_black_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_designated_apply:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_designated_apply
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_designated_friends:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_designated_friends
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_friend_apply_list:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_friend_apply_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_friend_id:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_friend_id
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_friend_list:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_friend_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_full_friend_user_ids:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_full_friend_user_ids
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_incremental_blacks:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_incremental_blacks
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_incremental_friends:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_incremental_friends
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_self_apply_list:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_self_apply_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_self_unhandled_apply_count:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_self_unhandled_apply_count
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_specified_blacks:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_specified_blacks
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/get_specified_friends_info:
+    post:
+      tags: ["Friend"]
+      operationId: friend_get_specified_friends_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/import_friend:
+    post:
+      tags: ["Friend"]
+      operationId: friend_import_friend
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/is_friend:
+    post:
+      tags: ["Friend"]
+      operationId: friend_is_friend
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/refuse_apply:
+    post:
+      tags: ["Friend"]
+      operationId: friend_refuse_apply
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/remove_black:
+    post:
+      tags: ["Friend"]
+      operationId: friend_remove_black
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/set_friend_remark:
+    post:
+      tags: ["Friend"]
+      operationId: friend_set_friend_remark
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/sync_friend:
+    post:
+      tags: ["Friend"]
+      operationId: friend_sync_friend
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /friend/update_friends:
+    post:
+      tags: ["Friend"]
+      operationId: friend_update_friends
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/accept_group_application:
+    post:
+      tags: ["Group"]
+      operationId: group_accept_group_application
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/cancel_mute:
+    post:
+      tags: ["Group"]
+      operationId: group_cancel_mute
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/cancel_mute_member:
+    post:
+      tags: ["Group"]
+      operationId: group_cancel_mute_member
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/create:
+    post:
+      tags: ["Group"]
+      operationId: group_create
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/dismiss:
+    post:
+      tags: ["Group"]
+      operationId: group_dismiss
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_full_group_member_user_ids:
+    post:
+      tags: ["Group"]
+      operationId: group_get_full_group_member_user_ids
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_full_join_group_ids:
+    post:
+      tags: ["Group"]
+      operationId: group_get_full_join_group_ids
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_group_abstract_info:
+    post:
+      tags: ["Group"]
+      operationId: group_get_group_abstract_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_group_applicant_list:
+    post:
+      tags: ["Group"]
+      operationId: group_get_group_applicant_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_group_application_list:
+    post:
+      tags: ["Group"]
+      operationId: group_get_group_application_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_group_application_unhandled_count:
+    post:
+      tags: ["Group"]
+      operationId: group_get_group_application_unhandled_count
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_group_info:
+    post:
+      tags: ["Group"]
+      operationId: group_get_group_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_group_member_list:
+    post:
+      tags: ["Group"]
+      operationId: group_get_group_member_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_group_member_user_id:
+    post:
+      tags: ["Group"]
+      operationId: group_get_group_member_user_id
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_group_users_req_application_list:
+    post:
+      tags: ["Group"]
+      operationId: group_get_group_users_req_application_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_groups:
+    post:
+      tags: ["Group"]
+      operationId: group_get_groups
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_groups_info:
+    post:
+      tags: ["Group"]
+      operationId: group_get_groups_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_incremental_group_members:
+    post:
+      tags: ["Group"]
+      operationId: group_get_incremental_group_members
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_incremental_group_members_batch:
+    post:
+      tags: ["Group"]
+      operationId: group_get_incremental_group_members_batch
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_incremental_join_groups:
+    post:
+      tags: ["Group"]
+      operationId: group_get_incremental_join_groups
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_joined_group_list:
+    post:
+      tags: ["Group"]
+      operationId: group_get_joined_group_list
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_recv_group_applicationList:
+    post:
+      tags: ["Group"]
+      operationId: group_get_recv_group_applicationList
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_specified_user_group_request_info:
+    post:
+      tags: ["Group"]
+      operationId: group_get_specified_user_group_request_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/get_user_req_group_applicationList:
+    post:
+      tags: ["Group"]
+      operationId: group_get_user_req_group_applicationList
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/invite:
+    post:
+      tags: ["Group"]
+      operationId: group_invite
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/join:
+    post:
+      tags: ["Group"]
+      operationId: group_join
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/kick:
+    post:
+      tags: ["Group"]
+      operationId: group_kick
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/mute:
+    post:
+      tags: ["Group"]
+      operationId: group_mute
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/mute_member:
+    post:
+      tags: ["Group"]
+      operationId: group_mute_member
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/quit:
+    post:
+      tags: ["Group"]
+      operationId: group_quit
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/refuse_group_application:
+    post:
+      tags: ["Group"]
+      operationId: group_refuse_group_application
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/set_group_info:
+    post:
+      tags: ["Group"]
+      operationId: group_set_group_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/set_group_info_ex:
+    post:
+      tags: ["Group"]
+      operationId: group_set_group_info_ex
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/set_group_member_info:
+    post:
+      tags: ["Group"]
+      operationId: group_set_group_member_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /group/transfer:
+    post:
+      tags: ["Group"]
+      operationId: group_transfer
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /jssdk/get_active_conversations:
+    post:
+      tags: ["JSSDK"]
+      operationId: jssdk_get_active_conversations
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /jssdk/get_conversations:
+    post:
+      tags: ["JSSDK"]
+      operationId: jssdk_get_conversations
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/add_message_reaction_extensions:
+    post:
+      tags: ["Message"]
+      operationId: msg_add_message_reaction_extensions
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/batch_send:
+    post:
+      tags: ["Message"]
+      operationId: msg_batch_send
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/check_msg_is_send_success:
+    post:
+      tags: ["Message"]
+      operationId: msg_check_msg_is_send_success
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/clean_up:
+    post:
+      tags: ["Message"]
+      operationId: msg_clean_up
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/clear_conversation_msg:
+    post:
+      tags: ["Message"]
+      operationId: msg_clear_conversation_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/delete_message_reaction_extensions:
+    post:
+      tags: ["Message"]
+      operationId: msg_delete_message_reaction_extensions
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/delete_msg:
+    post:
+      tags: ["Message"]
+      operationId: msg_delete_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/delete_msg_phsical_by_seq:
+    post:
+      tags: ["Message"]
+      operationId: msg_delete_msg_phsical_by_seq
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/delete_msg_physical:
+    post:
+      tags: ["Message"]
+      operationId: msg_delete_msg_physical
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/get:
+    post:
+      tags: ["Message"]
+      operationId: msg_get
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/get_by_seq:
+    post:
+      tags: ["Message"]
+      operationId: msg_get_by_seq
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/get_conversations_has_read_and_max_seq:
+    post:
+      tags: ["Message"]
+      operationId: msg_get_conversations_has_read_and_max_seq
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/get_message_list_reaction_extensions:
+    post:
+      tags: ["Message"]
+      operationId: msg_get_message_list_reaction_extensions
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/get_msg:
+    post:
+      tags: ["Message"]
+      operationId: msg_get_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/get_send_status:
+    post:
+      tags: ["Message"]
+      operationId: msg_get_send_status
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/get_server_time:
+    post:
+      tags: ["Message"]
+      operationId: msg_get_server_time
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/mark_as_read:
+    post:
+      tags: ["Message"]
+      operationId: msg_mark_as_read
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/mark_conversation_as_read:
+    post:
+      tags: ["Message"]
+      operationId: msg_mark_conversation_as_read
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/mark_msgs_as_read:
+    post:
+      tags: ["Message"]
+      operationId: msg_mark_msgs_as_read
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/newest_seq:
+    post:
+      tags: ["Message"]
+      operationId: msg_newest_seq
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/pull_msg_by_seq:
+    post:
+      tags: ["Message"]
+      operationId: msg_pull_msg_by_seq
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/revoke:
+    post:
+      tags: ["Message"]
+      operationId: msg_revoke
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/search_msg:
+    post:
+      tags: ["Message"]
+      operationId: msg_search_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/send:
+    post:
+      tags: ["Message"]
+      operationId: msg_send
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/send_business_notification:
+    post:
+      tags: ["Message"]
+      operationId: msg_send_business_notification
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/send_msg:
+    post:
+      tags: ["Message"]
+      operationId: msg_send_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/send_simple_msg:
+    post:
+      tags: ["Message"]
+      operationId: msg_send_simple_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/set_conversation_has_read_seq:
+    post:
+      tags: ["Message"]
+      operationId: msg_set_conversation_has_read_seq
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/set_message_reaction_extensions:
+    post:
+      tags: ["Message"]
+      operationId: msg_set_message_reaction_extensions
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /msg/user_clear_all_msg:
+    post:
+      tags: ["Message"]
+      operationId: msg_user_clear_all_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /object/access_url:
+    post:
+      tags: ["Object"]
+      operationId: object_access_url
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /object/auth_sign:
+    post:
+      tags: ["Object"]
+      operationId: object_auth_sign
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /object/complete_form_data:
+    post:
+      tags: ["Object"]
+      operationId: object_complete_form_data
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /object/complete_multipart_upload:
+    post:
+      tags: ["Object"]
+      operationId: object_complete_multipart_upload
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /object/initiate_form_data:
+    post:
+      tags: ["Object"]
+      operationId: object_initiate_form_data
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /object/initiate_multipart_upload:
+    post:
+      tags: ["Object"]
+      operationId: object_initiate_multipart_upload
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /object/part_limit:
+    post:
+      tags: ["Object"]
+      operationId: object_part_limit
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /object/part_size:
+    post:
+      tags: ["Object"]
+      operationId: object_part_size
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/api:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_api
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/auth:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_auth
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/conversation:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_conversation
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/friend:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_friend
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/group:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_group
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/msg:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_msg
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/msg_gateway:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_msg_gateway
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/msg_transfer:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_msg_transfer
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/push:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_push
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/third:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_third
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /prometheus_discovery/user:
+    get:
+      tags: ["PrometheusDiscovery"]
+      operationId: prometheus_discovery_user
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /restart:
+    post:
+      tags: ["Admin"]
+      operationId: restart
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /statistics/group/active:
+    post:
+      tags: ["Statistics"]
+      operationId: statistics_group_active
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /statistics/group/create:
+    post:
+      tags: ["Statistics"]
+      operationId: statistics_group_create
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /statistics/user/active:
+    post:
+      tags: ["Statistics"]
+      operationId: statistics_user_active
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /statistics/user/register:
+    post:
+      tags: ["Statistics"]
+      operationId: statistics_user_register
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/access_url:
+    post:
+      tags: ["Third"]
+      operationId: third_access_url
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/complete_multipart:
+    post:
+      tags: ["Third"]
+      operationId: third_complete_multipart
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/delete_object:
+    post:
+      tags: ["Third"]
+      operationId: third_delete_object
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/download_url:
+    post:
+      tags: ["Third"]
+      operationId: third_download_url
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/fcm_update_token:
+    post:
+      tags: ["Third"]
+      operationId: third_fcm_update_token
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/get_object_info:
+    post:
+      tags: ["Third"]
+      operationId: third_get_object_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/get_signal_invitation_info:
+    post:
+      tags: ["Third"]
+      operationId: third_get_signal_invitation_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/get_upload_info:
+    post:
+      tags: ["Third"]
+      operationId: third_get_upload_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/initiate_multipart:
+    post:
+      tags: ["Third"]
+      operationId: third_initiate_multipart
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/logs/delete:
+    post:
+      tags: ["Third"]
+      operationId: third_logs_delete
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/logs/search:
+    post:
+      tags: ["Third"]
+      operationId: third_logs_search
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/logs/upload:
+    post:
+      tags: ["Third"]
+      operationId: third_logs_upload
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/prometheus:
+    post:
+      tags: ["Third"]
+      operationId: third_prometheus
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/set_app_badge:
+    post:
+      tags: ["Third"]
+      operationId: third_set_app_badge
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /third/upload_token:
+    post:
+      tags: ["Third"]
+      operationId: third_upload_token
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/account_check:
+    post:
+      tags: ["User"]
+      operationId: user_account_check
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/add_notification_account:
+    post:
+      tags: ["User"]
+      operationId: user_add_notification_account
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/count:
+    post:
+      tags: ["User"]
+      operationId: user_count
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/del_user_client_config:
+    post:
+      tags: ["User"]
+      operationId: user_del_user_client_config
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_all_users:
+    post:
+      tags: ["User"]
+      operationId: user_get_all_users
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_all_users_uid:
+    post:
+      tags: ["User"]
+      operationId: user_get_all_users_uid
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_global_recv_opt:
+    post:
+      tags: ["User"]
+      operationId: user_get_global_recv_opt
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_subscribe_users_status:
+    post:
+      tags: ["User"]
+      operationId: user_get_subscribe_users_status
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_user_client_config:
+    post:
+      tags: ["User"]
+      operationId: user_get_user_client_config
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_user_status:
+    post:
+      tags: ["User"]
+      operationId: user_get_user_status
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_users:
+    post:
+      tags: ["User"]
+      operationId: user_get_users
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_users_info:
+    post:
+      tags: ["User"]
+      operationId: user_get_users_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_users_online_status:
+    post:
+      tags: ["User"]
+      operationId: user_get_users_online_status
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/get_users_online_token_detail:
+    post:
+      tags: ["User"]
+      operationId: user_get_users_online_token_detail
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/page_user_client_config:
+    post:
+      tags: ["User"]
+      operationId: user_page_user_client_config
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/process_user_command:
+    post:
+      tags: ["User"]
+      operationId: user_process_user_command
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/process_user_command_add:
+    post:
+      tags: ["User"]
+      operationId: user_process_user_command_add
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/process_user_command_delete:
+    post:
+      tags: ["User"]
+      operationId: user_process_user_command_delete
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/process_user_command_get:
+    post:
+      tags: ["User"]
+      operationId: user_process_user_command_get
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/process_user_command_get_all:
+    post:
+      tags: ["User"]
+      operationId: user_process_user_command_get_all
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/process_user_command_update:
+    post:
+      tags: ["User"]
+      operationId: user_process_user_command_update
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/register:
+    post:
+      tags: ["User"]
+      operationId: user_register
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/search:
+    post:
+      tags: ["User"]
+      operationId: user_search
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/search_notification_account:
+    post:
+      tags: ["User"]
+      operationId: user_search_notification_account
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/set_global_recv_opt:
+    post:
+      tags: ["User"]
+      operationId: user_set_global_recv_opt
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/set_user_client_config:
+    post:
+      tags: ["User"]
+      operationId: user_set_user_client_config
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/set_user_status:
+    post:
+      tags: ["User"]
+      operationId: user_set_user_status
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/subscribe_or_cancel_user_status:
+    post:
+      tags: ["User"]
+      operationId: user_subscribe_or_cancel_user_status
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/update_notification_account:
+    post:
+      tags: ["User"]
+      operationId: user_update_notification_account
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/update_user_info:
+    post:
+      tags: ["User"]
+      operationId: user_update_user_info
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/update_user_info_ex:
+    post:
+      tags: ["User"]
+      operationId: user_update_user_info_ex
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /user/update_user_status:
+    post:
+      tags: ["User"]
+      operationId: user_update_user_status
+      security:
+        - tokenAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Success
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /version:
     get:
-      tags: [Admin]
-      summary: Get server version
+      tags: ["Admin"]
+      operationId: version
       security: []
       responses:
         "200":
-          description: Version info
+          description: Success
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  version:
-                    type: string
-                    example: "0.1.0"
-                  buildDate:
-                    type: string
-                  goVersion:
-                    type: string
-                    description: Compiler version (gcc)
+                $ref: '#/components/schemas/ErrorResponse'

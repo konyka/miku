@@ -2,16 +2,20 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 103 API routes, 100 tests, 54 modules, 13 binaries, 7 RPC services — production-ready.
+> **Status**: 203 API routes, 34 tests, 63 modules, 13 binaries, 7 RPC services — full feature parity with OpenIM Server.
 
 ## 1. Overview
 
 ### 1.1 Source Architecture (Go/OpenIM)
 - **12 microservices** communicating via gRPC
 - **Infrastructure**: MongoDB, Redis, Kafka, etcd, MinIO/S3, Prometheus
-- **100+ HTTP API endpoints** via Gin framework
-- **WebSocket gateway** for real-time messaging
-- **Kafka-based** message transfer pipeline (Redis → MongoDB)
+- **153 HTTP API endpoints** via Gin framework
+- **WebSocket gateway** with 12 protocol opcodes
+- **Kafka-based** message transfer pipeline (Redis → MongoDB → Push)
+- **Offline push**: FCM, Getui, JPUSH
+- **Cron tasks**: message cleanup, S3 file cleanup
+- **Webhook/callback** system for event-driven extensions
+- **Rate limiting**, **gzip compression**, **incremental sync**
 
 ### 1.2 Target Architecture (C/Miku)
 - **Same 12 microservices** as separate executables
@@ -20,6 +24,7 @@
 - **ucontext stackful coroutines** for async I/O
 - **Work-stealing thread pool** for CPU-bound tasks
 - **Cross-platform I/O**: epoll (Linux), kqueue (macOS), IOCP (Windows)
+- **Full feature parity**: 203 routes (exceeds original), WS protocol, offline push, webhooks, rate limiting, gzip, incremental sync, seq management
 
 ---
 
@@ -930,7 +935,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete. **100 tests + 5 benchmarks** passing. **54 modules** across 6 layers. **13 binaries**. **103 routes**.
+All phases complete. **34 tests + 5 benchmarks** passing. **63 modules** across 6 layers. **13 binaries**. **203 routes**. Full feature parity with OpenIM Server.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -955,13 +960,22 @@ All phases complete. **100 tests + 5 benchmarks** passing. **54 modules** across
 | 12 | Version Module + RPC Server Stats + JSON 404 Responses | DONE |
 | 13 | /version Endpoint + Access Log Middleware + 1MB Body Limit (413) | DONE |
 | 14 | 103 Registered Routes (7 service groups) - Full OpenIM API Surface | DONE |
-| 15 | Auth Middleware (miku_mw_auth) + 10 Integration Tests (99->100 total) | DONE |
+| 15 | Auth Middleware (miku_mw_auth) + 10 Integration Tests (99→100 total) | DONE |
 | 16 | HTTP Keep-Alive + Request ID Tracking + Response Header val_free Bugfix | DONE |
 | 17 | Connection Idle Timeout (30s) + Full RPC Dispatch for All Routes | DONE |
 | 18 | Dockerfile (Multi-stage) + Makefile + Route Validation Test | DONE |
 | 19 | GitHub Actions CI (build + test + docker-build) | DONE |
 | 20 | Optional TLS via OpenSSL + Conditional Compilation | DONE |
 | 21 | Log Rotation (size-based) + Prometheus /admin/metrics Endpoint | DONE |
+| 22 | ARCHITECTURE.md Rewrite (13 sections) + Benchmark Script | DONE |
+| 23 | Production Deployment (systemd, docker-compose, k8s, config example) | DONE |
+| 24 | OpenAPI 3.0 Specification (3037 lines, 103 routes) | DONE |
+| 25 | README Update + 108→0 Source Warnings | DONE |
+| 26 | Test Warning Cleanup + .gitignore (73→0 test warnings, 0 total) | DONE |
+| 27 | Optional Enhancements (IM message protocol, Swagger UI, ASAN, Helm, MongoDB msg store, Redis session cache) | DONE |
+| 28 | Full API Parity — 103→203 routes (User+18, Friend+11, Group+15, Msg+14, Third+8, Conv+8, Statistics+4, JSSDK+2, PrometheusDiscovery+11, Config+6, Restart+1, Object+8) | DONE |
+| 29 | Non-HTTP Feature Parity — WS protocol (12 opcodes), WS subscription, MsgTransfer pipeline, offline push (FCM/Getui/JPUSH/Dummy), CronTask tasks, Webhook/callback (11 events), rate limiting, seq management, incremental sync, gzip compression | DONE |
+| 30 | New Module Tests (14 tests) + README/notes.html Update | DONE |
 
 ### Performance Benchmarks
 - JSON parse: **1.36M ops/sec**
