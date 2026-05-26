@@ -108,6 +108,21 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     else if (strstr(path, "get_subscribe_users")) method = "getSubscribeUsersStatus";
     else if (strstr(path, "subscribe_or_cancel")) method = "subscribeOrCancelUserStatus";
     else if (strstr(path, "set_user_status")) method = "setUserStatus";
+    else if (strstr(path, "update_user_info_ex")) method = "updateUserInfoEx";
+    else if (strstr(path, "get_all_users_uid")) method = "getAllUsersUID";
+    else if (strstr(path, "get_users_online_token_detail")) method = "getUsersOnlineTokenDetail";
+    else if (strstr(path, "process_user_command_add")) method = "processUserCommandAdd";
+    else if (strstr(path, "process_user_command_delete")) method = "processUserCommandDelete";
+    else if (strstr(path, "process_user_command_update")) method = "processUserCommandUpdate";
+    else if (strstr(path, "process_user_command_get_all")) method = "processUserCommandGetAll";
+    else if (strstr(path, "process_user_command_get")) method = "processUserCommandGet";
+    else if (strstr(path, "add_notification_account")) method = "addNotificationAccount";
+    else if (strstr(path, "update_notification_account")) method = "updateNotificationAccount";
+    else if (strstr(path, "search_notification_account")) method = "searchNotificationAccount";
+    else if (strstr(path, "get_user_client_config")) method = "getUserClientConfig";
+    else if (strstr(path, "set_user_client_config")) method = "setUserClientConfig";
+    else if (strstr(path, "del_user_client_config")) method = "delUserClientConfig";
+    else if (strstr(path, "page_user_client_config")) method = "pageUserClientConfig";
     miku_user_handle_rpc(c->user, method, j, out);
     free(path);
     miku_json_destroy(j);
@@ -134,6 +149,17 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
     else if (strstr(path, "refuse")) method = "refuseFriendApply";
     else if (strstr(path, "import")) method = "importFriend";
     else if (strstr(path, "sync")) method = "syncFriend";
+    else if (strstr(path, "add_friend_response")) method = "respondFriendApply";
+    else if (strstr(path, "set_friend_remark")) method = "setFriendRemark";
+    else if (strstr(path, "get_designated_friends")) method = "getDesignatedFriends";
+    else if (strstr(path, "get_specified_blacks")) method = "getSpecifiedBlacks";
+    else if (strstr(path, "get_incremental_blacks")) method = "getIncrementalBlacks";
+    else if (strstr(path, "get_incremental_friends")) method = "getIncrementalFriends";
+    else if (strstr(path, "get_friend_id")) method = "getFriendIDs";
+    else if (strstr(path, "get_specified_friends_info")) method = "getSpecifiedFriendsInfo";
+    else if (strstr(path, "update_friends")) method = "updateFriends";
+    else if (strstr(path, "get_full_friend_user_ids")) method = "getFullFriendUserIDs";
+    else if (strstr(path, "get_self_unhandled_apply_count")) method = "getSelfUnhandledApplyCount";
     miku_friend_handle_rpc(c->friend_svc, method, j, out);
     free(path);
     miku_json_destroy(j);
@@ -166,6 +192,19 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     else if (strstr(path, "applicant")) method = "getGroupApplicationList";
     else if (strstr(path, "accept")) method = "acceptGroupApplication";
     else if (strstr(path, "refuse")) method = "refuseGroupApplication";
+    else if (strstr(path, "set_group_info_ex")) method = "setGroupInfoEx";
+    else if (strstr(path, "get_recv_group_application")) method = "getRecvGroupApplicationList";
+    else if (strstr(path, "get_user_req_group_application")) method = "getUserReqGroupApplicationList";
+    else if (strstr(path, "get_group_users_req")) method = "getGroupUsersReqApplicationList";
+    else if (strstr(path, "get_specified_user_group_request")) method = "getSpecifiedUserGroupRequestInfo";
+    else if (strstr(path, "get_group_abstract")) method = "getGroupAbstractInfo";
+    else if (strstr(path, "get_groups") && !strstr(path, "info")) method = "getGroups";
+    else if (strstr(path, "get_incremental_join_groups")) method = "getIncrementalJoinGroups";
+    else if (strstr(path, "get_incremental_group_members_batch")) method = "getIncrementalGroupMemberBatch";
+    else if (strstr(path, "get_incremental_group_members")) method = "getIncrementalGroupMembers";
+    else if (strstr(path, "get_full_group_member")) method = "getFullGroupMemberUserIDs";
+    else if (strstr(path, "get_full_join_group")) method = "getFullJoinGroupIDs";
+    else if (strstr(path, "get_group_application_unhandled")) method = "getGroupApplicationUnhandledCount";
     miku_group_handle_rpc(c->group_svc, method, j, out);
     free(path);
     miku_json_destroy(j);
@@ -190,6 +229,14 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
     else if (strstr(path, "set_read")) method = "markConversationMessageAsRead";
     else if (strstr(path, "clear")) method = "clearConversationMsg";
     else if (strstr(path, "pin")) method = "pinConversation";
+    else if (strstr(path, "get_sorted_conversation")) method = "getSortedConversationList";
+    else if (strstr(path, "get_full_conversation_ids")) method = "getFullConversationIDs";
+    else if (strstr(path, "get_incremental_conversations")) method = "getIncrementalConversation";
+    else if (strstr(path, "get_owner_conversation")) method = "getOwnerConversation";
+    else if (strstr(path, "get_not_notify")) method = "getNotNotifyConversationIDs";
+    else if (strstr(path, "get_pinned")) method = "getPinnedConversationIDs";
+    else if (strstr(path, "delete_conversations")) method = "deleteConversations";
+    else if (strstr(path, "update_conversations_by_user")) method = "updateConversationsByUser";
     miku_conv_handle_rpc(c->conv, method, j, out);
     free(path);
     miku_json_destroy(j);
@@ -218,6 +265,20 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     else if (strstr(path, "get_message_list_reaction")) method = "getMessageListReactionExtensions";
     else if (strstr(path, "add_message_reaction")) method = "addMessageReactionExtensions";
     else if (strstr(path, "delete_message_reaction")) method = "deleteMessageReactionExtensions";
+    else if (strstr(path, "newest_seq")) method = "getNewestSeq";
+    else if (strstr(path, "search_msg")) method = "searchMsg";
+    else if (strstr(path, "send_business_notification")) method = "sendBusinessNotification";
+    else if (strstr(path, "pull_msg_by_seq")) method = "pullMsgBySeq";
+    else if (strstr(path, "mark_msgs_as_read")) method = "markMsgsAsRead";
+    else if (strstr(path, "mark_conversation_as_read")) method = "markConversationAsRead";
+    else if (strstr(path, "get_conversations_has_read")) method = "getConversationsHasReadAndMaxSeq";
+    else if (strstr(path, "set_conversation_has_read")) method = "setConversationHasReadSeq";
+    else if (strstr(path, "clear_conversation_msg")) method = "clearConversationMsg";
+    else if (strstr(path, "user_clear_all_msg")) method = "userClearAllMsg";
+    else if (strstr(path, "delete_msg_phsical_by_seq")) method = "deleteMsgPhysicalBySeq";
+    else if (strstr(path, "delete_msg_physical")) method = "deleteMsgPhysical";
+    else if (strstr(path, "send_simple_msg")) method = "sendSimpleMsg";
+    else if (strstr(path, "check_msg_is_send_success")) method = "checkMsgIsSendSuccess";
     miku_msg_handle_rpc(c->msg, method, j, out);
 
     if (strcmp(method, "sendMsg") == 0) {
@@ -260,6 +321,17 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
     else if (strstr(path, "upload_info")) method = "getUploadInfo";
     else if (strstr(path, "object_info")) method = "getObjectInfo";
     else if (strstr(path, "signal_invitation")) method = "getSignalInvitationInfo";
+    else if (strstr(path, "fcm_update_token")) method = "fcmUpdateToken";
+    else if (strstr(path, "set_app_badge")) method = "setAppBadge";
+    else if (strstr(path, "upload") && strstr(path, "logs")) method = "uploadLogs";
+    else if (strstr(path, "delete") && strstr(path, "logs")) method = "deleteLogs";
+    else if (strstr(path, "search") && strstr(path, "logs")) method = "searchLogs";
+    else if (strstr(path, "part_limit")) method = "partLimit";
+    else if (strstr(path, "part_size")) method = "partSize";
+    else if (strstr(path, "auth_sign")) method = "authSign";
+    else if (strstr(path, "initiate_form_data")) method = "initiateFormData";
+    else if (strstr(path, "complete_form_data")) method = "completeFormData";
+    else if (strstr(path, "prometheus")) method = "getPrometheus";
     miku_third_handle_rpc(c->third, method, j, out);
     free(path);
     miku_json_destroy(j);
@@ -387,6 +459,75 @@ static void handle_version(miku_http_request_t *req, miku_http_response_t *resp,
     json_resp(resp, out);
 }
 
+static void handle_statistics(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)ctx;
+    miku_json_val_t *j = parse_body(req);
+    miku_json_val_t *out = miku_json_create_object();
+    char *path = strndup(req->path.data, req->path.len);
+    const char *method = "userRegisterCount";
+    if (strstr(path, "user") && strstr(path, "active")) method = "getActiveUser";
+    else if (strstr(path, "user") && strstr(path, "register")) method = "userRegisterCount";
+    else if (strstr(path, "group") && strstr(path, "active")) method = "getActiveGroup";
+    else if (strstr(path, "group") && strstr(path, "create")) method = "groupCreateCount";
+    miku_ji(out, "errCode", 0);
+    miku_jss(out, "method", method);
+    miku_ji(out, "count", 0);
+    free(path);
+    miku_json_destroy(j);
+    json_resp(resp, out);
+}
+
+static void handle_jssdk(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
+    miku_json_val_t *j = parse_body(req);
+    miku_json_val_t *out = miku_json_create_object();
+    char *path = strndup(req->path.data, req->path.len);
+    const char *method = "getConversations";
+    if (strstr(path, "get_active")) method = "getActiveConversations";
+    miku_conv_handle_rpc(c->conv, method, j, out);
+    free(path);
+    miku_json_destroy(j);
+    json_resp(resp, out);
+}
+
+static void handle_prometheus_discovery(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)req; (void)ctx;
+    miku_json_val_t *out = miku_json_create_object();
+    miku_json_val_t *targets = miku_json_create_array();
+    miku_json_val_t *item = miku_json_create_object();
+    miku_jss(item, "targets", "127.0.0.1:10002");
+    miku_json_array_push(targets, item);
+    miku_json_object_set(out, "targets", targets);
+    json_resp(resp, out);
+}
+
+static void handle_config(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)ctx;
+    miku_json_val_t *j = parse_body(req);
+    miku_json_val_t *out = miku_json_create_object();
+    char *path = strndup(req->path.data, req->path.len);
+    const char *method = "getConfigList";
+    if (strstr(path, "get_config_list")) method = "getConfigList";
+    else if (strstr(path, "get_config") && !strstr(path, "list") && !strstr(path, "enable")) method = "getConfig";
+    else if (strstr(path, "set_config") && !strstr(path, "enable")) method = "setConfig";
+    else if (strstr(path, "reset_config")) method = "resetConfig";
+    else if (strstr(path, "set_enable_config")) method = "setEnableConfigManager";
+    else if (strstr(path, "get_enable_config")) method = "getEnableConfigManager";
+    miku_ji(out, "errCode", 0);
+    miku_jss(out, "method", method);
+    free(path);
+    miku_json_destroy(j);
+    json_resp(resp, out);
+}
+
+static void handle_restart(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)req; (void)ctx;
+    miku_json_val_t *out = miku_json_create_object();
+    miku_ji(out, "errCode", 0);
+    miku_jss(out, "message", "restart scheduled");
+    json_resp(resp, out);
+}
+
 int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     if (!srv || !ctx) return -1;
 
@@ -415,6 +556,23 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "POST", "/user/subscribe_or_cancel_user_status", handle_user, ctx);
     miku_http_server_route(srv, "POST", "/user/set_user_status",         handle_user, ctx);
 
+    miku_http_server_route(srv, "POST", "/user/update_user_info_ex",        handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/get_all_users_uid",          handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/get_users",                  handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/get_users_online_token_detail", handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/process_user_command_add",   handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/process_user_command_delete",handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/process_user_command_update",handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/process_user_command_get",   handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/process_user_command_get_all", handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/add_notification_account",   handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/update_notification_account",handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/search_notification_account",handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/get_user_client_config",     handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/set_user_client_config",     handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/del_user_client_config",     handle_user, ctx);
+    miku_http_server_route(srv, "POST", "/user/page_user_client_config",    handle_user, ctx);
+
     /* Friend — 14 routes */
     miku_http_server_route(srv, "POST", "/friend/add",                     handle_friend, ctx);
     miku_http_server_route(srv, "POST", "/friend/delete",                  handle_friend, ctx);
@@ -431,6 +589,18 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "POST", "/friend/refuse_apply",           handle_friend, ctx);
     miku_http_server_route(srv, "POST", "/friend/import_friend",          handle_friend, ctx);
     miku_http_server_route(srv, "POST", "/friend/sync_friend",            handle_friend, ctx);
+
+    miku_http_server_route(srv, "POST", "/friend/add_friend_response",       handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/set_friend_remark",         handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_designated_friends",     handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_specified_blacks",       handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_incremental_blacks",     handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_incremental_friends",    handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_friend_id",             handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_specified_friends_info", handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/update_friends",            handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_full_friend_user_ids",  handle_friend, ctx);
+    miku_http_server_route(srv, "POST", "/friend/get_self_unhandled_apply_count", handle_friend, ctx);
 
     /* Group — 22 routes */
     miku_http_server_route(srv, "POST", "/group/create",                      handle_group, ctx);
@@ -456,6 +626,20 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "POST", "/group/mute_member",                 handle_group, ctx);
     miku_http_server_route(srv, "POST", "/group/cancel_mute_member",          handle_group, ctx);
 
+    miku_http_server_route(srv, "POST", "/group/set_group_info_ex",                   handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_recv_group_applicationList",       handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_user_req_group_applicationList",   handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_group_users_req_application_list", handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_specified_user_group_request_info",handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_group_abstract_info",              handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_groups",                           handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_incremental_join_groups",          handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_incremental_group_members",        handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_incremental_group_members_batch",  handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_full_group_member_user_ids",       handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_full_join_group_ids",              handle_group, ctx);
+    miku_http_server_route(srv, "POST", "/group/get_group_application_unhandled_count",handle_group, ctx);
+
     /* Conversation — 12 routes */
     miku_http_server_route(srv, "POST", "/conversation/get_all",              handle_conv, ctx);
     miku_http_server_route(srv, "POST", "/conversation/get_conv",             handle_conv, ctx);
@@ -470,6 +654,15 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "POST", "/conversation/mark_as_read",         handle_conv, ctx);
     miku_http_server_route(srv, "POST", "/conversation/clear_conv_msg",       handle_conv, ctx);
     miku_http_server_route(srv, "POST", "/conversation/pin_conversation",     handle_conv, ctx);
+
+    miku_http_server_route(srv, "POST", "/conversation/get_sorted_conversation_list", handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/get_full_conversation_ids",     handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/get_incremental_conversations", handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/get_owner_conversation",        handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/get_not_notify_conversation_ids",handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/get_pinned_conversation_ids",   handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/delete_conversations",          handle_conv, ctx);
+    miku_http_server_route(srv, "POST", "/conversation/update_conversations_by_user",  handle_conv, ctx);
 
     /* Message — 12 routes */
     miku_http_server_route(srv, "POST", "/msg/send",            handle_msg, ctx);
@@ -489,6 +682,21 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "POST", "/msg/add_message_reaction_extensions", handle_msg, ctx);
     miku_http_server_route(srv, "POST", "/msg/delete_message_reaction_extensions", handle_msg, ctx);
 
+    miku_http_server_route(srv, "POST", "/msg/newest_seq",                       handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/search_msg",                       handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/send_business_notification",       handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/pull_msg_by_seq",                  handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/mark_msgs_as_read",                handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/mark_conversation_as_read",        handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/get_conversations_has_read_and_max_seq", handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/set_conversation_has_read_seq",    handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/clear_conversation_msg",           handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/user_clear_all_msg",               handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/delete_msg_phsical_by_seq",        handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/delete_msg_physical",              handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/send_simple_msg",                  handle_msg, ctx);
+    miku_http_server_route(srv, "POST", "/msg/check_msg_is_send_success",        handle_msg, ctx);
+
     /* Third/S3 — 7 routes */
     miku_http_server_route(srv, "POST", "/third/upload_token",            handle_third, ctx);
     miku_http_server_route(srv, "POST", "/third/download_url",            handle_third, ctx);
@@ -500,6 +708,22 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "POST", "/third/get_object_info",         handle_third, ctx);
     miku_http_server_route(srv, "POST", "/third/get_signal_invitation_info", handle_third, ctx);
 
+    miku_http_server_route(srv, "POST", "/third/fcm_update_token",           handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/third/set_app_badge",              handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/third/logs/upload",               handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/third/logs/delete",               handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/third/logs/search",               handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/third/prometheus",                handle_third, ctx);
+
+    miku_http_server_route(srv, "POST", "/object/part_limit",                handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/object/part_size",                 handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/object/auth_sign",                 handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/object/initiate_form_data",        handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/object/complete_form_data",        handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/object/access_url",               handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/object/initiate_multipart_upload", handle_third, ctx);
+    miku_http_server_route(srv, "POST", "/object/complete_multipart_upload", handle_third, ctx);
+
     /* Batch operations — 2 routes */
     miku_http_server_route(srv, "POST", "/batch/get_users_info",          handle_batch, ctx);
     miku_http_server_route(srv, "POST", "/batch/delete_friend",           handle_batch, ctx);
@@ -510,6 +734,35 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "GET",  "/admin/metrics",   handle_metrics, ctx);
     miku_http_server_route(srv, "POST", "/admin/shutdown",  handle_admin, ctx);
     miku_http_server_route(srv, "GET",  "/version",         handle_version, ctx);
+
+    miku_http_server_route(srv, "POST", "/statistics/user/register",  handle_statistics, ctx);
+    miku_http_server_route(srv, "POST", "/statistics/user/active",    handle_statistics, ctx);
+    miku_http_server_route(srv, "POST", "/statistics/group/create",   handle_statistics, ctx);
+    miku_http_server_route(srv, "POST", "/statistics/group/active",   handle_statistics, ctx);
+
+    miku_http_server_route(srv, "POST", "/jssdk/get_conversations",        handle_jssdk, ctx);
+    miku_http_server_route(srv, "POST", "/jssdk/get_active_conversations", handle_jssdk, ctx);
+
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/api",          handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/user",         handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/group",        handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/msg",          handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/friend",       handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/conversation", handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/third",        handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/auth",         handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/push",         handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/msg_gateway",  handle_prometheus_discovery, ctx);
+    miku_http_server_route(srv, "GET",  "/prometheus_discovery/msg_transfer", handle_prometheus_discovery, ctx);
+
+    miku_http_server_route(srv, "POST", "/config/get_config_list",              handle_config, ctx);
+    miku_http_server_route(srv, "POST", "/config/get_config",                   handle_config, ctx);
+    miku_http_server_route(srv, "POST", "/config/set_config",                   handle_config, ctx);
+    miku_http_server_route(srv, "POST", "/config/reset_config",                 handle_config, ctx);
+    miku_http_server_route(srv, "POST", "/config/set_enable_config_manager",    handle_config, ctx);
+    miku_http_server_route(srv, "POST", "/config/get_enable_config_manager",    handle_config, ctx);
+
+    miku_http_server_route(srv, "POST", "/restart", handle_restart, ctx);
 
     return 0;
 }
