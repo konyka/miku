@@ -837,6 +837,21 @@ TBD     stage 52: request validation (require_fields)
     test_validation_valid_request_passes: group create with required fields → not 400
   148 test cases, 0 failures, 0 warnings
 
+TBD     stage 54: token-based auth middleware (verify_token)
+  verify_token() checks "token" or "authorization" header on every non-auth/admin/version request
+  Uses miku_auth_parse_token() to validate "miku_{userID}_{uuid}_{platform}" format
+  Returns 401 + {"errCode":401,"errMsg":"missing token header"} if absent
+  Returns 401 + {"errCode":401,"errMsg":"invalid token"} if parse fails
+  Whitelisted paths: /auth/*, /admin/*, /version
+  All 7 API handlers (auth/user/friend/group/conv/msg/third) guard with verify_token()
+  Updated all existing e2e tests to acquire token via /auth/user_token first
+  Added http_post_with_token() helper — includes "token: {token}" header
+  3 new tests:
+    test_token_auth_required: no token → 401 "missing token"
+    test_token_invalid_rejected: bad token → 401 "invalid token"
+    test_token_valid_passes: valid token from /auth/user_token → request succeeds
+  151 test cases, 0 failures, 0 warnings
+
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)
 TBD     test: 14 new tests for all phase 29 modules (ratelimit, webhook, seq, incr_sync, offline_push, cron_tasks, ws_subscription, gzip)

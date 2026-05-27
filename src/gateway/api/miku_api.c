@@ -117,9 +117,40 @@ static int require_fields(miku_json_val_t *j, miku_http_response_t *resp, ...) {
     return 0;
 }
 
+static int verify_token(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_response_t *resp) {
+    if (!c->auth) return 0;
+    if (req->path.data && req->path.len > 0) {
+        if (req->path.len >= 5 && strncmp(req->path.data, "/auth", 5) == 0) return 0;
+        if (req->path.len >= 6 && strncmp(req->path.data, "/admin", 6) == 0) return 0;
+        if (req->path.len >= 7 && strncmp(req->path.data, "/version", 8) == 0) return 0;
+    }
+    const char *token = NULL;
+    if (req->headers) token = (const char *)miku_hashmap_get(req->headers, "token");
+    if (!token && req->headers) token = (const char *)miku_hashmap_get(req->headers, "authorization");
+    if (!token || !token[0]) {
+        miku_json_val_t *body = miku_json_create_object();
+        miku_ji(body, "errCode", 401);
+        miku_jss(body, "errMsg", "missing token header");
+        resp->status = 401;
+        json_resp(resp, body);
+        return -1;
+    }
+    char uid[128] = {0};
+    if (miku_auth_parse_token(c->auth, token, uid, sizeof(uid)) != 0) {
+        miku_json_val_t *body = miku_json_create_object();
+        miku_ji(body, "errCode", 401);
+        miku_jss(body, "errMsg", "invalid token");
+        resp->status = 401;
+        json_resp(resp, body);
+        return -1;
+    }
+    return 0;
+}
+
 static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
+    if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);
@@ -160,6 +191,7 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
 static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
+    if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);
@@ -218,6 +250,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
 static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
+    if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);
@@ -275,6 +308,7 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
 static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
+    if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);
@@ -347,6 +381,7 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
 static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
+    if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);
@@ -383,6 +418,7 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
 static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
+    if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);
@@ -473,6 +509,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
 static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
+    if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     char *path = strndup(req->path.data, req->path.len);

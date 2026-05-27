@@ -955,6 +955,46 @@ static char *extract_json_body(char *http_resp) {
     return body ? body + 4 : http_resp;
 }
 
+static int http_post_with_token(int port, const char *path, const char *token,
+                                 const char *body, char *resp, int cap) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    struct timeval tv = {2, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    int retries = 5;
+    while (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 && retries-- > 0) {
+        usleep(50000);
+    }
+    if (retries <= 0) { close(fd); return -1; }
+    char req[8192];
+    int len;
+    if (token && token[0]) {
+        len = snprintf(req, sizeof(req),
+            "POST %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\n"
+            "token: %s\r\nContent-Length: %zu\r\n\r\n%s",
+            path, port, token, strlen(body), body);
+    } else {
+        len = snprintf(req, sizeof(req),
+            "POST %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",
+            path, port, strlen(body), body);
+    }
+    write(fd, req, (size_t)len);
+    int total = 0;
+    while (total < cap - 1) {
+        ssize_t n = read(fd, resp + total, (size_t)(cap - total - 1));
+        if (n <= 0) break;
+        total += (int)n;
+    }
+    resp[total] = '\0';
+    close(fd);
+    return total;
+}
+
 static void test_http_e2e_user_register_and_get(void) {
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     mk_assert_not_null(ctx);
@@ -966,8 +1006,16 @@ static void test_http_e2e_user_register_and_get(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth_resp[8192] = {0};
+    http_post_to(19777, "/auth/user_token",
+        "{\"userID\":\"http_u1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_resp, sizeof(auth_resp));
+    char *auth_body = extract_json_body(auth_resp);
+    miku_json_val_t *auth_r = miku_json_parse_str(auth_body);
+    const char *token = auth_r ? miku_json_str(miku_json_get(auth_r, "token")) : NULL;
+    mk_assert(token && token[0]);
+
     char resp[8192] = {0};
-    int n = http_post_to(19777, "/user/register",
+    int n = http_post_with_token(19777, "/user/register", token,
         "{\"userID\":\"http_u1\",\"nickname\":\"HTTP Alice\"}", resp, sizeof(resp));
     mk_assert(n > 0);
     char *body = extract_json_body(resp);
@@ -977,7 +1025,7 @@ static void test_http_e2e_user_register_and_get(void) {
     miku_json_destroy(r);
 
     char resp2[8192] = {0};
-    n = http_post_to(19777, "/user/get_users_info",
+    n = http_post_with_token(19777, "/user/get_users_info", token,
         "{\"userIDList\":[\"http_u1\"]}", resp2, sizeof(resp2));
     mk_assert(n > 0);
     body = extract_json_body(resp2);
@@ -985,6 +1033,7 @@ static void test_http_e2e_user_register_and_get(void) {
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
+    if (auth_r) miku_json_destroy(auth_r);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1033,8 +1082,15 @@ static void test_http_e2e_friend_flow(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth_resp[8192] = {0};
+    http_post_to(19779, "/auth/user_token",
+        "{\"userID\":\"u1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_resp, sizeof(auth_resp));
+    miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth_resp));
+    const char *token = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
+    mk_assert(token && token[0]);
+
     char resp[8192] = {0};
-    http_post_to(19779, "/friend/add",
+    http_post_with_token(19779, "/friend/add", token,
         "{\"ownerUserID\":\"u1\",\"friendUserID\":\"u2\",\"remark\":\"test remark\"}", resp, sizeof(resp));
     char *body = extract_json_body(resp);
     miku_json_val_t *r = miku_json_parse_str(body);
@@ -1043,7 +1099,7 @@ static void test_http_e2e_friend_flow(void) {
     miku_json_destroy(r);
 
     char resp2[8192] = {0};
-    http_post_to(19779, "/friend/get_friend_list",
+    http_post_with_token(19779, "/friend/get_friend_list", token,
         "{\"userID\":\"u1\"}", resp2, sizeof(resp2));
     body = extract_json_body(resp2);
     r = miku_json_parse_str(body);
@@ -1054,6 +1110,7 @@ static void test_http_e2e_friend_flow(void) {
     mk_assert_int_eq(1, (int)miku_json_size(data));
     mk_assert_str_eq("test remark", miku_json_str(miku_json_get(miku_json_at(data, 0), "remark")));
     miku_json_destroy(r);
+    if (ar) miku_json_destroy(ar);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1072,8 +1129,15 @@ static void test_http_e2e_msg_send_and_search(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth_resp[8192] = {0};
+    http_post_to(19780, "/auth/user_token",
+        "{\"userID\":\"s1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_resp, sizeof(auth_resp));
+    miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth_resp));
+    const char *token = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
+    mk_assert(token && token[0]);
+
     char resp[8192] = {0};
-    http_post_to(19780, "/msg/send_msg",
+    http_post_with_token(19780, "/msg/send_msg", token,
         "{\"sendID\":\"s1\",\"recvID\":\"r1\",\"content\":\"e2e test message\",\"msgType\":101,\"clientMsgID\":\"cm_e2e_1\"}",
         resp, sizeof(resp));
     char *body = extract_json_body(resp);
@@ -1086,7 +1150,7 @@ static void test_http_e2e_msg_send_and_search(void) {
     miku_json_destroy(r);
 
     char resp2[8192] = {0};
-    http_post_to(19780, "/msg/search_msg",
+    http_post_with_token(19780, "/msg/search_msg", token,
         "{\"keyword\":\"e2e test\"}", resp2, sizeof(resp2));
     body = extract_json_body(resp2);
     r = miku_json_parse_str(body);
@@ -1096,6 +1160,7 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_not_null(data);
      mk_assert_int_eq(1, (int)miku_json_size(data));
      miku_json_destroy(r);
+     if (ar) miku_json_destroy(ar);
 
      miku_http_server_stop(srv);
      pthread_join(tid, NULL);
@@ -1126,8 +1191,14 @@ static void test_webhook_msg_send_trigger(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth1[8192] = {0};
+    http_post_to(19781, "/auth/user_token",
+        "{\"userID\":\"wh_s1\",\"secret\":\"openIM123\",\"platformID\":1}", auth1, sizeof(auth1));
+    miku_json_val_t *ar1 = miku_json_parse_str(extract_json_body(auth1));
+    const char *tok1 = ar1 ? miku_json_str(miku_json_get(ar1, "token")) : NULL;
+
     char resp[8192] = {0};
-    http_post_to(19781, "/msg/send_msg",
+    http_post_with_token(19781, "/msg/send_msg", tok1,
         "{\"sendID\":\"wh_s1\",\"recvID\":\"wh_r1\",\"content\":\"wh test\",\"msgType\":101,\"clientMsgID\":\"wh_c1\"}",
         resp, sizeof(resp));
 
@@ -1135,6 +1206,7 @@ static void test_webhook_msg_send_trigger(void) {
     mk_assert(wh_trigger_last_event == MK_WH_AFTER_SEND_MSG);
     mk_assert(strstr(wh_trigger_last_payload, "msgSent") != NULL);
     mk_assert(strstr(wh_trigger_last_payload, "wh_s1") != NULL);
+    if (ar1) miku_json_destroy(ar1);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1154,8 +1226,14 @@ static void test_webhook_friend_add_trigger(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth2[8192] = {0};
+    http_post_to(19782, "/auth/user_token",
+        "{\"userID\":\"wh_u1\",\"secret\":\"openIM123\",\"platformID\":1}", auth2, sizeof(auth2));
+    miku_json_val_t *ar2 = miku_json_parse_str(extract_json_body(auth2));
+    const char *tok2 = ar2 ? miku_json_str(miku_json_get(ar2, "token")) : NULL;
+
     char resp[8192] = {0};
-    http_post_to(19782, "/friend/add",
+    http_post_with_token(19782, "/friend/add", tok2,
         "{\"ownerUserID\":\"wh_u1\",\"friendUserID\":\"wh_u2\"}", resp, sizeof(resp));
 
     mk_assert_int_eq(1, wh_trigger_count);
@@ -1163,6 +1241,7 @@ static void test_webhook_friend_add_trigger(void) {
     mk_assert(strstr(wh_trigger_last_payload, "friendAdded") != NULL);
     mk_assert(strstr(wh_trigger_last_payload, "wh_u1") != NULL);
     mk_assert(strstr(wh_trigger_last_payload, "wh_u2") != NULL);
+    if (ar2) miku_json_destroy(ar2);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1182,8 +1261,14 @@ static void test_webhook_group_create_trigger(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth3[8192] = {0};
+    http_post_to(19783, "/auth/user_token",
+        "{\"userID\":\"wh_owner\",\"secret\":\"openIM123\",\"platformID\":1}", auth3, sizeof(auth3));
+    miku_json_val_t *ar3 = miku_json_parse_str(extract_json_body(auth3));
+    const char *tok3 = ar3 ? miku_json_str(miku_json_get(ar3, "token")) : NULL;
+
     char resp[8192] = {0};
-    int n = http_post_to(19783, "/group/create",
+    int n = http_post_with_token(19783, "/group/create", tok3,
         "{\"groupName\":\"wh group\",\"ownerUserID\":\"wh_owner\"}", resp, sizeof(resp));
     mk_assert(n > 0);
     char *body = extract_json_body(resp);
@@ -1196,6 +1281,7 @@ static void test_webhook_group_create_trigger(void) {
     mk_assert(wh_trigger_last_event == MK_WH_AFTER_CREATE_GROUP);
     mk_assert(strstr(wh_trigger_last_payload, "groupCreated") != NULL);
     mk_assert(strstr(wh_trigger_last_payload, "wh_owner") != NULL);
+    if (ar3) miku_json_destroy(ar3);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1225,15 +1311,21 @@ static void test_ratelimit_http_429(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth_rl[8192] = {0};
+    http_post_to(19784, "/auth/user_token",
+        "{\"userID\":\"rl_z\",\"secret\":\"openIM123\",\"platformID\":1}", auth_rl, sizeof(auth_rl));
+    miku_json_val_t *ar_rl = miku_json_parse_str(extract_json_body(auth_rl));
+    const char *rl_tok = ar_rl ? miku_json_str(miku_json_get(ar_rl, "token")) : NULL;
+
     for (int i = 0; i < 2; i++) {
         char resp[8192] = {0};
-        http_post_to(19784, "/friend/add",
+        http_post_with_token(19784, "/friend/add", rl_tok,
             "{\"ownerUserID\":\"rl_z\",\"friendUserID\":\"rl_b\"}", resp, sizeof(resp));
         mk_assert(resp[0] != '\0');
     }
 
     char resp3[8192] = {0};
-    http_post_to(19784, "/friend/add",
+    http_post_with_token(19784, "/friend/add", rl_tok,
         "{\"ownerUserID\":\"rl_z\",\"friendUserID\":\"rl_c\"}", resp3, sizeof(resp3));
     char *body3 = extract_json_body(resp3);
     mk_assert(body3 != NULL);
@@ -1242,12 +1334,20 @@ static void test_ratelimit_http_429(void) {
     }
     mk_assert(strstr(body3, "429") != NULL);
 
+    char auth_other[8192] = {0};
+    http_post_to(19784, "/auth/user_token",
+        "{\"userID\":\"rl_other\",\"secret\":\"openIM123\",\"platformID\":1}", auth_other, sizeof(auth_other));
+    miku_json_val_t *ar_other = miku_json_parse_str(extract_json_body(auth_other));
+    const char *other_tok = ar_other ? miku_json_str(miku_json_get(ar_other, "token")) : NULL;
+
     char resp4[8192] = {0};
-    http_post_to(19784, "/friend/add",
+    http_post_with_token(19784, "/friend/add", other_tok,
         "{\"ownerUserID\":\"rl_other\",\"friendUserID\":\"rl_d\"}", resp4, sizeof(resp4));
     char *body4 = extract_json_body(resp4);
     mk_assert(body4 != NULL);
     mk_assert(strstr(body4, "429") == NULL);
+    if (ar_rl) miku_json_destroy(ar_rl);
+    if (ar_other) miku_json_destroy(ar_other);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1292,13 +1392,20 @@ static void test_validation_missing_friend_fields(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth_v[8192] = {0};
+    http_post_to(19791, "/auth/user_token",
+        "{\"userID\":\"u1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_v, sizeof(auth_v));
+    miku_json_val_t *arv = miku_json_parse_str(extract_json_body(auth_v));
+    const char *v_tok = arv ? miku_json_str(miku_json_get(arv, "token")) : NULL;
+
     char resp[8192] = {0};
-    http_post_to(19791, "/friend/add",
+    http_post_with_token(19791, "/friend/add", v_tok,
         "{\"ownerUserID\":\"u1\"}", resp, sizeof(resp));
     char *body = extract_json_body(resp);
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":400") != NULL);
     mk_assert(strstr(body, "friendUserID") != NULL);
+    if (arv) miku_json_destroy(arv);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1314,8 +1421,14 @@ static void test_validation_missing_send_fields(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth_v2[8192] = {0};
+    http_post_to(19792, "/auth/user_token",
+        "{\"userID\":\"s1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_v2, sizeof(auth_v2));
+    miku_json_val_t *arv2 = miku_json_parse_str(extract_json_body(auth_v2));
+    const char *v2_tok = arv2 ? miku_json_str(miku_json_get(arv2, "token")) : NULL;
+
     char resp[8192] = {0};
-    http_post_to(19792, "/msg/send_msg",
+    http_post_with_token(19792, "/msg/send_msg", v2_tok,
         "{\"sendID\":\"s1\"}", resp, sizeof(resp));
     char *body = extract_json_body(resp);
     mk_assert(body != NULL);
@@ -1323,11 +1436,12 @@ static void test_validation_missing_send_fields(void) {
     mk_assert(strstr(body, "recvID") != NULL);
 
     char resp2[8192] = {0};
-    http_post_to(19792, "/msg/send_msg",
+    http_post_with_token(19792, "/msg/send_msg", v2_tok,
         "{\"sendID\":\"s1\",\"recvID\":\"r1\",\"content\":\"hi\"}", resp2, sizeof(resp2));
     body = extract_json_body(resp2);
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":400") == NULL);
+    if (arv2) miku_json_destroy(arv2);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1343,12 +1457,92 @@ static void test_validation_valid_request_passes(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char auth_v3[8192] = {0};
+    http_post_to(19793, "/auth/user_token",
+        "{\"userID\":\"g1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_v3, sizeof(auth_v3));
+    miku_json_val_t *arv3 = miku_json_parse_str(extract_json_body(auth_v3));
+    const char *v3_tok = arv3 ? miku_json_str(miku_json_get(arv3, "token")) : NULL;
+
     char resp[8192] = {0};
-    http_post_to(19793, "/group/create",
+    http_post_with_token(19793, "/group/create", v3_tok,
         "{\"ownerUserID\":\"g1\",\"groupName\":\"test group\"}", resp, sizeof(resp));
     char *body = extract_json_body(resp);
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":400") == NULL);
+    if (arv3) miku_json_destroy(arv3);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_token_auth_required(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19794);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_to(19794, "/friend/get_friend_list",
+        "{\"userID\":\"u1\"}", resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":401") != NULL);
+    mk_assert(strstr(body, "missing token") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_token_invalid_rejected(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19795);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    http_post_with_token(19795, "/user/register", "invalid_token_xyz",
+        "{\"userID\":\"tu1\"}", resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":401") != NULL);
+    mk_assert(strstr(body, "invalid token") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_token_valid_passes(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19796);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char auth_r[8192] = {0};
+    http_post_to(19796, "/auth/user_token",
+        "{\"userID\":\"tp1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_r, sizeof(auth_r));
+    miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth_r));
+    const char *token = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
+    mk_assert(token && strncmp(token, "miku_tp1_", 9) == 0);
+
+    char resp[8192] = {0};
+    http_post_with_token(19796, "/user/register", token,
+        "{\"userID\":\"tp1\",\"nickname\":\"token test\"}", resp, sizeof(resp));
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":401") == NULL);
+    if (ar) miku_json_destroy(ar);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1411,4 +1605,8 @@ void run_new_module_tests(void) {
     mk_run_test(test_validation_missing_friend_fields);
     mk_run_test(test_validation_missing_send_fields);
     mk_run_test(test_validation_valid_request_passes);
+
+    mk_run_test(test_token_auth_required);
+    mk_run_test(test_token_invalid_rejected);
+    mk_run_test(test_token_valid_passes);
 }
