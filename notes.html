@@ -864,6 +864,15 @@ TBD     stage 55: HMAC-signed tokens with FNV1a signature
   test_token_invalid_rejected: bad format → 401, tampered sig → 401
   151 test cases, 0 failures, 0 warnings
 
+TBD     stage 56: admin/health/stats/metrics/version endpoint tests
+  Added http_get_to() helper for GET requests
+  4 new HTTP e2e tests:
+    test_admin_health: GET /admin/health → 200 + {"status":0,"message":"ok"}
+    test_admin_stats: POST /admin/stats → 200 + {"errCode":0,"uptimeMs":...}
+    test_admin_metrics: GET /admin/metrics → 200 + Prometheus text format
+    test_version_endpoint: GET /version → 200 + {"version":"..."}
+  155 test cases, 0 failures, 0 warnings
+
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)
 TBD     test: 14 new tests for all phase 29 modules (ratelimit, webhook, seq, incr_sync, offline_push, cron_tasks, ws_subscription, gzip)

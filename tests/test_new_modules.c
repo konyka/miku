@@ -950,6 +950,36 @@ static int http_post_to(int port, const char *path, const char *body, char *resp
     return total;
 }
 
+static int http_get_to(int port, const char *path, char *resp, int cap) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    struct timeval tv = {2, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    int retries = 5;
+    while (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 && retries-- > 0) {
+        usleep(50000);
+    }
+    if (retries <= 0) { close(fd); return -1; }
+    char req[1024];
+    int len = snprintf(req, sizeof(req),
+        "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n\r\n", path, port);
+    write(fd, req, (size_t)len);
+    int total = 0;
+    while (total < cap - 1) {
+        ssize_t n = read(fd, resp + total, (size_t)(cap - total - 1));
+        if (n <= 0) break;
+        total += (int)n;
+    }
+    resp[total] = '\0';
+    close(fd);
+    return total;
+}
+
 static char *extract_json_body(char *http_resp) {
     char *body = strstr(http_resp, "\r\n\r\n");
     return body ? body + 4 : http_resp;
@@ -1558,6 +1588,94 @@ static void test_token_valid_passes(void) {
     miku_api_ctx_destroy(ctx);
 }
 
+static void test_admin_health(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19797);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    int n = http_get_to(19797, "/admin/health", resp, sizeof(resp));
+    mk_assert(n > 0);
+    mk_assert(strstr(resp, "200") != NULL);
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"status\":0") != NULL || strstr(body, "\"message\":\"ok\"") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_admin_stats(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19798);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    int n = http_post_to(19798, "/admin/stats", "{}", resp, sizeof(resp));
+    mk_assert(n > 0);
+    mk_assert(strstr(resp, "200") != NULL);
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":0") != NULL);
+    mk_assert(strstr(body, "uptimeMs") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_admin_metrics(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19799);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    int n = http_get_to(19799, "/admin/metrics", resp, sizeof(resp));
+    mk_assert(n > 0);
+    mk_assert(strstr(resp, "200") != NULL);
+    mk_assert(strstr(resp, "miku_requests_total") != NULL);
+    mk_assert(strstr(resp, "# TYPE") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
+static void test_version_endpoint(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19800);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char resp[8192] = {0};
+    int n = http_get_to(19800, "/version", resp, sizeof(resp));
+    mk_assert(n > 0);
+    mk_assert(strstr(resp, "200") != NULL);
+    char *body = extract_json_body(resp);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "version") != NULL);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
 void run_new_module_tests(void) {
     printf("\n── Miku New Module Tests ───────────────────\n\n");
     mk_run_test(test_ratelimit_basic);
@@ -1617,4 +1735,9 @@ void run_new_module_tests(void) {
     mk_run_test(test_token_auth_required);
     mk_run_test(test_token_invalid_rejected);
     mk_run_test(test_token_valid_passes);
+
+    mk_run_test(test_admin_health);
+    mk_run_test(test_admin_stats);
+    mk_run_test(test_admin_metrics);
+    mk_run_test(test_version_endpoint);
 }
