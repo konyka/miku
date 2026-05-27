@@ -1062,7 +1062,8 @@ static void test_http_e2e_auth_token(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     const char *token = miku_json_str(miku_json_get(r, "token"));
     mk_assert_not_null(token);
-    mk_assert(strncmp(token, "miku_alice_", 11) == 0);
+    mk_assert(strncmp(token, "miku|alice|", 11) == 0);
+    mk_assert(strchr(token + 5, '|') != NULL);
     miku_json_destroy(r);
 
     miku_http_server_stop(srv);
@@ -1513,7 +1514,13 @@ static void test_token_invalid_rejected(void) {
     char *body = extract_json_body(resp);
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":401") != NULL);
-    mk_assert(strstr(body, "invalid token") != NULL);
+
+    char resp2[8192] = {0};
+    http_post_with_token(19795, "/user/register", "miku|tampered|1|9999999999|aaaa|00000000000000ff",
+        "{\"userID\":\"tu2\"}", resp2, sizeof(resp2));
+    body = extract_json_body(resp2);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":401") != NULL);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1534,7 +1541,8 @@ static void test_token_valid_passes(void) {
         "{\"userID\":\"tp1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_r, sizeof(auth_r));
     miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth_r));
     const char *token = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
-    mk_assert(token && strncmp(token, "miku_tp1_", 9) == 0);
+    mk_assert(token && strncmp(token, "miku|tp1|", 9) == 0);
+    mk_assert(strchr(token + 5, '|') != NULL);
 
     char resp[8192] = {0};
     http_post_with_token(19796, "/user/register", token,

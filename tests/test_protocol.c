@@ -813,7 +813,7 @@ void test_api_auth_login(void) {
     char token[512] = {0};
     int rc = miku_auth_user_token(svc, "testuser", "openIM123", 1, token, sizeof(token));
     mk_assert_int_eq(0, rc);
-    mk_assert(strncmp(token, "miku_", 5) == 0);
+    mk_assert(strncmp(token, "miku|", 5) == 0);
 
     char uid[64] = {0};
     rc = miku_auth_parse_token(svc, token, uid, sizeof(uid));

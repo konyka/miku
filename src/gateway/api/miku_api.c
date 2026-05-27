@@ -127,7 +127,7 @@ static int verify_token(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_r
     const char *token = NULL;
     if (req->headers) token = (const char *)miku_hashmap_get(req->headers, "token");
     if (!token && req->headers) token = (const char *)miku_hashmap_get(req->headers, "authorization");
-    if (!token || !token[0]) {
+    if (!token || !token[0] || (strncmp(token, "miku|", 5) != 0 && strncmp(token, "miku_", 5) != 0)) {
         miku_json_val_t *body = miku_json_create_object();
         miku_ji(body, "errCode", 401);
         miku_jss(body, "errMsg", "missing token header");

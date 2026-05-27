@@ -852,6 +852,18 @@ TBD     stage 54: token-based auth middleware (verify_token)
     test_token_valid_passes: valid token from /auth/user_token → request succeeds
   151 test cases, 0 failures, 0 warnings
 
+TBD     stage 55: HMAC-signed tokens with FNV1a signature
+  New token format: miku|{userID}|{platform}|{timestamp}|{nonce16}|{sig_hex}
+  Pipe-delimited fields — safe for userIDs containing underscores
+  Signature: FNV1a-64(userID:platform:timestamp:nonce:secret) — tamper-proof
+  Token expiry: 86400 seconds (24 hours) — rejects expired tokens
+  verify_token() accepts both miku| (signed) and miku_ (legacy) prefixes
+  miku_hash.h/miku_hash.c — public FNV1a-64 hash function (data + length)
+  Added to CMake foundation library
+  Updated test assertions: miku|alice|, miku|user1|, miku|tp1|
+  test_token_invalid_rejected: bad format → 401, tampered sig → 401
+  151 test cases, 0 failures, 0 warnings
+
 TBD     feat: full API parity — 103→203 routes matching all OpenIM Server endpoints
 TBD     feat: full non-HTTP feature parity (WS ops, push, webhook, seq, ratelimit, gzip, etc.)
 TBD     test: 14 new tests for all phase 29 modules (ratelimit, webhook, seq, incr_sync, offline_push, cron_tasks, ws_subscription, gzip)

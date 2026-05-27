@@ -8,6 +8,7 @@ set(MIKU_FOUNDATION_SOURCES
     miku_error.c
     miku_string.c
     miku_hashmap.c
+    miku_hash.c
     miku_rbtree.c
     miku_thread.c
     miku_uuid.c
