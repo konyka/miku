@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 123 tests, 63 modules, 13 binaries, 7 RPC services — full feature parity with OpenIM Server.
+> **Status**: 203 API routes, 155 tests, 64 modules, 13 binaries, 7 RPC services — API surface parity with OpenIM; some providers (offline push HTTP, webhook outbound, cron cleanup) remain stubs.
 
 ## 1. Overview
 
@@ -95,6 +95,7 @@ miku/
 │   │   ├── miku_crc32.h/c            # CRC32 checksum
 │   │   ├── miku_base64.h/c           # Base64 encode/decode
 │   │   ├── miku_sha1.h/c             # SHA-1 hash
+│   │   ├── miku_token.h/c            # Signed token create/verify (FNV-1a, shared by auth + middleware)
 │   │   ├── miku_graceful.h/c         # Graceful shutdown (SIGTERM/SIGINT + SIGHUP reload)
 │   │   ├── miku_stats.h/c            # Atomic service metrics
 │   │   └── miku_json_util.h          # Shared JSON helpers (miku_ji, miku_jss, miku_jerr)
@@ -177,7 +178,7 @@ miku/
 │   ├── miku-dev/main.c               # All-in-one dev server
 │   └── CMakeLists.txt
 │
-└── tests/                            # Test suite (123 tests + 5 benchmarks)
+└── tests/                            # Test suite (155 tests + 5 benchmarks)
     ├── test_foundation.c             # Foundation tests (20 tests)
     ├── test_runtime.c                # Runtime tests (9 tests)
     ├── test_protocol.c               # Protocol + middleware + route tests (40 tests)
@@ -258,7 +259,10 @@ typedef struct miku_tls_pool_s {
 miku_tls_pool_t *miku_tls_pool_get(void);  // Thread-local access
 ```
 
-### 4.2 Thread Pool (Work-Stealing)
+### 4.2 Thread Pool (Shared Global Queue)
+
+Current implementation uses a single mutex-protected global task queue shared by all workers.
+Per-worker work-stealing deques are planned but not yet implemented.
 
 ```c
 typedef struct miku_threadpool_s miku_threadpool_t;
@@ -624,7 +628,7 @@ Middleware executes in chain order before route handlers. Chain: **CORS → requ
 | `miku_mw_cors` | Sets `Access-Control-Allow-*` headers for cross-origin requests |
 | `miku_mw_request_id` | Generates unique `X-Request-ID` (UUID v4) per request, propagates to response |
 | `miku_mw_logging` | Access log: method, path, status code, latency, request ID |
-| `miku_mw_auth` | Token validation (`miku_{userID}_{uuid}_{platform}`), HMAC-SHA256, returns 401 on failure |
+| `miku_mw_auth` | Cryptographic token validation (`miku\|uid\|platform\|ts\|nonce\|sig`, FNV-1a over secret), returns 401 on failure. Public: `/auth/*`, `/admin/health`, `/admin/metrics`, `/version`, `/prometheus*` |
 | `miku_mw_stats` | Increments request/error counters in `miku_stats_t` |
 
 ```c
@@ -936,13 +940,13 @@ make test
 | **libyaml** | 0.2+ | YAML configuration parsing | Yes |
 | **zlib** | 1.3+ | Compression (gzip, WebSocket) | Yes |
 | **libcurl** | 8.0+ | HTTP client (etcd API, S3) | Optional (`MIKU_ENABLE_S3`) |
-| **OpenSSL** | 3.0+ | TLS, HMAC-SHA256 | Optional (`MIKU_ENABLE_TLS`) |
+| **OpenSSL** | 3.0+ | TLS | Optional (`MIKU_ENABLE_TLS`) |
 
 ---
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete. **130 tests + 5 benchmarks** passing. **63 modules** across 6 layers. **13 binaries**. **203 routes**. **166 RPC methods dispatched**. Full feature parity with OpenIM Server.
+All phases complete for the HTTP/WS API surface. **155 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a). API embeds services in-process by default; split RPC binaries are available. Provider stubs remain for offline-push HTTP, webhook outbound POST, and cron cleanup.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

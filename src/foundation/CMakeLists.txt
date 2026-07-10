@@ -15,6 +15,7 @@ set(MIKU_FOUNDATION_SOURCES
     miku_crc32.c
     miku_base64.c
     miku_sha1.c
+    miku_token.c
     miku_service_config.c
     miku_graceful.c
     miku_stats.c

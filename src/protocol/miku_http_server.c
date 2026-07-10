@@ -19,7 +19,8 @@
 
 #define MAX_ROUTES 256
 #define MAX_MIDDLEWARE 16
-#define READ_BUF   4096
+#define READ_BUF   65536
+#define READ_CHUNK 8192
 
 typedef struct {
     miku_http_middleware_fn fn;
@@ -103,6 +104,13 @@ static void conn_sweep_idle(miku_http_server_t *srv) {
     }
 }
 
+static size_t http_content_length(miku_http_request_t *req) {
+    if (!req || !req->headers) return 0;
+    const char *cl = (const char *)miku_hashmap_get(req->headers, "content-length");
+    if (!cl || !cl[0]) return 0;
+    return (size_t)strtoul(cl, NULL, 10);
+}
+
 static void handle_client(int fd, int events, void *data) {
     (void)events;
     miku_http_server_t *srv = (miku_http_server_t *)data;
@@ -125,24 +133,127 @@ static void handle_client(int fd, int events, void *data) {
 #define MIKU_WRITE(buf, sz) write(fd, buf, sz)
 #endif
 
-    char buf[READ_BUF];
-    ssize_t nread = MIKU_READ(buf, sizeof(buf) - 1);
-    if (nread <= 0) {
-        conn_track_remove(srv, fd);
+    /* Growable heap buffer so body pointers remain valid for the request lifetime. */
+    size_t cap = READ_BUF;
+    size_t n = 0;
+    char *buf = (char *)malloc(cap);
+    if (!buf) {
 #ifdef MIKU_ENABLE_TLS
         if (ssl) SSL_free(ssl);
 #endif
-        if (srv->stats) miku_stats_conn_close(srv->stats);
         close(fd); miku_io_del(srv->io, fd); return;
     }
-    conn_track_touch(srv, fd);
-    size_t n = (size_t)nread;
-    buf[n] = '\0';
-    if (srv->stats) miku_stats_bytes_recv(srv->stats, (int64_t)n);
 
-    miku_http_request_t *req = miku_http_request_create();
-    int parsed = miku_http_request_parse(req, buf, n);
+    int hdr_parsed = 0;
+    size_t need_total = 0;
+    miku_http_request_t *req = NULL;
+
+    for (;;) {
+        if (n + READ_CHUNK + 1 > cap) {
+            size_t ncap = cap * 2;
+            if (ncap < n + READ_CHUNK + 1) ncap = n + READ_CHUNK + 1;
+            if (srv->max_body > 0 && ncap > srv->max_body + 8192) {
+                free(buf);
+                if (req) miku_http_request_destroy(req);
+                const char *big = "HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                MIKU_WRITE(big, strlen(big));
+                conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+                if (ssl) SSL_free(ssl);
+#endif
+                if (srv->stats) miku_stats_conn_close(srv->stats);
+                close(fd); miku_io_del(srv->io, fd);
+                return;
+            }
+            char *nb = (char *)realloc(buf, ncap);
+            if (!nb) {
+                free(buf);
+                if (req) miku_http_request_destroy(req);
+#ifdef MIKU_ENABLE_TLS
+                if (ssl) SSL_free(ssl);
+#endif
+                close(fd); miku_io_del(srv->io, fd);
+                return;
+            }
+            buf = nb;
+            cap = ncap;
+        }
+
+        ssize_t nread = MIKU_READ(buf + n, READ_CHUNK);
+        if (nread <= 0) {
+            free(buf);
+            if (req) miku_http_request_destroy(req);
+            conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+            if (ssl) SSL_free(ssl);
+#endif
+            if (srv->stats) miku_stats_conn_close(srv->stats);
+            close(fd); miku_io_del(srv->io, fd);
+            return;
+        }
+        n += (size_t)nread;
+        buf[n] = '\0';
+        conn_track_touch(srv, fd);
+        if (srv->stats) miku_stats_bytes_recv(srv->stats, (int64_t)nread);
+
+        if (!hdr_parsed) {
+            if (!memmem(buf, n, "\r\n\r\n", 4)) {
+                if (n > 65536) { /* headers too large */
+                    free(buf);
+                    const char *bad = "HTTP/1.1 431 Request Header Fields Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                    MIKU_WRITE(bad, strlen(bad));
+                    conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+                    if (ssl) SSL_free(ssl);
+#endif
+                    if (srv->stats) miku_stats_conn_close(srv->stats);
+                    close(fd); miku_io_del(srv->io, fd);
+                    return;
+                }
+                continue;
+            }
+            req = miku_http_request_create();
+            int parsed = miku_http_request_parse(req, buf, n);
+            if (parsed <= 0) {
+                free(buf);
+                miku_http_request_destroy(req);
+                const char *bad = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                MIKU_WRITE(bad, strlen(bad));
+                conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+                if (ssl) SSL_free(ssl);
+#endif
+                close(fd); miku_io_del(srv->io, fd);
+                return;
+            }
+            size_t cl = http_content_length(req);
+            if (srv->max_body > 0 && cl > srv->max_body) {
+                free(buf);
+                miku_http_request_destroy(req);
+                const char *big = "HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+                MIKU_WRITE(big, strlen(big));
+                conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+                if (ssl) SSL_free(ssl);
+#endif
+                if (srv->stats) miku_stats_conn_close(srv->stats);
+                close(fd); miku_io_del(srv->io, fd);
+                return;
+            }
+            need_total = (size_t)parsed + cl;
+            hdr_parsed = 1;
+            /* Re-parse after full body arrives so body slice is exact. */
+            miku_http_request_destroy(req);
+            req = NULL;
+        }
+
+        if (hdr_parsed && n >= need_total) break;
+    }
+
+    req = miku_http_request_create();
+    int parsed = miku_http_request_parse(req, buf, need_total > 0 ? need_total : n);
     if (parsed <= 0) {
+        free(buf);
         miku_http_request_destroy(req);
         const char *bad = "HTTP/1.1 400 Bad Request\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
         MIKU_WRITE(bad, strlen(bad));
@@ -150,24 +261,13 @@ static void handle_client(int fd, int events, void *data) {
 #ifdef MIKU_ENABLE_TLS
         if (ssl) SSL_free(ssl);
 #endif
-        close(fd);
-        miku_io_del(srv->io, fd);
+        close(fd); miku_io_del(srv->io, fd);
         return;
     }
 
-    if (srv->max_body > 0 && req->body.len > srv->max_body) {
-        miku_http_request_destroy(req);
-        const char *big = "HTTP/1.1 413 Payload Too Large\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-        MIKU_WRITE(big, strlen(big));
-        conn_track_remove(srv, fd);
-#ifdef MIKU_ENABLE_TLS
-        if (ssl) SSL_free(ssl);
-#endif
-        close(fd);
-        miku_io_del(srv->io, fd);
-        if (srv->stats) miku_stats_conn_close(srv->stats);
-        return;
-    }
+    /* Clamp body to Content-Length when present. */
+    size_t cl = http_content_length(req);
+    if (cl > 0 && req->body.len > cl) req->body.len = cl;
 
     bool wants_close = true;
     if (req->headers) {
@@ -209,7 +309,7 @@ static void handle_client(int fd, int events, void *data) {
     }
 
 send_response_ka:
-    if (!resp->headers) resp->headers = miku_hashmap_create(4, NULL);
+    if (!resp->headers) resp->headers = miku_hashmap_create(4, free);
     miku_hashmap_put(resp->headers, "Connection", strdup(wants_close ? "close" : "keep-alive"));
     miku_string_t *out = miku_http_response_serialize(resp);
     MIKU_WRITE(out->data, out->len);
@@ -217,6 +317,7 @@ send_response_ka:
     miku_str_destroy(out);
     miku_http_response_destroy(resp);
     miku_http_request_destroy(req);
+    free(buf);
 
 #ifdef MIKU_ENABLE_TLS
     if (ssl) SSL_free(ssl);

@@ -88,6 +88,8 @@ static void test_auth_bad_secret(void) {
     char token[512] = {0};
     int rc = miku_auth_user_token(svc, "user1", "wrongsecret", 1, token, sizeof(token));
     mk_assert_int_eq(-1, rc);
+    rc = miku_auth_user_token(svc, "user1", "", 1, token, sizeof(token));
+    mk_assert_int_eq(-1, rc);
     miku_auth_service_destroy(svc);
 }
 

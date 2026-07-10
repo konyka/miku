@@ -69,5 +69,8 @@ build-asan/
 # Sisyphus agent state
 .sisyphus/
 
+# Qoder agent / local wiki cache
+.qoder/
+
 # Generated
 *.json.bak

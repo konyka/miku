@@ -3,19 +3,21 @@
 #include "miku_json.h"
 #include "miku_string.h"
 #include "miku_uuid.h"
+#include "miku_token.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 miku_mw_result_t miku_mw_cors(miku_http_request_t *req,
                                miku_http_response_t *resp,
                                void *ctx) {
     (void)req; (void)ctx;
     if (!resp) return MK_MW_CONTINUE;
-    if (!resp->headers) resp->headers = miku_hashmap_create(8, NULL);
-    miku_hashmap_put(resp->headers, "Access-Control-Allow-Origin", "*");
-    miku_hashmap_put(resp->headers, "Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-    miku_hashmap_put(resp->headers, "Access-Control-Allow-Headers", "Content-Type, token, operationID");
-    if (req->method == MK_HTTP_OPTIONS) {
+    if (!resp->headers) resp->headers = miku_hashmap_create(8, free);
+    miku_hashmap_put(resp->headers, "Access-Control-Allow-Origin", strdup("*"));
+    miku_hashmap_put(resp->headers, "Access-Control-Allow-Methods", strdup("POST, GET, OPTIONS"));
+    miku_hashmap_put(resp->headers, "Access-Control-Allow-Headers", strdup("Content-Type, token, operationID"));
+    if (req && req->method == MK_HTTP_OPTIONS) {
         resp->status = 204;
         return MK_MW_STOP;
     }
@@ -27,26 +29,10 @@ miku_mw_result_t miku_mw_rate_limit(miku_http_request_t *req,
                                      void *ctx) {
     (void)req;
     miku_rate_limit_cfg_t *cfg = (miku_rate_limit_cfg_t *)ctx;
+    /* Global static counter is intentionally disabled: per-user limiting is
+     * handled by miku_ratelimit in API handlers (thread-safe, keyed). */
     if (!cfg || !cfg->enabled) return MK_MW_CONTINUE;
-    static int64_t window_start = 0;
-    static int request_count = 0;
-    int64_t now = miku_timestamp_ms();
-    if (window_start == 0 || (now - window_start) >= cfg->window_ms) {
-        window_start = now;
-        request_count = 0;
-    }
-    request_count++;
-    if (request_count > cfg->max_requests) {
-        resp->status = 429;
-        miku_json_val_t *body = miku_json_create_object();
-        miku_json_object_set(body, "errCode", miku_json_create_int(429));
-        miku_json_object_set(body, "errMsg", miku_json_create_str("rate limit exceeded"));
-        miku_string_t *s = miku_json_stringify(body);
-        miku_http_response_set_json(resp, s->data);
-        miku_str_destroy(s);
-        miku_json_destroy(body);
-        return MK_MW_STOP;
-    }
+    (void)resp;
     return MK_MW_CONTINUE;
 }
 
@@ -87,6 +73,18 @@ static int path_equals(miku_http_request_t *req, const char *str) {
     return req->path.len == slen && strncmp(req->path.data, str, slen) == 0;
 }
 
+static void auth_reject(miku_http_response_t *resp, const char *msg) {
+    resp->status = 401;
+    miku_json_val_t *body = miku_json_create_object();
+    miku_json_object_set(body, "errCode", miku_json_create_int(401));
+    miku_json_object_set(body, "errMsg", miku_json_create_str(msg));
+    miku_json_object_set(body, "errDmg", miku_json_create_str(""));
+    miku_string_t *s = miku_json_stringify(body);
+    miku_http_response_set_json(resp, s->data);
+    miku_str_destroy(s);
+    miku_json_destroy(body);
+}
+
 miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
                                miku_http_response_t *resp,
                                void *ctx) {
@@ -94,41 +92,32 @@ miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
     if (!cfg || !cfg->enabled) return MK_MW_CONTINUE;
     if (!req) return MK_MW_CONTINUE;
 
+    /* Public endpoints */
     if (path_starts_with(req, "/auth/"))    return MK_MW_CONTINUE;
     if (path_equals(req, "/admin/health"))  return MK_MW_CONTINUE;
     if (path_equals(req, "/version"))       return MK_MW_CONTINUE;
+    if (path_equals(req, "/admin/metrics")) return MK_MW_CONTINUE;
+    if (path_starts_with(req, "/prometheus")) return MK_MW_CONTINUE;
 
     const char *token = NULL;
     if (req->headers) {
         token = (const char *)miku_hashmap_get(req->headers, "token");
         if (!token) token = (const char *)miku_hashmap_get(req->headers, "Token");
+        if (!token) token = (const char *)miku_hashmap_get(req->headers, "authorization");
     }
 
-    if (!token || strncmp(token, "miku_", 5) != 0) {
-        resp->status = 401;
-        miku_json_val_t *body = miku_json_create_object();
-        miku_json_object_set(body, "errCode", miku_json_create_int(401));
-        miku_json_object_set(body, "errMsg", miku_json_create_str("token is missing or invalid"));
-        miku_json_object_set(body, "errDmg", miku_json_create_str(""));
-        miku_string_t *s = miku_json_stringify(body);
-        miku_http_response_set_json(resp, s->data);
-        miku_str_destroy(s);
-        miku_json_destroy(body);
+    if (!token || !token[0]) {
+        auth_reject(resp, "token is missing or invalid");
         return MK_MW_STOP;
     }
 
-    const char *uid_start = token + 5;
-    const char *sep = strchr(uid_start, '_');
-    if (!sep) {
-        resp->status = 401;
-        miku_json_val_t *body = miku_json_create_object();
-        miku_json_object_set(body, "errCode", miku_json_create_int(401));
-        miku_json_object_set(body, "errMsg", miku_json_create_str("malformed token"));
-        miku_json_object_set(body, "errDmg", miku_json_create_str(""));
-        miku_string_t *s = miku_json_stringify(body);
-        miku_http_response_set_json(resp, s->data);
-        miku_str_destroy(s);
-        miku_json_destroy(body);
+    /* Strip optional "Bearer " prefix */
+    if (strncmp(token, "Bearer ", 7) == 0) token += 7;
+
+    const char *secret = cfg->secret ? cfg->secret : MIKU_TOKEN_DEFAULT_SECRET;
+    char uid[128] = {0};
+    if (miku_token_verify(token, secret, uid, sizeof(uid)) != 0) {
+        auth_reject(resp, "token is missing or invalid");
         return MK_MW_STOP;
     }
 
@@ -149,7 +138,7 @@ miku_mw_result_t miku_mw_request_id(miku_http_request_t *req,
     }
     if (rid[0] == '\0') miku_uuid_generate(rid);
 
-    if (!resp->headers) resp->headers = miku_hashmap_create(8, NULL);
+    if (!resp->headers) resp->headers = miku_hashmap_create(8, free);
     miku_hashmap_put(resp->headers, "X-Request-ID", strdup(rid));
 
     MK_LOG_INFO("[%s] %.*s", rid, (int)req->path.len, req->path.data);

@@ -10,11 +10,11 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 |--------|-------|
 | HTTP Routes | 203 |
 | WS Protocol Opcodes | 12 |
-| C Modules | 63 |
-| C Headers | 70 |
+| C Modules | 64 |
+| C Headers | 71 |
 | Binaries | 13 |
-| Tests | 130 |
-| Lines of C Code | ~12K |
+| Tests | 155 |
+| Lines of C Code | ~9K |
 | Build Warnings | 0 |
 
 ## Architecture
@@ -127,27 +127,27 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 
 ## Project Stats
 
-- **63 modules** across 6 layers
-- **13 binaries** (12 microservices + dev server)
+- **64 modules** across 6 layers
+- **13 binaries** (12 microservices + all-in-one `miku-dev`)
 - **203 API routes** (Auth 5, User 32, Friend 26, Group 35, Msg 30, Conv 21, Third 15, Object 8, Batch 2, Statistics 4, JSSDK 2, Prometheus 11, Config 6, Restart 1, Admin 4, Version 1)
-- **123 tests + 5 benchmarks**, all passing
-- **Benchmarks**: JSON 1.36M/s, HashMap 7.09M/s, Cache 3.97M/s, Queue 38.4M/s
+- **155 tests + 5 benchmarks**, all passing
+- **Benchmarks**: JSON ~1.3M/s, HashMap ~7M/s, Cache ~4M/s, Queue ~38M/s
 
 ## Features
 
-- HTTP/1.1 server with keep-alive, TLS (OpenSSL), idle timeout, body size limit
-- Middleware pipeline: CORS, request ID, access logging, auth, stats
+- HTTP/1.1 server with keep-alive, TLS (OpenSSL), idle timeout, Content-Length body read, body size limit
+- Middleware pipeline: CORS, request ID, access logging, cryptographic auth (`miku|...` FNV-1a signed tokens), stats
 - WebSocket gateway (RFC 6455) with 12 protocol opcodes, IM message parsing, user status subscriptions
-- Custom binary RPC with Protobuf codec
+- Custom binary RPC with Protobuf codec (API currently embeds services in-process; RPC binaries available for split deploy)
 - MsgTransfer pipeline with batch flush (Redis/Mongo/Push callbacks)
-- Offline push notifications (FCM/Getui/JPUSH/Dummy providers)
-- Cron task scheduler with task implementations (deleteMsg, clearS3)
-- Webhook/callback system (11 event types)
-- Rate limiting (sliding window)
+- Offline push notifications (FCM/Getui/JPUSH/Dummy providers — provider HTTP calls are stubs)
+- Cron task scheduler with task implementations (deleteMsg, clearS3 — cleanup logic is stubbed)
+- Webhook/callback system (11 event types — local handlers; outbound HTTP POST is stubbed)
+- Per-user rate limiting (mutex-protected sliding window + LRU eviction)
 - Per-conversation sequence number management + user read tracking
 - Incremental sync (friends/blacks/groups/members/conversations)
 - gzip compression/decompression
-- Prometheus metrics at `/admin/metrics`
+- Prometheus metrics at `/admin/metrics` (public scrape); `/admin/stats` and config/restart require auth
 - Log rotation (size-based)
 - Graceful shutdown (SIGTERM/SIGINT) + config reload (SIGHUP)
 - Conditional compilation for all external dependencies
@@ -155,7 +155,8 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 
 ## Documentation
 
-- [ARCHITECTURE.md](ARCHITECTURE.md) - Full architecture design document (13 sections)
+- [ARCHITECTURE.md](ARCHITECTURE.md) - Full architecture design document
+- [docs/Wiki.md](docs/Wiki.md) - Chinese project wiki
 - [docs/openapi.yaml](docs/openapi.yaml) - OpenAPI 3.0 spec (203 routes)
 - [config/miku-example.yml](config/miku-example.yml) - Config example with all options
 - [notes.html](notes.html) - Development progress log
@@ -181,7 +182,7 @@ sudo bash deploy/systemd/install.sh
 
 - **Language**: C99-C23 (no C++)
 - **Memory**: Arena + Slab pools, per-request allocation
-- **Concurrency**: ucontext stackful coroutines, work-stealing thread pool
+- **Concurrency**: ucontext stackful coroutines, shared-queue thread pool (work-stealing planned)
 - **I/O**: epoll (Linux), kqueue (macOS planned), IOCP (Windows planned)
 - **RPC**: Custom binary protocol with Protobuf codec
 - **External**: mongoc, hiredis, librdkafka, libyaml, zlib, libcurl (all optional/conditional)

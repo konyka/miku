@@ -10,6 +10,7 @@
 #include "miku_api.h"
 #include "miku_version.h"
 #include "miku_auth.h"
+#include "miku_token.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -758,7 +759,9 @@ void test_mw_auth_accepts_valid_token(void) {
     miku_auth_mw_cfg_t cfg = { .secret = "openIM123", .enabled = 1 };
     miku_http_response_t *resp = miku_http_response_create();
 
-    miku_http_request_t *req = make_req_with_token("POST", "/user/register", "{}", "miku_testuser_uuid123_1");
+    char token[512] = {0};
+    mk_assert_int_eq(0, miku_token_create("testuser", 1, "openIM123", token, sizeof(token)));
+    miku_http_request_t *req = make_req_with_token("POST", "/user/register", "{}", token);
     mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_auth(req, resp, &cfg));
     miku_http_request_destroy(req);
     miku_http_response_destroy(resp);
