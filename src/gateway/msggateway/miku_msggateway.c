@@ -4,6 +4,7 @@
 #include "miku_string.h"
 #include "miku_http.h"
 #include "miku_token.h"
+#include "miku_io.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -12,11 +13,14 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <fcntl.h>
 
 struct miku_msggw_s {
     int                  port;
     int                  listen_fd;
     int                  running;
+    int                  listen_registered;
+    miku_io_t           *io;
     miku_msggw_client_t  clients[MK_GW_MAX_CLIENTS];
     int                  client_count;
     miku_msggw_on_msg_fn on_msg;
@@ -30,16 +34,49 @@ struct miku_msggw_s {
 
 miku_msggw_t *miku_msggw_create(int port) {
     miku_msggw_t *gw = (miku_msggw_t *)calloc(1, sizeof(*gw));
-    if (gw) gw->port = port;
+    if (gw) {
+        gw->port = port;
+        gw->listen_fd = -1;
+    }
     return gw;
 }
 
-void miku_msggw_destroy(miku_msggw_t *gw) { free(gw); }
+void miku_msggw_destroy(miku_msggw_t *gw) {
+    if (!gw) return;
+    if (gw->io) miku_io_destroy(gw->io);
+    free(gw);
+}
+
+static void client_offline(miku_msggw_t *gw, int idx) {
+    if (idx < 0 || idx >= gw->client_count) return;
+    miku_msggw_client_t *c = &gw->clients[idx];
+    if (c->fd >= 0) {
+        if (gw->io) miku_io_del(gw->io, c->fd);
+        close(c->fd);
+        c->fd = -1;
+    }
+    c->online = false;
+    c->upgraded = false;
+}
+
+static int find_client_by_fd(miku_msggw_t *gw, int fd) {
+    for (int i = 0; i < gw->client_count; i++) {
+        if (gw->clients[i].fd == fd && gw->clients[i].online) return i;
+    }
+    return -1;
+}
 
 int miku_msggw_start(miku_msggw_t *gw) {
     if (!gw) return -1;
+    gw->io = miku_io_create();
+    if (!gw->io) return -1;
+
     gw->listen_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
-    if (gw->listen_fd < 0) return -1;
+    if (gw->listen_fd < 0) {
+        miku_io_destroy(gw->io);
+        gw->io = NULL;
+        return -1;
+    }
     int opt = 1;
     setsockopt(gw->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
     struct sockaddr_in addr = {0};
@@ -49,22 +86,34 @@ int miku_msggw_start(miku_msggw_t *gw) {
     if (bind(gw->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 ||
         listen(gw->listen_fd, 128) < 0) {
         close(gw->listen_fd);
+        gw->listen_fd = -1;
+        miku_io_destroy(gw->io);
+        gw->io = NULL;
         return -1;
     }
+    /* Listen fd registered in poll via accept callback setup below */
     gw->running = 1;
-    MK_LOG_INFO("MsgGateway: listening on :%d (ws)", gw->port);
+    MK_LOG_INFO("MsgGateway: listening on :%d (ws, epoll)", gw->port);
     return 0;
 }
 
 int miku_msggw_stop(miku_msggw_t *gw) {
     if (!gw) return -1;
     gw->running = 0;
-    if (gw->listen_fd >= 0) { close(gw->listen_fd); gw->listen_fd = -1; }
     for (int i = 0; i < gw->client_count; i++) {
-        if (gw->clients[i].online && gw->clients[i].fd >= 0)
-            close(gw->clients[i].fd);
+        if (gw->clients[i].online) client_offline(gw, i);
     }
     gw->client_count = 0;
+    if (gw->listen_fd >= 0) {
+        if (gw->io) miku_io_del(gw->io, gw->listen_fd);
+        close(gw->listen_fd);
+        gw->listen_fd = -1;
+    }
+    gw->listen_registered = 0;
+    if (gw->io) {
+        miku_io_destroy(gw->io);
+        gw->io = NULL;
+    }
     MK_LOG_INFO("MsgGateway: stopped (msgs in:%ld out:%ld)",
                 (long)gw->total_msgs_in, (long)gw->total_msgs_out);
     return 0;
@@ -112,9 +161,7 @@ int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id) {
     for (int i = 0; i < gw->client_count; i++) {
         if (gw->clients[i].online && strcmp(gw->clients[i].user_id, user_id) == 0) {
             miku_ws_send_close(gw->clients[i].fd, 1000, "kicked");
-            close(gw->clients[i].fd);
-            gw->clients[i].online = false;
-            gw->clients[i].fd = -1;
+            client_offline(gw, i);
             kicked++;
         }
     }
@@ -182,8 +229,10 @@ int miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background)
 static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *platform_out) {
     char buf[8192] = {0};
     ssize_t n = read(fd, buf, sizeof(buf) - 1);
-    if (n <= 0) return -1;
+    if (n < 0) return -1;          /* errno may be EAGAIN */
+    if (n == 0) { errno = ECONNRESET; return -1; }
     buf[n] = '\0';
+    errno = 0;
 
     char *key_hdr = strstr(buf, "Sec-WebSocket-Key: ");
     if (!key_hdr) key_hdr = strstr(buf, "sec-websocket-key: ");
@@ -328,9 +377,7 @@ static void read_client_frames(miku_msggw_t *gw, int idx) {
         } else if (frame->opcode == MK_WS_PING) {
             miku_ws_send_pong(c->fd, frame->payload, frame->payload_len);
         } else if (frame->opcode == MK_WS_CLOSE) {
-            c->online = false;
-            close(c->fd);
-            c->fd = -1;
+            client_offline(gw, idx);
             miku_ws_frame_destroy(frame);
             return;
         }
@@ -338,64 +385,81 @@ static void read_client_frames(miku_msggw_t *gw, int idx) {
     miku_ws_frame_destroy(frame);
 }
 
-int miku_msggw_poll(miku_msggw_t *gw, int timeout_ms) {
-    if (!gw || !gw->running) return -1;
-
-    fd_set rfds;
-    FD_ZERO(&rfds);
-    int maxfd = gw->listen_fd;
-    FD_SET(gw->listen_fd, &rfds);
-
-    for (int i = 0; i < gw->client_count; i++) {
-        if (gw->clients[i].online && gw->clients[i].fd >= 0) {
-            FD_SET(gw->clients[i].fd, &rfds);
-            if (gw->clients[i].fd > maxfd) maxfd = gw->clients[i].fd;
-        }
+static void on_client_io(int fd, int events, void *data) {
+    miku_msggw_t *gw = (miku_msggw_t *)data;
+    int idx = find_client_by_fd(gw, fd);
+    if (idx < 0) {
+        if (gw->io) miku_io_del(gw->io, fd);
+        close(fd);
+        return;
     }
-
-    struct timeval tv = {0, timeout_ms * 1000};
-    int ret = select(maxfd + 1, &rfds, NULL, NULL, &tv);
-    if (ret <= 0) return ret;
-
-    if (FD_ISSET(gw->listen_fd, &rfds)) {
-        int fd = accept(gw->listen_fd, NULL, NULL);
-        if (fd >= 0) {
+    if (events & (MK_IO_ERROR | MK_IO_HUP)) {
+        client_offline(gw, idx);
+        return;
+    }
+    if (events & MK_IO_READ) {
+        if (!gw->clients[idx].upgraded) {
             char uid[64] = {0};
             int platform = 0;
-            if (do_ws_upgrade(fd, uid, sizeof(uid), &platform) != 0) {
-                close(fd);
+            if (do_ws_upgrade(gw->clients[idx].fd, uid, sizeof(uid), &platform) != 0) {
+                client_offline(gw, idx);
             } else {
-                int idx = find_or_add_client(gw, fd);
-                if (idx >= 0) {
-                    gw->clients[idx].upgraded = true;
-                    strncpy(gw->clients[idx].user_id, uid, sizeof(gw->clients[idx].user_id) - 1);
-                    gw->clients[idx].platform = platform;
-                } else {
-                    close(fd);
-                }
+                gw->clients[idx].upgraded = true;
+                strncpy(gw->clients[idx].user_id, uid, sizeof(gw->clients[idx].user_id) - 1);
+                gw->clients[idx].platform = platform;
             }
+        } else {
+            read_client_frames(gw, idx);
         }
+    }
+}
+
+static void on_listen_io(int fd, int events, void *data) {
+    (void)events;
+    miku_msggw_t *gw = (miku_msggw_t *)data;
+    /* Edge-triggered: drain accept queue */
+    for (;;) {
+        int cfd = accept(fd, NULL, NULL);
+        if (cfd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            break;
+        }
+        miku_set_nonblocking(cfd);
+        int idx = find_or_add_client(gw, cfd);
+        if (idx < 0) {
+            close(cfd);
+            continue;
+        }
+        /* Register before reading so ET does not miss pending handshake bytes. */
+        if (miku_io_add(gw->io, cfd, MK_IO_READ, on_client_io, gw) != 0) {
+            client_offline(gw, idx);
+            continue;
+        }
+        /* Opportunistic handshake if bytes already queued */
+        char uid[64] = {0};
+        int platform = 0;
+        int urc = do_ws_upgrade(cfd, uid, sizeof(uid), &platform);
+        if (urc == 0) {
+            gw->clients[idx].upgraded = true;
+            strncpy(gw->clients[idx].user_id, uid, sizeof(gw->clients[idx].user_id) - 1);
+            gw->clients[idx].platform = platform;
+        } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
+            /* Hard failure (bad token / malformed) — drop */
+            /* do_ws_upgrade already wrote 401 when applicable */
+            client_offline(gw, idx);
+        }
+        /* EAGAIN: wait for on_client_io to complete handshake */
+    }
+}
+
+int miku_msggw_poll(miku_msggw_t *gw, int timeout_ms) {
+    if (!gw || !gw->running || !gw->io) return -1;
+
+    if (!gw->listen_registered && gw->listen_fd >= 0) {
+        if (miku_io_add(gw->io, gw->listen_fd, MK_IO_READ, on_listen_io, gw) != 0)
+            return -1;
+        gw->listen_registered = 1;
     }
 
-    for (int i = 0; i < gw->client_count; i++) {
-        if (gw->clients[i].online && gw->clients[i].fd >= 0 &&
-            FD_ISSET(gw->clients[i].fd, &rfds)) {
-            if (!gw->clients[i].upgraded) {
-                char uid[64] = {0};
-                int platform = 0;
-                if (do_ws_upgrade(gw->clients[i].fd, uid, sizeof(uid), &platform) != 0) {
-                    close(gw->clients[i].fd);
-                    gw->clients[i].online = false;
-                    gw->clients[i].fd = -1;
-                } else {
-                    gw->clients[i].upgraded = true;
-                    strncpy(gw->clients[i].user_id, uid, sizeof(gw->clients[i].user_id) - 1);
-                    gw->clients[i].platform = platform;
-                }
-            } else {
-                read_client_frames(gw, i);
-            }
-        }
-    }
-    return ret;
+    return miku_io_poll(gw->io, timeout_ms);
 }

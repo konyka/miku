@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 156 tests, 64 modules, 13 binaries, 7 RPC services — API surface parity with OpenIM; some providers (offline push HTTP, webhook outbound, cron cleanup) remain stubs.
+> **Status**: 203 API routes, 156 tests, 64 modules, 13 binaries, 7 RPC services — API surface parity with OpenIM; offline-push provider HTTP and cron cleanup remain stubs.
 
 ## 1. Overview
 
@@ -946,7 +946,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete for the HTTP/WS API surface. **156 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS handshake requires token. HTTP routes dispatch via O(1) hashmap. API embeds services in-process by default; split RPC binaries are available. Provider stubs remain for offline-push HTTP, webhook outbound POST, and cron cleanup.
+All phases complete for the HTTP/WS API surface. **156 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll and requires handshake token. HTTP routes dispatch via O(1) hashmap. Webhooks POST to configured URLs over native sockets. API embeds services in-process by default; split RPC binaries are available. Provider stubs remain for offline-push HTTP and cron cleanup.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

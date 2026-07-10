@@ -45,7 +45,7 @@
 | C 代码行数 | ~9K |
 | 构建警告 | 0 |
 
-Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。部分外部能力（离线推送 HTTP、Webhook 出站、定时清理）仍为 stub。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 握手需携带 token；`force_logout` 会吊销已签发 token。
+Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。部分外部能力（离线推送 HTTP、定时清理）仍为 stub。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
 
 ---
 
@@ -362,7 +362,7 @@ CORS → RequestID → Logging → Auth → Stats → Route Handler
 | `USER_ONLINE` / `USER_OFFLINE` | 用户上下线 |
 | `MSG_REVOKE` | 消息撤回 |
 
-支持同步和异步触发。
+支持同步和异步触发。配置 URL 后通过原生 socket 发送 `HTTP POST`（短超时，失败计入 `total_failed`，不阻塞业务返回）。
 
 #### 3.11 Gzip 压缩（miku_gzip）
 

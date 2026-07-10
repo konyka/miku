@@ -138,12 +138,12 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 - HTTP/1.1 server with keep-alive, TLS (OpenSSL), idle timeout, Content-Length body read, body size limit
 - Middleware pipeline: CORS, request ID, access logging, cryptographic auth (`miku|...` FNV-1a signed tokens), stats
 - O(1) HTTP route dispatch via hashmap (`METHOD path` → handler)
-- WebSocket gateway (RFC 6455) with handshake token auth (`?token=` or header), 12 protocol opcodes, IM message parsing, user status subscriptions
+- WebSocket gateway (RFC 6455) with epoll I/O, handshake token auth (`?token=` or header), 12 protocol opcodes, IM message parsing, user status subscriptions
 - Custom binary RPC with Protobuf codec (API currently embeds services in-process; RPC binaries available for split deploy)
 - MsgTransfer pipeline with batch flush (Redis/Mongo/Push callbacks)
 - Offline push notifications (FCM/Getui/JPUSH/Dummy providers — provider HTTP calls are stubs)
 - Cron task scheduler with task implementations (deleteMsg, clearS3 — cleanup logic is stubbed)
-- Webhook/callback system (11 event types — local handlers; outbound HTTP POST is stubbed)
+- Webhook/callback system (11 event types; outbound HTTP POST via native sockets with short timeout)
 - Per-user rate limiting (mutex-protected sliding window + LRU eviction)
 - Token revoke / force_logout (in-memory blacklist by user+platform)
 - Per-conversation sequence number management + user read tracking
