@@ -41,11 +41,11 @@
 | C 模块数 | 64 |
 | C 头文件数 | 71 |
 | 可执行文件 | 13 |
-| 测试数 | 155 |
+| 测试数 | 156 |
 | C 代码行数 | ~9K |
 | 构建警告 | 0 |
 
-Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。部分外部能力（离线推送 HTTP、Webhook 出站、定时清理）仍为 stub。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。
+Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。部分外部能力（离线推送 HTTP、Webhook 出站、定时清理）仍为 stub。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 握手需携带 token；`force_logout` 会吊销已签发 token。
 
 ---
 
@@ -339,7 +339,7 @@ CORS → RequestID → Logging → Auth → Stats → Route Handler
 | `miku_mw_cors` | 设置 `Access-Control-Allow-*` 头 |
 | `miku_mw_request_id` | 生成 UUID v4 请求 ID，传播到响应 |
 | `miku_mw_logging` | 访问日志：方法、路径、状态码、延迟、请求 ID |
-| `miku_mw_auth` | Token 密码学验证（`miku\|uid\|platform\|ts\|nonce\|sig`，FNV-1a 签名），失败返回 401。公开：`/auth/*`、`/admin/health`、`/admin/metrics`、`/version`、`/prometheus*` |
+| `miku_mw_auth` | Token 密码学验证（`miku\|uid\|platform\|ts\|nonce\|sig`，FNV-1a 签名），失败返回 401。公开：`/auth/user_token`、`/auth/admin_token`、`/auth/parse_token`、`/admin/health`、`/admin/metrics`、`/version`、`/prometheus*`。`force_logout` 需鉴权 |
 | `miku_mw_stats` | 递增请求/错误计数器 |
 
 #### 3.9 速率限制（miku_ratelimit）
@@ -996,7 +996,7 @@ timeout 60 ./build/bin/miku_tests
 | 决策 | 选择 | 理由 |
 |------|------|------|
 | HashMap 删除 | 开放寻址 + 墓碑 | 避免指针链，cache-friendly |
-| Token 格式 | `miku\|uid\|platform\|ts\|nonce\|sig` | FNV-1a 签名，24h 过期，无需 DB 即可验证 |
+| Token 格式 | `miku\|uid\|platform\|ts_ms\|nonce\|sig` | FNV-1a 签名，24h 过期；`force_logout` 吊销后立即失效 |
 | Token 密钥 | `"openIM123"` | 兼容 OpenIM 默认配置 |
 | 错误响应 | `{"errCode":N,"errMsg":"...","errDmg":"..."}` | 兼容 OpenIM 错误格式 |
 | HTTP 服务器模型 | 同步/阻塞（主线程）+ epoll I/O | 简单正确 |

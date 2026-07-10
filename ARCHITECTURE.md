@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 155 tests, 64 modules, 13 binaries, 7 RPC services — API surface parity with OpenIM; some providers (offline push HTTP, webhook outbound, cron cleanup) remain stubs.
+> **Status**: 203 API routes, 156 tests, 64 modules, 13 binaries, 7 RPC services — API surface parity with OpenIM; some providers (offline push HTTP, webhook outbound, cron cleanup) remain stubs.
 
 ## 1. Overview
 
@@ -178,7 +178,7 @@ miku/
 │   ├── miku-dev/main.c               # All-in-one dev server
 │   └── CMakeLists.txt
 │
-└── tests/                            # Test suite (155 tests + 5 benchmarks)
+└── tests/                            # Test suite (156 tests + 5 benchmarks)
     ├── test_foundation.c             # Foundation tests (20 tests)
     ├── test_runtime.c                # Runtime tests (9 tests)
     ├── test_protocol.c               # Protocol + middleware + route tests (40 tests)
@@ -628,7 +628,7 @@ Middleware executes in chain order before route handlers. Chain: **CORS → requ
 | `miku_mw_cors` | Sets `Access-Control-Allow-*` headers for cross-origin requests |
 | `miku_mw_request_id` | Generates unique `X-Request-ID` (UUID v4) per request, propagates to response |
 | `miku_mw_logging` | Access log: method, path, status code, latency, request ID |
-| `miku_mw_auth` | Cryptographic token validation (`miku\|uid\|platform\|ts\|nonce\|sig`, FNV-1a over secret), returns 401 on failure. Public: `/auth/*`, `/admin/health`, `/admin/metrics`, `/version`, `/prometheus*` |
+| `miku_mw_auth` | Cryptographic token validation (`miku\|uid\|platform\|ts\|nonce\|sig`, FNV-1a over secret), returns 401 on failure. Public: `/auth/user_token`, `/auth/admin_token`, `/auth/parse_token`, `/admin/health`, `/admin/metrics`, `/version`, `/prometheus*`. `force_logout` requires auth. |
 | `miku_mw_stats` | Increments request/error counters in `miku_stats_t` |
 
 ```c
@@ -946,7 +946,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete for the HTTP/WS API surface. **155 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a). API embeds services in-process by default; split RPC binaries are available. Provider stubs remain for offline-push HTTP, webhook outbound POST, and cron cleanup.
+All phases complete for the HTTP/WS API surface. **156 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS handshake requires token. HTTP routes dispatch via O(1) hashmap. API embeds services in-process by default; split RPC binaries are available. Provider stubs remain for offline-push HTTP, webhook outbound POST, and cron cleanup.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

@@ -1,9 +1,29 @@
 #include "miku_token.h"
 #include "miku_hash.h"
 #include "miku_uuid.h"
+#include "miku_thread.h"
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
+#include <stdlib.h>
+
+#define MK_TOKEN_MAX_REVOKES 4096
+
+typedef struct {
+    char    key[96];   /* "uid:plat" or "uid:*" */
+    int64_t since;     /* tokens with ts <= since are invalid */
+} revoke_entry_t;
+
+static revoke_entry_t g_revokes[MK_TOKEN_MAX_REVOKES];
+static int            g_revoke_count;
+static miku_mutex_t   g_revoke_lock;
+static int            g_revoke_inited;
+
+static void revoke_ensure_init(void) {
+    if (!g_revoke_inited) {
+        miku_mutex_init(&g_revoke_lock);
+        g_revoke_inited = 1;
+    }
+}
 
 static uint64_t compute_sig(const char *uid, int platform, int64_t ts,
                             const char *nonce, const char *secret) {
@@ -11,6 +31,26 @@ static uint64_t compute_sig(const char *uid, int platform, int64_t ts,
     snprintf(buf, sizeof(buf), "%s:%d:%lld:%s:%s",
              uid, platform, (long long)ts, nonce, secret);
     return miku_fnv1a_64(buf, strlen(buf));
+}
+
+static int is_revoked(const char *user_id, int platform, int64_t ts) {
+    revoke_ensure_init();
+    char key_plat[96], key_all[96];
+    snprintf(key_plat, sizeof(key_plat), "%s:%d", user_id, platform);
+    snprintf(key_all, sizeof(key_all), "%s:*", user_id);
+
+    miku_mutex_lock(&g_revoke_lock);
+    int revoked = 0;
+    for (int i = 0; i < g_revoke_count; i++) {
+        if ((strcmp(g_revokes[i].key, key_plat) == 0 ||
+             strcmp(g_revokes[i].key, key_all) == 0) &&
+            ts <= g_revokes[i].since) {
+            revoked = 1;
+            break;
+        }
+    }
+    miku_mutex_unlock(&g_revoke_lock);
+    return revoked;
 }
 
 int miku_token_create(const char *user_id, int platform, const char *secret,
@@ -23,7 +63,7 @@ int miku_token_create(const char *user_id, int platform, const char *secret,
     char nonce16[17] = {0};
     memcpy(nonce16, nonce, 16);
 
-    int64_t ts = (int64_t)time(NULL);
+    int64_t ts = miku_timestamp_ms();
     uint64_t sig = compute_sig(user_id, platform, ts, nonce16, secret);
     snprintf(token_out, token_cap, "miku|%s|%d|%lld|%s|%016llx",
              user_id, platform, (long long)ts, nonce16,
@@ -31,8 +71,9 @@ int miku_token_create(const char *user_id, int platform, const char *secret,
     return 0;
 }
 
-int miku_token_verify(const char *token, const char *secret,
-                       char *user_id_out, size_t cap) {
+int miku_token_verify_ex(const char *token, const char *secret,
+                          char *user_id_out, size_t cap,
+                          int *platform_out, int64_t *issued_at_out) {
     if (!token || !secret || !user_id_out || !cap) return -1;
     if (strncmp(token, "miku|", 5) != 0) return -1;
 
@@ -67,8 +108,62 @@ int miku_token_verify(const char *token, const char *secret,
     uint64_t expected = compute_sig(user_id_out, platform, ts, nonce17, secret);
     if ((unsigned long long)expected != sig_from_token) return -1;
 
-    int64_t now = (int64_t)time(NULL);
-    if (now - ts > MIKU_TOKEN_EXPIRY_SECONDS) return -1;
+    int64_t now = miku_timestamp_ms();
+    if (now - ts > (int64_t)MIKU_TOKEN_EXPIRY_SECONDS * 1000LL) return -1;
 
+    if (is_revoked(user_id_out, platform, ts)) return -1;
+
+    if (platform_out) *platform_out = platform;
+    if (issued_at_out) *issued_at_out = ts;
     return 0;
+}
+
+int miku_token_verify(const char *token, const char *secret,
+                       char *user_id_out, size_t cap) {
+    return miku_token_verify_ex(token, secret, user_id_out, cap, NULL, NULL);
+}
+
+int miku_token_revoke(const char *user_id, int platform) {
+    if (!user_id || !user_id[0]) return -1;
+    revoke_ensure_init();
+
+    char key[96];
+    if (platform < 0)
+        snprintf(key, sizeof(key), "%s:*", user_id);
+    else
+        snprintf(key, sizeof(key), "%s:%d", user_id, platform);
+
+    int64_t now = miku_timestamp_ms();
+    miku_mutex_lock(&g_revoke_lock);
+    for (int i = 0; i < g_revoke_count; i++) {
+        if (strcmp(g_revokes[i].key, key) == 0) {
+            g_revokes[i].since = now;
+            miku_mutex_unlock(&g_revoke_lock);
+            return 0;
+        }
+    }
+    if (g_revoke_count >= MK_TOKEN_MAX_REVOKES) {
+        /* Evict oldest entry */
+        int oldest = 0;
+        for (int i = 1; i < g_revoke_count; i++) {
+            if (g_revokes[i].since < g_revokes[oldest].since) oldest = i;
+        }
+        strncpy(g_revokes[oldest].key, key, sizeof(g_revokes[oldest].key) - 1);
+        g_revokes[oldest].key[sizeof(g_revokes[oldest].key) - 1] = '\0';
+        g_revokes[oldest].since = now;
+    } else {
+        strncpy(g_revokes[g_revoke_count].key, key, sizeof(g_revokes[0].key) - 1);
+        g_revokes[g_revoke_count].key[sizeof(g_revokes[0].key) - 1] = '\0';
+        g_revokes[g_revoke_count].since = now;
+        g_revoke_count++;
+    }
+    miku_mutex_unlock(&g_revoke_lock);
+    return 0;
+}
+
+void miku_token_revoke_clear(void) {
+    revoke_ensure_init();
+    miku_mutex_lock(&g_revoke_lock);
+    g_revoke_count = 0;
+    miku_mutex_unlock(&g_revoke_lock);
 }

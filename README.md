@@ -13,7 +13,7 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 | C Modules | 64 |
 | C Headers | 71 |
 | Binaries | 13 |
-| Tests | 155 |
+| Tests | 156 |
 | Lines of C Code | ~9K |
 | Build Warnings | 0 |
 
@@ -130,20 +130,22 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 - **64 modules** across 6 layers
 - **13 binaries** (12 microservices + all-in-one `miku-dev`)
 - **203 API routes** (Auth 5, User 32, Friend 26, Group 35, Msg 30, Conv 21, Third 15, Object 8, Batch 2, Statistics 4, JSSDK 2, Prometheus 11, Config 6, Restart 1, Admin 4, Version 1)
-- **155 tests + 5 benchmarks**, all passing
+- **156 tests + 5 benchmarks**, all passing
 - **Benchmarks**: JSON ~1.3M/s, HashMap ~7M/s, Cache ~4M/s, Queue ~38M/s
 
 ## Features
 
 - HTTP/1.1 server with keep-alive, TLS (OpenSSL), idle timeout, Content-Length body read, body size limit
 - Middleware pipeline: CORS, request ID, access logging, cryptographic auth (`miku|...` FNV-1a signed tokens), stats
-- WebSocket gateway (RFC 6455) with 12 protocol opcodes, IM message parsing, user status subscriptions
+- O(1) HTTP route dispatch via hashmap (`METHOD path` → handler)
+- WebSocket gateway (RFC 6455) with handshake token auth (`?token=` or header), 12 protocol opcodes, IM message parsing, user status subscriptions
 - Custom binary RPC with Protobuf codec (API currently embeds services in-process; RPC binaries available for split deploy)
 - MsgTransfer pipeline with batch flush (Redis/Mongo/Push callbacks)
 - Offline push notifications (FCM/Getui/JPUSH/Dummy providers — provider HTTP calls are stubs)
 - Cron task scheduler with task implementations (deleteMsg, clearS3 — cleanup logic is stubbed)
 - Webhook/callback system (11 event types — local handlers; outbound HTTP POST is stubbed)
 - Per-user rate limiting (mutex-protected sliding window + LRU eviction)
+- Token revoke / force_logout (in-memory blacklist by user+platform)
 - Per-conversation sequence number management + user read tracking
 - Incremental sync (friends/blacks/groups/members/conversations)
 - gzip compression/decompression

@@ -17,6 +17,7 @@
 #include "miku_crontask.h"
 #include "miku_middleware.h"
 #include "miku_json_util.h"
+#include "miku_token.h"
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -459,6 +460,9 @@ static void test_msggateway_ws_upgrade(void) {
 
     miku_msggw_on_message(gw, ws_msg_cb, NULL);
 
+    char token[512] = {0};
+    mk_assert_int_eq(0, miku_token_create("ws_user", 1, "openIM123", token, sizeof(token)));
+
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     mk_assert(fd >= 0);
     struct sockaddr_in addr = {0};
@@ -468,15 +472,15 @@ static void test_msggateway_ws_upgrade(void) {
     rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
     mk_assert_int_eq(0, rc);
 
-    char req[512];
+    char req[1024];
     const char *ws_key = "dGhlIHNhbXBsZSBub25jZQ==";
     int len = snprintf(req, sizeof(req),
-        "GET /ws HTTP/1.1\r\n"
+        "GET /ws?token=%s HTTP/1.1\r\n"
         "Host: 127.0.0.1:19200\r\n"
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
         "Sec-WebSocket-Key: %s\r\n"
-        "Sec-WebSocket-Version: 13\r\n\r\n", ws_key);
+        "Sec-WebSocket-Version: 13\r\n\r\n", token, ws_key);
     write(fd, req, (size_t)len);
 
     miku_msggw_poll(gw, 500);
@@ -491,6 +495,29 @@ static void test_msggateway_ws_upgrade(void) {
 
     miku_msggw_stop(gw);
     miku_msggw_destroy(gw);
+}
+
+static void test_token_revoke_force_logout(void) {
+    miku_token_revoke_clear();
+    miku_auth_service_t *svc = miku_auth_service_create();
+    char token[512] = {0};
+    mk_assert_int_eq(0, miku_auth_user_token(svc, "rev_u1", "openIM123", 1, token, sizeof(token)));
+
+    char uid[64] = {0};
+    mk_assert_int_eq(0, miku_auth_parse_token(svc, token, uid, sizeof(uid)));
+    mk_assert_str_eq("rev_u1", uid);
+
+    mk_assert_int_eq(0, miku_auth_force_logout(svc, "rev_u1", 1));
+    mk_assert_int_eq(-1, miku_auth_parse_token(svc, token, uid, sizeof(uid)));
+
+    /* Brief pause so new token issued_at > revoke.since (ms resolution) */
+    usleep(2000);
+    char token2[512] = {0};
+    mk_assert_int_eq(0, miku_auth_user_token(svc, "rev_u1", "openIM123", 1, token2, sizeof(token2)));
+    mk_assert_int_eq(0, miku_auth_parse_token(svc, token2, uid, sizeof(uid)));
+
+    miku_token_revoke_clear();
+    miku_auth_service_destroy(svc);
 }
 
 static void test_cross_service_msg_flow(void) {
@@ -604,6 +631,7 @@ void run_service_tests(void) {
     mk_run_test(test_model_msg_json_roundtrip);
     mk_run_test(test_auth_user_token);
     mk_run_test(test_auth_bad_secret);
+    mk_run_test(test_token_revoke_force_logout);
     mk_run_test(test_user_register_and_find);
     mk_run_test(test_friend_add_and_check);
     mk_run_test(test_group_create_and_members);

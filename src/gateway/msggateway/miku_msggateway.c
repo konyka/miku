@@ -3,6 +3,7 @@
 #include "miku_json.h"
 #include "miku_string.h"
 #include "miku_http.h"
+#include "miku_token.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -178,24 +179,93 @@ int miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background)
     return 0;
 }
 
-static void do_ws_upgrade(int fd) {
-    char buf[4096] = {0};
+static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *platform_out) {
+    char buf[8192] = {0};
     ssize_t n = read(fd, buf, sizeof(buf) - 1);
-    if (n <= 0) return;
+    if (n <= 0) return -1;
     buf[n] = '\0';
 
     char *key_hdr = strstr(buf, "Sec-WebSocket-Key: ");
-    if (!key_hdr) return;
-    key_hdr += 19;
+    if (!key_hdr) key_hdr = strstr(buf, "sec-websocket-key: ");
+    if (!key_hdr) return -1;
+    key_hdr = strchr(key_hdr, ':');
+    if (!key_hdr) return -1;
+    key_hdr++;
+    while (*key_hdr == ' ') key_hdr++;
     char *key_end = strchr(key_hdr, '\r');
-    if (!key_end) return;
+    if (!key_end) return -1;
     char sec_key[128] = {0};
     size_t klen = (size_t)(key_end - key_hdr);
-    if (klen >= sizeof(sec_key)) return;
+    if (klen >= sizeof(sec_key)) return -1;
     memcpy(sec_key, key_hdr, klen);
 
+    /* Extract token from query (?token=) or header (token: / Authorization:) */
+    char token_buf[512] = {0};
+    const char *token = NULL;
+    char *q = strstr(buf, "GET ");
+    if (q) {
+        char *tok_q = strstr(q, "token=");
+        if (tok_q && tok_q < strchr(q, '\r')) {
+            tok_q += 6;
+            char *te = tok_q;
+            while (*te && *te != ' ' && *te != '&' && *te != '\r') te++;
+            size_t tlen = (size_t)(te - tok_q);
+            if (tlen > 0 && tlen < sizeof(token_buf)) {
+                memcpy(token_buf, tok_q, tlen);
+                token = token_buf;
+            }
+        }
+    }
+    if (!token) {
+        char *th = strstr(buf, "\ntoken: ");
+        if (!th) th = strstr(buf, "\nToken: ");
+        if (!th) th = strstr(buf, "\nAuthorization: ");
+        if (!th) th = strstr(buf, "\nauthorization: ");
+        if (th) {
+            th = strchr(th + 1, ':');
+            if (th) {
+                th++;
+                while (*th == ' ') th++;
+                if (strncmp(th, "Bearer ", 7) == 0) th += 7;
+                char *te = strchr(th, '\r');
+                if (te) {
+                    size_t tlen = (size_t)(te - th);
+                    if (tlen > 0 && tlen < sizeof(token_buf)) {
+                        memcpy(token_buf, th, tlen);
+                        token = token_buf;
+                    }
+                }
+            }
+        }
+    }
+
+    if (!token || !token[0]) {
+        const char *deny =
+            "HTTP/1.1 401 Unauthorized\r\n"
+            "Content-Type: application/json\r\n"
+            "Connection: close\r\n"
+            "Content-Length: 47\r\n\r\n"
+            "{\"errCode\":401,\"errMsg\":\"token required\"}";
+        write(fd, deny, strlen(deny));
+        return -1;
+    }
+
+    char uid[64] = {0};
+    int platform = 0;
+    if (miku_token_verify_ex(token, MIKU_TOKEN_DEFAULT_SECRET, uid, sizeof(uid),
+                              &platform, NULL) != 0) {
+        const char *deny =
+            "HTTP/1.1 401 Unauthorized\r\n"
+            "Content-Type: application/json\r\n"
+            "Connection: close\r\n"
+            "Content-Length: 47\r\n\r\n"
+            "{\"errCode\":401,\"errMsg\":\"invalid token\"}";
+        write(fd, deny, strlen(deny));
+        return -1;
+    }
+
     char accept[64] = {0};
-    if (miku_ws_handshake(sec_key, accept, sizeof(accept)) != 0) return;
+    if (miku_ws_handshake(sec_key, accept, sizeof(accept)) != 0) return -1;
 
     char resp[512];
     int rlen = snprintf(resp, sizeof(resp),
@@ -203,7 +273,14 @@ static void do_ws_upgrade(int fd) {
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
         "Sec-WebSocket-Accept: %s\r\n\r\n", accept);
-    write(fd, resp, (size_t)rlen);
+    if (write(fd, resp, (size_t)rlen) < 0) return -1;
+
+    if (user_id_out && user_id_cap > 0) {
+        strncpy(user_id_out, uid, user_id_cap - 1);
+        user_id_out[user_id_cap - 1] = '\0';
+    }
+    if (platform_out) *platform_out = platform;
+    return 0;
 }
 
 static int find_or_add_client(miku_msggw_t *gw, int fd) {
@@ -229,11 +306,6 @@ static void read_client_frames(miku_msggw_t *gw, int idx) {
             gw->total_msgs_in++;
             miku_json_val_t *j = miku_json_parse_str((const char *)frame->payload);
             if (j) {
-                const char *uid = miku_json_str(miku_json_get(j, "sendID"));
-                if (!uid) uid = miku_json_str(miku_json_get(j, "userID"));
-                if (uid && c->user_id[0] == '\0') {
-                    strncpy(c->user_id, uid, sizeof(c->user_id) - 1);
-                }
                 int64_t req_op = miku_json_int(miku_json_get(j, "reqIdentifier"));
                 if (req_op > 0 && gw->on_op) {
                     gw->on_op(idx, (int)req_op,
@@ -288,9 +360,20 @@ int miku_msggw_poll(miku_msggw_t *gw, int timeout_ms) {
     if (FD_ISSET(gw->listen_fd, &rfds)) {
         int fd = accept(gw->listen_fd, NULL, NULL);
         if (fd >= 0) {
-            do_ws_upgrade(fd);
-            int idx = find_or_add_client(gw, fd);
-            if (idx >= 0) gw->clients[idx].upgraded = true;
+            char uid[64] = {0};
+            int platform = 0;
+            if (do_ws_upgrade(fd, uid, sizeof(uid), &platform) != 0) {
+                close(fd);
+            } else {
+                int idx = find_or_add_client(gw, fd);
+                if (idx >= 0) {
+                    gw->clients[idx].upgraded = true;
+                    strncpy(gw->clients[idx].user_id, uid, sizeof(gw->clients[idx].user_id) - 1);
+                    gw->clients[idx].platform = platform;
+                } else {
+                    close(fd);
+                }
+            }
         }
     }
 
@@ -298,8 +381,17 @@ int miku_msggw_poll(miku_msggw_t *gw, int timeout_ms) {
         if (gw->clients[i].online && gw->clients[i].fd >= 0 &&
             FD_ISSET(gw->clients[i].fd, &rfds)) {
             if (!gw->clients[i].upgraded) {
-                do_ws_upgrade(gw->clients[i].fd);
-                gw->clients[i].upgraded = true;
+                char uid[64] = {0};
+                int platform = 0;
+                if (do_ws_upgrade(gw->clients[i].fd, uid, sizeof(uid), &platform) != 0) {
+                    close(gw->clients[i].fd);
+                    gw->clients[i].online = false;
+                    gw->clients[i].fd = -1;
+                } else {
+                    gw->clients[i].upgraded = true;
+                    strncpy(gw->clients[i].user_id, uid, sizeof(gw->clients[i].user_id) - 1);
+                    gw->clients[i].platform = platform;
+                }
             } else {
                 read_client_frames(gw, i);
             }

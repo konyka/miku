@@ -711,8 +711,14 @@ void test_mw_auth_skips_auth_paths(void) {
     mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_auth(req, resp, &cfg));
     miku_http_request_destroy(req);
 
-    req = make_req("POST", "/auth/force_logout", "{}");
+    req = make_req("POST", "/auth/parse_token", "{}");
     mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_auth(req, resp, &cfg));
+    miku_http_request_destroy(req);
+
+    /* force_logout requires a valid token */
+    req = make_req("POST", "/auth/force_logout", "{}");
+    mk_assert_int_eq((int)MK_MW_STOP, (int)miku_mw_auth(req, resp, &cfg));
+    mk_assert_int_eq(401, resp->status);
     miku_http_request_destroy(req);
 
     miku_http_response_destroy(resp);

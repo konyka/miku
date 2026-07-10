@@ -73,6 +73,12 @@ static int path_equals(miku_http_request_t *req, const char *str) {
     return req->path.len == slen && strncmp(req->path.data, str, slen) == 0;
 }
 
+static int is_public_auth_path(miku_http_request_t *req) {
+    return path_equals(req, "/auth/user_token") ||
+           path_equals(req, "/auth/admin_token") ||
+           path_equals(req, "/auth/parse_token");
+}
+
 static void auth_reject(miku_http_response_t *resp, const char *msg) {
     resp->status = 401;
     miku_json_val_t *body = miku_json_create_object();
@@ -92,8 +98,8 @@ miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
     if (!cfg || !cfg->enabled) return MK_MW_CONTINUE;
     if (!req) return MK_MW_CONTINUE;
 
-    /* Public endpoints */
-    if (path_starts_with(req, "/auth/"))    return MK_MW_CONTINUE;
+    /* Public endpoints — force_logout requires a valid token */
+    if (is_public_auth_path(req))      return MK_MW_CONTINUE;
     if (path_equals(req, "/admin/health"))  return MK_MW_CONTINUE;
     if (path_equals(req, "/version"))       return MK_MW_CONTINUE;
     if (path_equals(req, "/admin/metrics")) return MK_MW_CONTINUE;
@@ -111,7 +117,6 @@ miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
         return MK_MW_STOP;
     }
 
-    /* Strip optional "Bearer " prefix */
     if (strncmp(token, "Bearer ", 7) == 0) token += 7;
 
     const char *secret = cfg->secret ? cfg->secret : MIKU_TOKEN_DEFAULT_SECRET;

@@ -12,8 +12,20 @@ MIKU_API int miku_token_create(const char *user_id, int platform, const char *se
                                 char *token_out, size_t token_cap);
 
 /* Verify signed token. On success writes user_id into user_id_out and returns 0.
- * Returns -1 if missing/malformed/bad signature/expired. */
+ * Returns -1 if missing/malformed/bad signature/expired/revoked. */
 MIKU_API int miku_token_verify(const char *token, const char *secret,
                                 char *user_id_out, size_t cap);
+
+/* Like verify, also returns platform (and optionally issued_at). */
+MIKU_API int miku_token_verify_ex(const char *token, const char *secret,
+                                   char *user_id_out, size_t cap,
+                                   int *platform_out, int64_t *issued_at_out);
+
+/* Invalidate tokens for user. platform < 0 means all platforms.
+ * Tokens with issued_at <= now are rejected by subsequent verify calls. */
+MIKU_API int miku_token_revoke(const char *user_id, int platform);
+
+/* Clear all revoke entries (tests / process reset). */
+MIKU_API void miku_token_revoke_clear(void);
 
 #endif

@@ -4,13 +4,16 @@
 #include "miku_stats.h"
 #include "miku_json.h"
 #include "miku_json_util.h"
+#include "miku_hashmap.h"
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <stdint.h>
 
 #ifdef MIKU_ENABLE_TLS
 #include <openssl/ssl.h>
@@ -34,6 +37,7 @@ struct miku_http_server_s {
     miku_io_t         *io;
     miku_http_route_t  routes[MAX_ROUTES];
     int                route_count;
+    miku_hashmap_t    *route_map;   /* "METHOD path" -> route index */
     miku_mw_entry_t    middleware[MAX_MIDDLEWARE];
     int                mw_count;
     bool               running;
@@ -286,15 +290,29 @@ static void handle_client(int fd, int events, void *data) {
 
     {
         bool matched = false;
-        for (int i = 0; i < srv->route_count; i++) {
-            miku_http_route_t *r = &srv->routes[i];
-            const char *method = miku_http_method_name(req->method);
-            if (strcasecmp(method, r->method) == 0 &&
-                req->path.len == strlen(r->path) &&
-                strncmp(req->path.data, r->path, req->path.len) == 0) {
+        const char *method = miku_http_method_name(req->method);
+        char rkey[512];
+        snprintf(rkey, sizeof(rkey), "%s %.*s", method, (int)req->path.len, req->path.data);
+        void *idxp = srv->route_map ? miku_hashmap_get(srv->route_map, rkey) : NULL;
+        if (idxp) {
+            int idx = (int)(intptr_t)idxp - 1; /* stored as index+1 to avoid NULL */
+            if (idx >= 0 && idx < srv->route_count) {
+                miku_http_route_t *r = &srv->routes[idx];
                 r->handler(req, resp, r->ctx);
                 matched = true;
-                break;
+            }
+        }
+        if (!matched) {
+            /* Fallback linear scan (should not hit when route_map is populated) */
+            for (int i = 0; i < srv->route_count; i++) {
+                miku_http_route_t *r = &srv->routes[i];
+                if (strcasecmp(method, r->method) == 0 &&
+                    req->path.len == strlen(r->path) &&
+                    strncmp(req->path.data, r->path, req->path.len) == 0) {
+                    r->handler(req, resp, r->ctx);
+                    matched = true;
+                    break;
+                }
             }
         }
         if (!matched) {
@@ -350,6 +368,7 @@ miku_http_server_t *miku_http_server_create(const char *host, int port) {
     strncpy(srv->host, host ? host : "0.0.0.0", sizeof(srv->host) - 1);
     srv->port = port;
     srv->io = miku_io_create();
+    srv->route_map = miku_hashmap_create(256, NULL);
     srv->max_body = MIKU_DEFAULT_MAX_BODY;
     srv->keep_alive = true;
     srv->idle_timeout_sec = 30;
@@ -363,11 +382,18 @@ miku_http_server_t *miku_http_server_create(const char *host, int port) {
 int miku_http_server_route(miku_http_server_t *srv, const char *method,
                             const char *path, miku_http_handler_fn fn, void *ctx) {
     if (!srv || srv->route_count >= MAX_ROUTES) return -1;
+    int idx = srv->route_count;
     miku_http_route_t *r = &srv->routes[srv->route_count++];
     r->method = method;
     r->path = path;
     r->handler = fn;
     r->ctx = ctx;
+    if (srv->route_map && method && path) {
+        char key[512];
+        snprintf(key, sizeof(key), "%s %s", method, path);
+        /* Store index+1 so a zero index is distinguishable from missing */
+        miku_hashmap_put(srv->route_map, key, (void *)(intptr_t)(idx + 1));
+    }
     return 0;
 }
 
@@ -424,6 +450,7 @@ void miku_http_server_destroy(miku_http_server_t *srv) {
 #endif
     if (srv->listen_fd >= 0) close(srv->listen_fd);
     if (srv->io) miku_io_destroy(srv->io);
+    if (srv->route_map) miku_hashmap_destroy(srv->route_map);
     free(srv->conn_fds);
     free(srv->conn_last_active);
     free(srv);

@@ -132,7 +132,9 @@ static int verify_token(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_r
     if (!c->auth) return 0;
     if (req->path.data && req->path.len > 0) {
         /* Public: token issuance + health/version/metrics scrape */
-        if (req->path.len >= 5 && strncmp(req->path.data, "/auth", 5) == 0) return 0;
+        if (req->path.len == 16 && strncmp(req->path.data, "/auth/user_token", 16) == 0) return 0;
+        if (req->path.len == 17 && strncmp(req->path.data, "/auth/admin_token", 17) == 0) return 0;
+        if (req->path.len == 17 && strncmp(req->path.data, "/auth/parse_token", 17) == 0) return 0;
         if (req->path.len == 13 && strncmp(req->path.data, "/admin/health", 13) == 0) return 0;
         if (req->path.len == 8 && strncmp(req->path.data, "/version", 8) == 0) return 0;
         if (req->path.len == 14 && strncmp(req->path.data, "/admin/metrics", 14) == 0) return 0;
@@ -198,9 +200,16 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
         miku_ji(out, "errCode", rc == 0 ? 0 : 401);
         if (rc == 0) { miku_jss(out, "token", token); miku_ji(out, "expireTimeSeconds", 86400); }
     } else if (strstr(path, "force_logout_all")) {
-        miku_ji(out, "errCode", 0);
+        if (require_fields(j, resp, "userID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        const char *uid = miku_json_str(miku_json_get(j, "userID"));
+        int rc = miku_auth_force_logout(c->auth, uid, -1);
+        miku_ji(out, "errCode", rc == 0 ? 0 : 500);
     } else if (strstr(path, "force_logout")) {
-        miku_ji(out, "errCode", 0);
+        if (require_fields(j, resp, "userID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        const char *uid = miku_json_str(miku_json_get(j, "userID"));
+        int plat = (int)miku_json_int(miku_json_get(j, "platformID"));
+        int rc = miku_auth_force_logout(c->auth, uid, plat);
+        miku_ji(out, "errCode", rc == 0 ? 0 : 500);
     } else {
         miku_ji(out, "errCode", 404);
     }

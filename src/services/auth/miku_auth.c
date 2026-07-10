@@ -25,7 +25,6 @@ int miku_auth_user_token(miku_auth_service_t *svc, const char *user_id,
                            char *token_out, size_t token_cap) {
     (void)svc;
     if (!user_id || !secret || !token_out) return -1;
-    /* Reject empty or mismatched secret (empty previously bypassed auth). */
     if (secret[0] == '\0' || strcmp(secret, MIKU_TOKEN_DEFAULT_SECRET) != 0) {
         MK_LOG_WARN("Auth failed for user %s: bad secret", user_id);
         return -1;
@@ -41,9 +40,9 @@ int miku_auth_parse_token(miku_auth_service_t *svc, const char *token,
 }
 
 int miku_auth_force_logout(miku_auth_service_t *svc, const char *user_id, int platform) {
-    (void)svc; (void)user_id; (void)platform;
-    /* Session invalidation is stubbed until session_cache/Redis blacklist lands. */
-    return 0;
+    (void)svc;
+    if (!user_id || !user_id[0]) return -1;
+    return miku_token_revoke(user_id, platform);
 }
 
 void miku_auth_handle_rpc(miku_auth_service_t *svc, const miku_rpc_message_t *req,
