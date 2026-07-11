@@ -115,6 +115,7 @@ static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t
         break;
     case MK_WS_OP_LOGOUT:
         MK_LOG_INFO("ws_op[%d]: LOGOUT client=%d — disconnecting", opcode, client_idx);
+        miku_msggw_disconnect_client(gc->gw, client_idx);
         break;
     case MK_WS_OP_SET_BACKGROUND: {
         int bg = 0;

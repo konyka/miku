@@ -547,7 +547,7 @@ WebSocket 消息网关，支持 4096 并发客户端：
 - `miku_cron_tasks_set_msg_store` 绑定存储；`miku-crontask` 独立进程不持有私有内存环
 - 可扩展的任务注册机制
 
-MsgGateway 推送/踢人通过 `user_id` 哈希链定位连接，IO 回调通过 `fd→idx` 映射（fd&lt;65536）O(1) 查找。
+WS 入站 opcode 帧会解包 `data` 再交给 handler（与出站 `{"reqIdentifier","data"}` 对称）；`LOGOUT` 会断开该连接。
 
 ---
 

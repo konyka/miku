@@ -288,6 +288,43 @@ int miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background)
     return 0;
 }
 
+int miku_msggw_disconnect_client(miku_msggw_t *gw, int client_idx) {
+    if (!gw || client_idx < 0 || client_idx >= gw->client_count) return -1;
+    if (!gw->clients[client_idx].online) return 0;
+    if (gw->clients[client_idx].upgraded)
+        miku_ws_send_close(gw->clients[client_idx].fd, 1000, "logout");
+    client_offline(gw, client_idx);
+    return 0;
+}
+
+int miku_msggw_unwrap_op_data(const char *envelope_json, int *out_opcode,
+                                char **out_data, size_t *out_len) {
+    if (!envelope_json || !out_opcode || !out_data) return -1;
+    *out_data = NULL;
+    if (out_len) *out_len = 0;
+    miku_json_val_t *j = miku_json_parse_str(envelope_json);
+    if (!j) return -1;
+    int64_t op = miku_json_int(miku_json_get(j, "reqIdentifier"));
+    if (op <= 0) { miku_json_destroy(j); return -1; }
+    *out_opcode = (int)op;
+    miku_json_val_t *data = miku_json_get(j, "data");
+    if (data) {
+        miku_string_t *s = miku_json_stringify(data);
+        miku_json_destroy(j);
+        if (!s || !s->data) { miku_str_destroy(s); return -1; }
+        *out_data = s->data;
+        if (out_len) *out_len = s->len;
+        s->data = NULL; /* transfer ownership */
+        miku_str_destroy(s);
+        return 0;
+    }
+    miku_json_destroy(j);
+    *out_data = strdup("{}");
+    if (!*out_data) return -1;
+    if (out_len) *out_len = 2;
+    return 0;
+}
+
 static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *platform_out) {
     char buf[8192] = {0};
     ssize_t n = read(fd, buf, sizeof(buf) - 1);
@@ -433,9 +470,20 @@ static void read_client_frames(miku_msggw_t *gw, int idx) {
             if (j) {
                 int64_t req_op = miku_json_int(miku_json_get(j, "reqIdentifier"));
                 if (req_op > 0 && gw->on_op) {
-                    gw->on_op(idx, (int)req_op,
-                              (const char *)frame->payload, frame->payload_len,
-                              gw->on_op_ctx);
+                    miku_json_val_t *data = miku_json_get(j, "data");
+                    if (data) {
+                        miku_string_t *s = miku_json_stringify(data);
+                        if (s && s->data)
+                            gw->on_op(idx, (int)req_op, s->data, s->len, gw->on_op_ctx);
+                        else
+                            gw->on_op(idx, (int)req_op, "{}", 2, gw->on_op_ctx);
+                        miku_str_destroy(s);
+                    } else {
+                        /* Non-envelope frames: pass whole payload */
+                        gw->on_op(idx, (int)req_op,
+                                  (const char *)frame->payload, frame->payload_len,
+                                  gw->on_op_ctx);
+                    }
                     miku_json_destroy(j);
                 } else {
                     if (gw->on_msg) {

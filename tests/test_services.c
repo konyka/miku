@@ -12,6 +12,7 @@
 #include "miku_http_server.h"
 #include "miku_rpc_server.h"
 #include "miku_msggateway.h"
+#include "miku_im_message.h"
 #include "miku_msgtransfer.h"
 #include "miku_push.h"
 #include "miku_crontask.h"
@@ -495,6 +496,31 @@ static void ws_msg_cb(const char *user_id, const char *msg, size_t len, void *ct
     g_ws_msg_count++;
 }
 
+static void test_msggateway_unwrap_op_data(void) {
+    int opcode = 0;
+    char *data = NULL;
+    size_t len = 0;
+    const char *env =
+        "{\"reqIdentifier\":1003,\"data\":{\"sendID\":\"u1\",\"recvID\":\"u2\","
+        "\"contentType\":101,\"content\":\"hi\"}}";
+    mk_assert_int_eq(0, miku_msggw_unwrap_op_data(env, &opcode, &data, &len));
+    mk_assert_int_eq(1003, opcode);
+    mk_assert_not_null(data);
+    mk_assert(strstr(data, "sendID") != NULL);
+    mk_assert(strstr(data, "u1") != NULL);
+
+    miku_json_val_t *j = miku_json_parse_str(data);
+    mk_assert_not_null(j);
+    miku_im_msg_t im;
+    mk_assert_int_eq(0, miku_im_msg_from_json(&im, j));
+    mk_assert_str_eq("u1", im.send_id);
+    mk_assert_str_eq("u2", im.recv_id);
+    miku_json_destroy(j);
+    free(data);
+
+    mk_assert_int_eq(-1, miku_msggw_unwrap_op_data("{}", &opcode, &data, &len));
+}
+
 static void test_msggateway_ws_upgrade(void) {
     miku_msggw_t *gw = miku_msggw_create(19200);
     mk_assert_not_null(gw);
@@ -685,6 +711,7 @@ void run_service_tests(void) {
     mk_run_test(test_rpc_server_e2e);
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
+    mk_run_test(test_msggateway_unwrap_op_data);
     mk_run_test(test_msgtransfer_queue);
     mk_run_test(test_push_subscribe);
     mk_run_test(test_crontask_tick);
