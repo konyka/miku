@@ -3,6 +3,7 @@
 #include "miku_json.h"
 #include "miku_json_util.h"
 #include "miku_version.h"
+#include "miku_msggw_ws_ops.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -503,8 +504,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             if (send_id && recv_id) {
                 miku_conversation_t conv;
                 memset(&conv, 0, sizeof(conv));
-                snprintf(conv.conversation_id, sizeof(conv.conversation_id),
-                         "conv_%s_%s", send_id, recv_id);
+                miku_msggw_ws_resolve_conv(conv.conversation_id, sizeof(conv.conversation_id),
+                                           NULL, NULL, send_id, recv_id);
                 strncpy(conv.owner_user_id, send_id, sizeof(conv.owner_user_id) - 1);
                 conv.conversation_type = 1;
                 conv.latest_msg_send_time = send_time;

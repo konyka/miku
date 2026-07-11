@@ -14,6 +14,7 @@
 void miku_msggw_ws_resolve_conv(char *out, size_t out_sz,
                                 const char *conversation_id,
                                 const char *group_id,
+                                const char *send_id,
                                 const char *recv_id) {
     if (!out || out_sz == 0) return;
     out[0] = '\0';
@@ -26,8 +27,19 @@ void miku_msggw_ws_resolve_conv(char *out, size_t out_sz,
         snprintf(out, out_sz, "sg_%s", group_id);
         return;
     }
+    if (send_id && send_id[0] && recv_id && recv_id[0]) {
+        const char *a = send_id, *b = recv_id;
+        if (strcmp(a, b) > 0) { a = recv_id; b = send_id; }
+        snprintf(out, out_sz, "si_%s_%s", a, b);
+        return;
+    }
     if (recv_id && recv_id[0]) {
         strncpy(out, recv_id, out_sz - 1);
+        out[out_sz - 1] = '\0';
+        return;
+    }
+    if (send_id && send_id[0]) {
+        strncpy(out, send_id, out_sz - 1);
         out[out_sz - 1] = '\0';
         return;
     }
@@ -95,7 +107,8 @@ int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *gc, miku_im_msg_t *im) {
 
     char conv[128];
     miku_msggw_ws_resolve_conv(conv, sizeof(conv),
-                               im->conversation_id, im->group_id, im->recv_id);
+                               im->conversation_id, im->group_id,
+                               im->send_id, im->recv_id);
     if (!im->conversation_id[0])
         strncpy(im->conversation_id, conv, sizeof(im->conversation_id) - 1);
     if (!im->conversation_type) {
@@ -235,7 +248,8 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
 
         char conv[128];
         miku_msggw_ws_resolve_conv(conv, sizeof(conv),
-                                   im.conversation_id, im.group_id, im.recv_id);
+                                   im.conversation_id, im.group_id,
+                                   im.send_id, im.recv_id);
         if (!im.conversation_id[0])
             strncpy(im.conversation_id, conv, sizeof(im.conversation_id) - 1);
         if (!im.conversation_type) {

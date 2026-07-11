@@ -15,10 +15,14 @@ typedef struct {
     miku_group_service_t   *group;
 } miku_msggw_ws_ctx_t;
 
-/* Resolve conversationID: prefer explicit, else sg_<groupID>, else recvID, else "default". */
+/*
+ * Resolve conversationID:
+ *   explicit > sg_<groupID> > si_<min(send,recv)>_<max(send,recv)> > "default"
+ */
 MIKU_API void miku_msggw_ws_resolve_conv(char *out, size_t out_sz,
                                          const char *conversation_id,
                                          const char *group_id,
+                                         const char *send_id,
                                          const char *recv_id);
 
 /* Persist + fan-out (alloc seq, msg_store insert, PUSH_MSG). Updates im in-place. */

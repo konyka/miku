@@ -296,16 +296,22 @@ void test_ws_subscription_basic(void) {
 void test_msggw_ws_resolve_conv(void) {
     char conv[128];
 
-    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "explicit", "g1", "u2");
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "explicit", "g1", "u1", "u2");
     mk_assert_str_eq("explicit", conv);
 
-    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "g9", "u2");
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "g9", "u1", "u2");
     mk_assert_str_eq("sg_g9", conv);
 
-    miku_msggw_ws_resolve_conv(conv, sizeof(conv), NULL, NULL, "u2");
+    /* Single chat: lexicographic si_<min>_<max> — A→B and B→A share one bucket. */
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), NULL, NULL, "alice", "bob");
+    mk_assert_str_eq("si_alice_bob", conv);
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "", "bob", "alice");
+    mk_assert_str_eq("si_alice_bob", conv);
+
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), NULL, NULL, NULL, "u2");
     mk_assert_str_eq("u2", conv);
 
-    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "", "");
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "", "", "");
     mk_assert_str_eq("default", conv);
 }
 
@@ -344,12 +350,26 @@ void test_msggw_ws_deliver_msg(void) {
     mk_assert_int_eq(0, miku_msggw_ws_deliver_msg(&ctx, &im));
     mk_assert_long_eq(1, (long)im.seq);
     mk_assert(im.msg_id[0] != '\0');
+    mk_assert_str_eq("si_alice_bob", im.conversation_id);
     mk_assert_int_eq(1, miku_msg_store_count(store));
 
+    /* Reverse direction shares the same conversation bucket and continues seq. */
+    miku_im_msg_t im2;
+    miku_im_msg_init(&im2);
+    strncpy(im2.send_id, "bob", sizeof(im2.send_id) - 1);
+    strncpy(im2.recv_id, "alice", sizeof(im2.recv_id) - 1);
+    strncpy(im2.content, "reply", sizeof(im2.content) - 1);
+    im2.content_type = MK_IM_MSG_TYPE_TEXT;
+    mk_assert_int_eq(0, miku_msggw_ws_deliver_msg(&ctx, &im2));
+    mk_assert_long_eq(2, (long)im2.seq);
+    mk_assert_str_eq("si_alice_bob", im2.conversation_id);
+    mk_assert_int_eq(2, miku_msg_store_count(store));
+
     char *msgs = NULL;
-    mk_assert_int_eq(0, miku_msg_store_find_by_conv(store, "bob", 1, 1, &msgs));
+    mk_assert_int_eq(0, miku_msg_store_find_by_conv(store, "si_alice_bob", 1, 2, &msgs));
     mk_assert_not_null(msgs);
     mk_assert(strstr(msgs, "hello via deliver") != NULL);
+    mk_assert(strstr(msgs, "reply") != NULL);
     free(msgs);
 
     miku_im_msg_t bad;
