@@ -5,6 +5,7 @@
 #include "miku_http.h"
 #include "miku_token.h"
 #include "miku_io.h"
+#include "miku_hash.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -15,6 +16,9 @@
 #include <errno.h>
 #include <fcntl.h>
 
+#define MK_GW_FD_MAP   65536
+#define MK_GW_USER_HASH 8192
+
 struct miku_msggw_s {
     int                  port;
     int                  listen_fd;
@@ -23,6 +27,9 @@ struct miku_msggw_s {
     miku_io_t           *io;
     miku_msggw_client_t  clients[MK_GW_MAX_CLIENTS];
     int                  client_count;
+    int16_t              fd_map[MK_GW_FD_MAP];   /* fd → client idx, -1 empty */
+    int16_t              user_head[MK_GW_USER_HASH]; /* user hash → first idx */
+    int16_t              user_next[MK_GW_MAX_CLIENTS]; /* sibling chain */
     miku_msggw_on_msg_fn on_msg;
     void                *on_msg_ctx;
     miku_msggw_on_op_fn  on_op;
@@ -37,6 +44,9 @@ miku_msggw_t *miku_msggw_create(int port) {
     if (gw) {
         gw->port = port;
         gw->listen_fd = -1;
+        for (int i = 0; i < MK_GW_FD_MAP; i++) gw->fd_map[i] = -1;
+        for (int i = 0; i < MK_GW_USER_HASH; i++) gw->user_head[i] = -1;
+        for (int i = 0; i < MK_GW_MAX_CLIENTS; i++) gw->user_next[i] = -1;
     }
     return gw;
 }
@@ -47,19 +57,63 @@ void miku_msggw_destroy(miku_msggw_t *gw) {
     free(gw);
 }
 
+static uint32_t user_bucket(const char *user_id) {
+    return (uint32_t)(miku_fnv1a_64(user_id, strlen(user_id)) & (MK_GW_USER_HASH - 1));
+}
+
+static void fd_map_set(miku_msggw_t *gw, int fd, int idx) {
+    if (fd >= 0 && fd < MK_GW_FD_MAP) gw->fd_map[fd] = (int16_t)idx;
+}
+
+static void fd_map_clear(miku_msggw_t *gw, int fd) {
+    if (fd >= 0 && fd < MK_GW_FD_MAP) gw->fd_map[fd] = -1;
+}
+
+static void user_index_add(miku_msggw_t *gw, int idx, const char *user_id) {
+    if (!user_id || !user_id[0]) return;
+    uint32_t b = user_bucket(user_id);
+    gw->user_next[idx] = gw->user_head[b];
+    gw->user_head[b] = (int16_t)idx;
+}
+
+static void user_index_del(miku_msggw_t *gw, int idx) {
+    const char *uid = gw->clients[idx].user_id;
+    if (!uid[0]) return;
+    uint32_t b = user_bucket(uid);
+    int16_t *p = &gw->user_head[b];
+    while (*p >= 0) {
+        if (*p == idx) {
+            *p = gw->user_next[idx];
+            gw->user_next[idx] = -1;
+            return;
+        }
+        p = &gw->user_next[*p];
+    }
+}
+
 static void client_offline(miku_msggw_t *gw, int idx) {
     if (idx < 0 || idx >= gw->client_count) return;
     miku_msggw_client_t *c = &gw->clients[idx];
+    user_index_del(gw, idx);
     if (c->fd >= 0) {
+        fd_map_clear(gw, c->fd);
         if (gw->io) miku_io_del(gw->io, c->fd);
         close(c->fd);
         c->fd = -1;
     }
     c->online = false;
     c->upgraded = false;
+    c->user_id[0] = '\0';
 }
 
 static int find_client_by_fd(miku_msggw_t *gw, int fd) {
+    if (fd >= 0 && fd < MK_GW_FD_MAP) {
+        int idx = gw->fd_map[fd];
+        if (idx >= 0 && idx < gw->client_count &&
+            gw->clients[idx].fd == fd && gw->clients[idx].online)
+            return idx;
+    }
+    /* Fallback for fds >= MK_GW_FD_MAP (rare) */
     for (int i = 0; i < gw->client_count; i++) {
         if (gw->clients[i].fd == fd && gw->clients[i].online) return i;
     }
@@ -104,6 +158,9 @@ int miku_msggw_stop(miku_msggw_t *gw) {
         if (gw->clients[i].online) client_offline(gw, i);
     }
     gw->client_count = 0;
+    for (int i = 0; i < MK_GW_FD_MAP; i++) gw->fd_map[i] = -1;
+    for (int i = 0; i < MK_GW_USER_HASH; i++) gw->user_head[i] = -1;
+    for (int i = 0; i < MK_GW_MAX_CLIENTS; i++) gw->user_next[i] = -1;
     if (gw->listen_fd >= 0) {
         if (gw->io) miku_io_del(gw->io, gw->listen_fd);
         close(gw->listen_fd);
@@ -144,10 +201,11 @@ int miku_msggw_send_to_user(miku_msggw_t *gw, const char *user_id,
                              const char *msg, size_t len) {
     if (!gw || !user_id || !msg) return -1;
     int sent = 0;
-    for (int i = 0; i < gw->client_count; i++) {
-        if (gw->clients[i].online && gw->clients[i].upgraded &&
-            strcmp(gw->clients[i].user_id, user_id) == 0) {
-            miku_ws_send_text(gw->clients[i].fd, msg, len);
+    uint32_t b = user_bucket(user_id);
+    for (int idx = gw->user_head[b]; idx >= 0; idx = gw->user_next[idx]) {
+        if (gw->clients[idx].online && gw->clients[idx].upgraded &&
+            strcmp(gw->clients[idx].user_id, user_id) == 0) {
+            miku_ws_send_text(gw->clients[idx].fd, msg, len);
             sent++;
         }
     }
@@ -158,12 +216,16 @@ int miku_msggw_send_to_user(miku_msggw_t *gw, const char *user_id,
 int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id) {
     if (!gw || !user_id) return -1;
     int kicked = 0;
-    for (int i = 0; i < gw->client_count; i++) {
-        if (gw->clients[i].online && strcmp(gw->clients[i].user_id, user_id) == 0) {
-            miku_ws_send_close(gw->clients[i].fd, 1000, "kicked");
-            client_offline(gw, i);
+    uint32_t b = user_bucket(user_id);
+    int idx = gw->user_head[b];
+    while (idx >= 0) {
+        int next = gw->user_next[idx];
+        if (gw->clients[idx].online && strcmp(gw->clients[idx].user_id, user_id) == 0) {
+            miku_ws_send_close(gw->clients[idx].fd, 1000, "kicked");
+            client_offline(gw, idx);
             kicked++;
         }
+        idx = next;
     }
     return kicked;
 }
@@ -333,25 +395,29 @@ static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *pla
 }
 
 static int find_or_add_client(miku_msggw_t *gw, int fd) {
+    int existing = find_client_by_fd(gw, fd);
+    if (existing >= 0) return existing;
+
     /* Prefer reusing an offline slot so client_count does not grow forever. */
     int free_idx = -1;
     for (int i = 0; i < gw->client_count; i++) {
-        if (gw->clients[i].fd == fd && gw->clients[i].online) return i;
         if (free_idx < 0 && !gw->clients[i].online) free_idx = i;
     }
+    int idx;
     if (free_idx >= 0) {
-        memset(&gw->clients[free_idx], 0, sizeof(gw->clients[free_idx]));
-        gw->clients[free_idx].fd = fd;
-        gw->clients[free_idx].online = true;
-        gw->clients[free_idx].connect_time = miku_timestamp_ms();
-        return free_idx;
+        idx = free_idx;
+        memset(&gw->clients[idx], 0, sizeof(gw->clients[idx]));
+        gw->user_next[idx] = -1;
+    } else {
+        if (gw->client_count >= MK_GW_MAX_CLIENTS) return -1;
+        idx = gw->client_count++;
+        memset(&gw->clients[idx], 0, sizeof(gw->clients[idx]));
+        gw->user_next[idx] = -1;
     }
-    if (gw->client_count >= MK_GW_MAX_CLIENTS) return -1;
-    int idx = gw->client_count++;
-    memset(&gw->clients[idx], 0, sizeof(gw->clients[idx]));
     gw->clients[idx].fd = fd;
     gw->clients[idx].online = true;
     gw->clients[idx].connect_time = miku_timestamp_ms();
+    fd_map_set(gw, fd, idx);
     return idx;
 }
 
@@ -417,6 +483,7 @@ static void on_client_io(int fd, int events, void *data) {
                 gw->clients[idx].upgraded = true;
                 strncpy(gw->clients[idx].user_id, uid, sizeof(gw->clients[idx].user_id) - 1);
                 gw->clients[idx].platform = platform;
+                user_index_add(gw, idx, uid);
             }
         } else {
             read_client_frames(gw, idx);
@@ -453,6 +520,7 @@ static void on_listen_io(int fd, int events, void *data) {
             gw->clients[idx].upgraded = true;
             strncpy(gw->clients[idx].user_id, uid, sizeof(gw->clients[idx].user_id) - 1);
             gw->clients[idx].platform = platform;
+            user_index_add(gw, idx, uid);
         } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
             /* Hard failure (bad token / malformed) — drop */
             /* do_ws_upgrade already wrote 401 when applicable */

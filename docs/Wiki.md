@@ -409,7 +409,7 @@ LRU + TTL 本地缓存：
 
 #### 4.5 消息存储（miku_msg_store）
 
-消息持久化封装：Mongo 可选；无 Mongo 时使用容量 8192 的内存槽位（满则按 `send_time` 淘汰最旧）。提供 `purge_older_than` / `clear_user` / `count`，供 cron 清理。
+消息持久化封装：Mongo 可选；无 Mongo 时使用容量 8192 的内存槽位（空闲栈分配 + `msg_id` 开放寻址哈希，满则按 `send_time` 淘汰最旧）。提供 `purge_older_than` / `clear_user` / `count`，供 cron 与 msgtransfer 使用。
 
 #### 4.6 会话缓存（miku_session_cache）
 
@@ -544,8 +544,10 @@ WebSocket 消息网关，支持 4096 并发客户端：
 - `deleteMsg` — 按保留天数调用 `miku_msg_store_purge_older_than` 清理过期消息
 - `clearUserMsg` — 调用 `miku_msg_store_clear_user` 清理指定用户消息
 - `clearS3` — 定期清理 S3 过期文件（仍待对象存储绑定）
-- `miku_cron_tasks_set_msg_store` 绑定存储；`miku-dev` 已接线
+- `miku_cron_tasks_set_msg_store` 绑定存储；`miku-dev` 与 `miku-crontask` 已接线
 - 可扩展的任务注册机制
+
+MsgGateway 推送/踢人通过 `user_id` 哈希链定位连接，IO 回调通过 `fd→idx` 映射（fd&lt;65536）O(1) 查找。
 
 ---
 

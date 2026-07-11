@@ -4,12 +4,14 @@
 #include "miku_graceful.h"
 #include "miku_msgtransfer.h"
 #include "miku_mt_pipeline.h"
+#include "miku_msg_store.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static miku_graceful_t g_graceful;
+static miku_msg_store_t *g_store;
 
 static void pipeline_to_redis(const miku_msg_t *msgs, int count, void *ctx) {
     (void)ctx;
@@ -21,12 +23,20 @@ static void pipeline_to_redis(const miku_msg_t *msgs, int count, void *ctx) {
 }
 
 static void pipeline_to_mongo(const miku_msg_t *msgs, int count, void *ctx) {
-    (void)ctx;
-    MK_LOG_INFO("pipeline: flushing %d msgs to MongoDB", count);
+    miku_msg_store_t *store = (miku_msg_store_t *)ctx;
+    if (!store || !msgs || count <= 0) return;
+    int ok = 0;
     for (int i = 0; i < count; i++) {
-        MK_LOG_DEBUG("  mongo: msgID=%s clientMsgID=%s",
-                      msgs[i].server_msg_id, msgs[i].client_msg_id);
+        const miku_msg_t *m = &msgs[i];
+        const char *conv = m->recv_id[0] ? m->recv_id : m->send_id;
+        char out_id[64] = {0};
+        if (miku_msg_store_insert(store, conv, m->send_id, (int)m->msg_type,
+                                   m->content, m->send_time,
+                                   out_id, sizeof(out_id)) == 0)
+            ok++;
     }
+    MK_LOG_INFO("pipeline: persisted %d/%d msgs to msg_store (total=%d)",
+                ok, count, miku_msg_store_count(store));
 }
 
 static void pipeline_to_push(const char *user_id, const char *conv_id, int64_t seq, void *ctx) {
@@ -48,18 +58,28 @@ int main(int argc, char **argv) {
     miku_graceful_init(&g_graceful, 300);
     MK_LOG_INFO("miku-msgtransfer starting (kafka: %s/%s)", sc.kafka_brokers, sc.kafka_topic);
 
+    g_store = miku_msg_store_create(NULL);
     miku_msgtransfer_t *mt = miku_msgtransfer_create();
-    if (!mt) { MK_LOG_ERROR("Failed to create msgtransfer"); return 1; }
+    if (!mt || !g_store) {
+        MK_LOG_ERROR("Failed to create msgtransfer / msg_store");
+        return 1;
+    }
 
     miku_mt_pipeline_t *pipe = miku_mt_pipeline_create();
-    if (!pipe) { MK_LOG_ERROR("Failed to create pipeline"); miku_msgtransfer_destroy(mt); return 1; }
+    if (!pipe) {
+        MK_LOG_ERROR("Failed to create pipeline");
+        miku_msgtransfer_destroy(mt);
+        miku_msg_store_destroy(g_store);
+        return 1;
+    }
 
     miku_mt_pipeline_on_redis(pipe, pipeline_to_redis, NULL);
-    miku_mt_pipeline_on_mongo(pipe, pipeline_to_mongo, NULL);
+    miku_mt_pipeline_on_mongo(pipe, pipeline_to_mongo, g_store);
     miku_mt_pipeline_on_push(pipe, pipeline_to_push, NULL);
 
     miku_msgtransfer_start(mt);
-    MK_LOG_INFO("miku-msgtransfer ready — pipeline wired (batch=%d)", MK_PIPELINE_BATCH_SIZE);
+    MK_LOG_INFO("miku-msgtransfer ready — pipeline wired to msg_store (batch=%d)",
+                MK_PIPELINE_BATCH_SIZE);
 
     int tick = 0;
     while (miku_graceful_running(&g_graceful)) {
@@ -81,11 +101,13 @@ int main(int argc, char **argv) {
         miku_graceful_wait(&g_graceful, NULL, NULL);
     }
 
-    MK_LOG_INFO("miku-msgtransfer shutting down");
+    MK_LOG_INFO("miku-msgtransfer shutting down (store_count=%d)",
+                miku_msg_store_count(g_store));
     miku_mt_pipeline_flush(pipe);
     miku_msgtransfer_stop(mt);
     miku_msgtransfer_destroy(mt);
     miku_mt_pipeline_destroy(pipe);
+    miku_msg_store_destroy(g_store);
     miku_graceful_cleanup(&g_graceful);
     return 0;
 }

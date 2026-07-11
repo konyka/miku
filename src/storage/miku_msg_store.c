@@ -2,11 +2,13 @@
 #include "miku_log.h"
 #include "miku_uuid.h"
 #include "miku_common.h"
+#include "miku_hash.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 
 #define MK_MSG_MEM_CAP 8192
+#define MK_MSG_ID_HASH 16384  /* power of 2 */
 
 typedef struct {
     char    msg_id[64];
@@ -21,10 +23,13 @@ typedef struct {
 
 struct miku_msg_store_s {
     miku_mongo_t *mongo;
-    int           enabled;   /* mongo backend */
-    mem_msg_t    *mem;       /* always-on local ring for purge/cron */
+    int           enabled;
+    mem_msg_t    *mem;
     int           mem_count;
     int           mem_cap;
+    int          *free_stack;   /* unused slot indices */
+    int           free_top;
+    int          *id_hash;      /* msg_id hash → slot, -1 empty */
 };
 
 miku_msg_store_t *miku_msg_store_create(miku_mongo_t *mongo) {
@@ -34,42 +39,112 @@ miku_msg_store_t *miku_msg_store_create(miku_mongo_t *mongo) {
     s->enabled = (mongo != NULL);
     s->mem_cap = MK_MSG_MEM_CAP;
     s->mem = (mem_msg_t *)calloc((size_t)s->mem_cap, sizeof(mem_msg_t));
-    if (!s->mem) { free(s); return NULL; }
+    s->free_stack = (int *)malloc((size_t)s->mem_cap * sizeof(int));
+    s->id_hash = (int *)malloc(MK_MSG_ID_HASH * sizeof(int));
+    if (!s->mem || !s->free_stack || !s->id_hash) {
+        free(s->mem);
+        free(s->free_stack);
+        free(s->id_hash);
+        free(s);
+        return NULL;
+    }
+    for (int i = 0; i < MK_MSG_ID_HASH; i++) s->id_hash[i] = -1;
+    s->free_top = 0;
+    for (int i = s->mem_cap - 1; i >= 0; i--)
+        s->free_stack[s->free_top++] = i;
     return s;
 }
 
 void miku_msg_store_destroy(miku_msg_store_t *store) {
     if (!store) return;
     free(store->mem);
+    free(store->free_stack);
+    free(store->id_hash);
     free(store);
 }
 
-static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
-    for (int i = 0; i < store->mem_cap; i++) {
-        if (!store->mem[i].used) {
-            memset(&store->mem[i], 0, sizeof(store->mem[i]));
-            store->mem[i].used = 1;
-            store->mem_count++;
-            return &store->mem[i];
+static uint32_t id_bucket(const char *msg_id) {
+    return (uint32_t)(miku_fnv1a_64(msg_id, strlen(msg_id)) & (MK_MSG_ID_HASH - 1));
+}
+
+static void id_hash_put(miku_msg_store_t *store, const char *msg_id, int slot) {
+    uint32_t b = id_bucket(msg_id);
+    for (uint32_t i = 0; i < MK_MSG_ID_HASH; i++) {
+        uint32_t idx = (b + i) & (MK_MSG_ID_HASH - 1);
+        int cur = store->id_hash[idx];
+        if (cur < 0 || (store->mem[cur].used &&
+                        strcmp(store->mem[cur].msg_id, msg_id) == 0)) {
+            store->id_hash[idx] = slot;
+            return;
         }
     }
-    /* Evict oldest by send_time */
-    int oldest = 0;
-    for (int i = 1; i < store->mem_cap; i++) {
-        if (store->mem[i].send_time < store->mem[oldest].send_time)
-            oldest = i;
+}
+
+static void id_hash_del(miku_msg_store_t *store, const char *msg_id) {
+    uint32_t b = id_bucket(msg_id);
+    for (uint32_t i = 0; i < MK_MSG_ID_HASH; i++) {
+        uint32_t idx = (b + i) & (MK_MSG_ID_HASH - 1);
+        int cur = store->id_hash[idx];
+        if (cur < 0) return;
+        if (store->mem[cur].used && strcmp(store->mem[cur].msg_id, msg_id) == 0) {
+            store->id_hash[idx] = -1;
+            /* rehash cluster */
+            uint32_t j = (idx + 1) & (MK_MSG_ID_HASH - 1);
+            while (store->id_hash[j] >= 0) {
+                int slot = store->id_hash[j];
+                store->id_hash[j] = -1;
+                id_hash_put(store, store->mem[slot].msg_id, slot);
+                j = (j + 1) & (MK_MSG_ID_HASH - 1);
+            }
+            return;
+        }
     }
-    memset(&store->mem[oldest], 0, sizeof(store->mem[oldest]));
-    store->mem[oldest].used = 1;
-    return &store->mem[oldest];
 }
 
 static mem_msg_t *mem_find(miku_msg_store_t *store, const char *msg_id) {
-    for (int i = 0; i < store->mem_cap; i++) {
-        if (store->mem[i].used && strcmp(store->mem[i].msg_id, msg_id) == 0)
-            return &store->mem[i];
+    uint32_t b = id_bucket(msg_id);
+    for (uint32_t i = 0; i < MK_MSG_ID_HASH; i++) {
+        uint32_t idx = (b + i) & (MK_MSG_ID_HASH - 1);
+        int cur = store->id_hash[idx];
+        if (cur < 0) return NULL;
+        if (store->mem[cur].used && strcmp(store->mem[cur].msg_id, msg_id) == 0)
+            return &store->mem[cur];
     }
     return NULL;
+}
+
+static void mem_free_slot(miku_msg_store_t *store, int slot) {
+    if (slot < 0 || slot >= store->mem_cap || !store->mem[slot].used) return;
+    id_hash_del(store, store->mem[slot].msg_id);
+    store->mem[slot].used = 0;
+    store->mem_count--;
+    if (store->mem_count < 0) store->mem_count = 0;
+    if (store->free_top < store->mem_cap)
+        store->free_stack[store->free_top++] = slot;
+}
+
+static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
+    int slot;
+    if (store->free_top > 0) {
+        slot = store->free_stack[--store->free_top];
+    } else {
+        /* Evict oldest by send_time — rare path when full */
+        int oldest = 0;
+        for (int i = 1; i < store->mem_cap; i++) {
+            if (store->mem[i].send_time < store->mem[oldest].send_time)
+                oldest = i;
+        }
+        mem_free_slot(store, oldest);
+        slot = store->free_stack[--store->free_top];
+    }
+    memset(&store->mem[slot], 0, sizeof(store->mem[slot]));
+    store->mem[slot].used = 1;
+    store->mem_count++;
+    return &store->mem[slot];
+}
+
+static int mem_slot_of(miku_msg_store_t *store, mem_msg_t *m) {
+    return (int)(m - store->mem);
 }
 
 int miku_msg_store_count(miku_msg_store_t *store) {
@@ -93,6 +168,7 @@ int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
     m->content_type = content_type;
     m->send_time = send_time > 0 ? send_time : miku_timestamp_ms();
     m->status = 1;
+    id_hash_put(store, m->msg_id, mem_slot_of(store, m));
 
     if (out_msg_id && msg_id_cap > 0)
         strncpy(out_msg_id, msg_id, msg_id_cap - 1);
@@ -126,7 +202,6 @@ int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversatio
         return miku_mongo_find_one(store->mongo, "messages", filter, results_json);
     }
 
-    /* Build JSON array from memory */
     size_t cap = 4096;
     char *buf = (char *)malloc(cap);
     if (!buf) return -1;
@@ -205,11 +280,7 @@ int miku_msg_store_update_status(miku_msg_store_t *store, const char *msg_id, in
 int miku_msg_store_delete(miku_msg_store_t *store, const char *msg_id) {
     if (!store || !msg_id) return -1;
     mem_msg_t *m = mem_find(store, msg_id);
-    if (m) {
-        m->used = 0;
-        store->mem_count--;
-        if (store->mem_count < 0) store->mem_count = 0;
-    }
+    if (m) mem_free_slot(store, mem_slot_of(store, m));
 
     if (!store->enabled) return 0;
 
@@ -223,12 +294,10 @@ int miku_msg_store_purge_older_than(miku_msg_store_t *store, int64_t cutoff_ms) 
     int removed = 0;
     for (int i = 0; i < store->mem_cap; i++) {
         if (store->mem[i].used && store->mem[i].send_time < cutoff_ms) {
-            store->mem[i].used = 0;
+            mem_free_slot(store, i);
             removed++;
         }
     }
-    store->mem_count -= removed;
-    if (store->mem_count < 0) store->mem_count = 0;
     MK_LOG_DEBUG("msg_store: purged %d msgs older than %lld", removed, (long long)cutoff_ms);
     return removed;
 }
@@ -238,11 +307,9 @@ int miku_msg_store_clear_user(miku_msg_store_t *store, const char *user_id) {
     int removed = 0;
     for (int i = 0; i < store->mem_cap; i++) {
         if (store->mem[i].used && strcmp(store->mem[i].sender_id, user_id) == 0) {
-            store->mem[i].used = 0;
+            mem_free_slot(store, i);
             removed++;
         }
     }
-    store->mem_count -= removed;
-    if (store->mem_count < 0) store->mem_count = 0;
     return removed;
 }
