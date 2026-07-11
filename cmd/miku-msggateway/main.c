@@ -56,6 +56,21 @@ static void *admin_thread(void *arg) {
     return NULL;
 }
 
+static void sub_notify_cb(const char *subscriber, const char *payload, size_t len, void *ctx) {
+    miku_msggw_t *gw = (miku_msggw_t *)ctx;
+    if (gw && subscriber && payload)
+        miku_msggw_send_op_to_user(gw, subscriber, MK_WS_OP_SUB_USER_STATUS, payload, len);
+}
+
+static void on_presence(const char *user_id, int platform, int online, void *ctx) {
+    gw_ctx_t *gc = (gw_ctx_t *)ctx;
+    if (!gc || !gc->sub || !user_id) return;
+    if (online)
+        miku_ws_sub_user_online(gc->sub, user_id, platform);
+    else
+        miku_ws_sub_user_offline(gc->sub, user_id);
+}
+
 static int reply_json(miku_msggw_t *gw, int client_idx, int opcode, const char *json) {
     if (!gw || !json) return -1;
     return miku_msggw_send_op(gw, client_idx, opcode, json, strlen(json));
@@ -339,8 +354,10 @@ int main(int argc, char **argv) {
     gctx.sub = sub;
     gctx.store = g_store;
 
+    miku_ws_sub_set_notify(sub, sub_notify_cb, g_gw);
     miku_msggw_on_message(g_gw, on_ws_message, &gctx);
     miku_msggw_on_opcode(g_gw, on_ws_opcode, &gctx);
+    miku_msggw_on_presence(g_gw, on_presence, &gctx);
 
     g_admin = miku_http_server_create("127.0.0.1", admin_port);
     if (g_admin) {

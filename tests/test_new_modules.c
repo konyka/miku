@@ -240,6 +240,18 @@ void test_cron_tasks_basic(void) {
     miku_msg_store_destroy(store);
 }
 
+static int g_sub_notify_count = 0;
+static char g_sub_last_payload[256];
+
+static void test_sub_notify_cb(const char *subscriber, const char *payload, size_t len, void *ctx) {
+    (void)subscriber; (void)ctx; (void)len;
+    g_sub_notify_count++;
+    if (payload) {
+        strncpy(g_sub_last_payload, payload, sizeof(g_sub_last_payload) - 1);
+        g_sub_last_payload[sizeof(g_sub_last_payload) - 1] = '\0';
+    }
+}
+
 void test_ws_subscription_basic(void) {
     miku_ws_sub_t *sub = miku_ws_sub_create();
     mk_assert_not_null(sub);
@@ -263,6 +275,18 @@ void test_ws_subscription_basic(void) {
     mk_assert_int_eq(0, miku_ws_sub_is_subscribed(sub, "u1", "u2"));
 
     mk_assert_int_eq(-1, miku_ws_sub_unsubscribe(sub, "u1", "u2"));
+
+    /* Re-subscribe u1→u2 and verify online/offline notify */
+    mk_assert_int_eq(0, miku_ws_sub_subscribe(sub, "u1", "u2"));
+    g_sub_notify_count = 0;
+    g_sub_last_payload[0] = '\0';
+    miku_ws_sub_set_notify(sub, test_sub_notify_cb, NULL);
+    miku_ws_sub_user_online(sub, "u2", 1);
+    mk_assert_int_eq(1, g_sub_notify_count);
+    mk_assert(strstr(g_sub_last_payload, "online") != NULL);
+    miku_ws_sub_user_offline(sub, "u2");
+    mk_assert_int_eq(2, g_sub_notify_count);
+    mk_assert(strstr(g_sub_last_payload, "offline") != NULL);
 
     miku_ws_sub_destroy(sub);
 }

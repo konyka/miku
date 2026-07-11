@@ -35,6 +35,8 @@ struct miku_msggw_s {
     void                *on_msg_ctx;
     miku_msggw_on_op_fn  on_op;
     void                *on_op_ctx;
+    miku_msggw_on_presence_fn on_presence;
+    void                *on_presence_ctx;
     int64_t              total_msgs_in;
     int64_t              total_msgs_out;
     miku_seq_t          *seq;
@@ -98,6 +100,8 @@ static void user_index_del(miku_msggw_t *gw, int idx) {
 static void client_offline(miku_msggw_t *gw, int idx) {
     if (idx < 0 || idx >= gw->client_count) return;
     miku_msggw_client_t *c = &gw->clients[idx];
+    if (c->online && c->user_id[0] && gw->on_presence)
+        gw->on_presence(c->user_id, c->platform, 0, gw->on_presence_ctx);
     user_index_del(gw, idx);
     if (c->fd >= 0) {
         fd_map_clear(gw, c->fd);
@@ -254,6 +258,12 @@ void miku_msggw_on_opcode(miku_msggw_t *gw, miku_msggw_on_op_fn fn, void *ctx) {
     if (!gw) return;
     gw->on_op = fn;
     gw->on_op_ctx = ctx;
+}
+
+void miku_msggw_on_presence(miku_msggw_t *gw, miku_msggw_on_presence_fn fn, void *ctx) {
+    if (!gw) return;
+    gw->on_presence = fn;
+    gw->on_presence_ctx = ctx;
 }
 
 int miku_msggw_send_op(miku_msggw_t *gw, int client_idx, int opcode,
@@ -570,6 +580,8 @@ static void on_client_io(int fd, int events, void *data) {
                 strncpy(gw->clients[idx].user_id, uid, sizeof(gw->clients[idx].user_id) - 1);
                 gw->clients[idx].platform = platform;
                 user_index_add(gw, idx, uid);
+                if (gw->on_presence)
+                    gw->on_presence(uid, platform, 1, gw->on_presence_ctx);
             }
         } else {
             read_client_frames(gw, idx);
@@ -607,6 +619,8 @@ static void on_listen_io(int fd, int events, void *data) {
             strncpy(gw->clients[idx].user_id, uid, sizeof(gw->clients[idx].user_id) - 1);
             gw->clients[idx].platform = platform;
             user_index_add(gw, idx, uid);
+            if (gw->on_presence)
+                gw->on_presence(uid, platform, 1, gw->on_presence_ctx);
         } else if (errno != EAGAIN && errno != EWOULDBLOCK) {
             /* Hard failure (bad token / malformed) — drop */
             /* do_ws_upgrade already wrote 401 when applicable */

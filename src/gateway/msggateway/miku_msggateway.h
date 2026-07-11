@@ -22,6 +22,8 @@
 
 typedef void (*miku_msggw_on_msg_fn)(const char *user_id, const char *msg, size_t len, void *ctx);
 typedef void (*miku_msggw_on_op_fn)(int client_idx, int opcode, const char *payload, size_t len, void *ctx);
+/* online=1 after handshake; online=0 before session teardown */
+typedef void (*miku_msggw_on_presence_fn)(const char *user_id, int platform, int online, void *ctx);
 
 typedef struct miku_msggw_client_s {
     int            fd;
@@ -53,6 +55,7 @@ MIKU_API int  miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id);
 
 MIKU_API void miku_msggw_on_message(miku_msggw_t *gw, miku_msggw_on_msg_fn fn, void *ctx);
 MIKU_API void miku_msggw_on_opcode(miku_msggw_t *gw, miku_msggw_on_op_fn fn, void *ctx);
+MIKU_API void miku_msggw_on_presence(miku_msggw_t *gw, miku_msggw_on_presence_fn fn, void *ctx);
 MIKU_API int  miku_msggw_poll(miku_msggw_t *gw, int timeout_ms);
 MIKU_API int  miku_msggw_send_op(miku_msggw_t *gw, int client_idx, int opcode,
                                    const char *payload, size_t len);

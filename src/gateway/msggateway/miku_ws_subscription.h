@@ -7,8 +7,13 @@
 
 typedef struct miku_ws_sub_s miku_ws_sub_t;
 
+typedef void (*miku_ws_sub_notify_fn)(const char *subscriber, const char *payload,
+                                       size_t len, void *ctx);
+
 MIKU_API miku_ws_sub_t *miku_ws_sub_create(void);
 MIKU_API void           miku_ws_sub_destroy(miku_ws_sub_t *sub);
+MIKU_API void           miku_ws_sub_set_notify(miku_ws_sub_t *sub,
+                                                 miku_ws_sub_notify_fn fn, void *ctx);
 
 MIKU_API int  miku_ws_sub_subscribe(miku_ws_sub_t *sub, const char *user_id,
                                       const char *target_user_id);

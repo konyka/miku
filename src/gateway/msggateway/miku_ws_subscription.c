@@ -1,6 +1,7 @@
 #include "miku_ws_subscription.h"
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 
 typedef struct {
     char subscriber[64];
@@ -9,16 +10,23 @@ typedef struct {
 } sub_entry_t;
 
 struct miku_ws_sub_s {
-    sub_entry_t entries[MK_SUB_MAX];
-    int         count;
+    sub_entry_t          entries[MK_SUB_MAX];
+    int                  count;
+    miku_ws_sub_notify_fn notify;
+    void                *notify_ctx;
 };
 
 miku_ws_sub_t *miku_ws_sub_create(void) {
-    miku_ws_sub_t *s = (miku_ws_sub_t *)calloc(1, sizeof(*s));
-    return s;
+    return (miku_ws_sub_t *)calloc(1, sizeof(miku_ws_sub_t));
 }
 
 void miku_ws_sub_destroy(miku_ws_sub_t *sub) { free(sub); }
+
+void miku_ws_sub_set_notify(miku_ws_sub_t *sub, miku_ws_sub_notify_fn fn, void *ctx) {
+    if (!sub) return;
+    sub->notify = fn;
+    sub->notify_ctx = ctx;
+}
 
 int miku_ws_sub_subscribe(miku_ws_sub_t *sub, const char *user_id, const char *target_user_id) {
     if (!sub || !user_id || !target_user_id) return -1;
@@ -73,10 +81,29 @@ int miku_ws_sub_get_subscribers(miku_ws_sub_t *sub, const char *target_user_id,
     return found;
 }
 
+static void notify_subscribers(miku_ws_sub_t *sub, const char *target_user_id,
+                                 const char *payload) {
+    if (!sub || !sub->notify || !target_user_id || !payload) return;
+    char *uids[64];
+    int n = miku_ws_sub_get_subscribers(sub, target_user_id, uids, 64);
+    size_t len = strlen(payload);
+    for (int i = 0; i < n; i++)
+        sub->notify(uids[i], payload, len, sub->notify_ctx);
+}
+
 void miku_ws_sub_user_online(miku_ws_sub_t *sub, const char *user_id, int platform) {
-    (void)sub; (void)user_id; (void)platform;
+    if (!sub || !user_id) return;
+    char payload[256];
+    snprintf(payload, sizeof(payload),
+             "{\"userID\":\"%s\",\"platform\":%d,\"status\":\"online\"}",
+             user_id, platform);
+    notify_subscribers(sub, user_id, payload);
 }
 
 void miku_ws_sub_user_offline(miku_ws_sub_t *sub, const char *user_id) {
-    (void)sub; (void)user_id;
+    if (!sub || !user_id) return;
+    char payload[256];
+    snprintf(payload, sizeof(payload),
+             "{\"userID\":\"%s\",\"status\":\"offline\"}", user_id);
+    notify_subscribers(sub, user_id, payload);
 }
