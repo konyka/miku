@@ -40,6 +40,11 @@ int miku_im_msg_from_json(miku_im_msg_t *msg, const miku_json_val_t *j) {
     msg->content_type = (int)iv;
 
     iv = miku_json_int(miku_json_get(j, "conversationType"));
+    if (iv == 0) {
+        iv = miku_json_int(miku_json_get(j, "sessionType"));
+        /* OpenIM sessionType: 1=single, 2=group, 3=superGroup */
+        if (iv == 3) iv = MK_IM_CONV_GROUP;
+    }
     msg->conversation_type = (int)iv;
 
     iv = miku_json_int(miku_json_get(j, "seq"));

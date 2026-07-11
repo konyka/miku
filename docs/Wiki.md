@@ -45,7 +45,7 @@
 | C 代码行数 | ~9K |
 | 构建警告 | 0 |
 
-Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。消息存储在无 Mongo 时使用 8k 内存环，cron `deleteMsg` 与写入同进程；离线推送可配置 `http://` 网关 POST；拆分部署时 `miku-api` 的 `force_logout` 通过 `ws_port+1` 的 `/internal/kick` 踢掉 WS 并在网关进程内 `miku_token_revoke`（body 含 `userID` + `platformID`，`platformID<0` 或 `force_logout_all` 踢/吊销全部端），防止旧 token 重连；建群/入群/邀请成功后经 `/internal/group_member` 同步成员，退群/踢人经 `action=remove` 同步删除，供群聊 `PUSH_MSG` 扇出；拆分部署下 HTTP `send_msg` 采用网关返回的会话 seq。S3 清理仍待对象存储绑定。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
+Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。消息存储在无 Mongo 时使用 8k 内存环，cron `deleteMsg` 与写入同进程；离线推送可配置 `http://` 网关 POST；拆分部署时 `miku-api` 的 `force_logout` 通过 `ws_port+1` 的 `/internal/kick` 踢掉 WS 并在网关进程内 `miku_token_revoke`（body 含 `userID` + `platformID`，`platformID<0` 或 `force_logout_all` 踢/吊销全部端），防止旧 token 重连；建群/入群/邀请成功后经 `/internal/group_member` 同步成员，退群/踢人经 `action=remove` 同步删除，供群聊 `PUSH_MSG` 扇出；拆分部署下 HTTP `send_msg` 支持 `groupID` 群发并采用网关返回的会话 seq。S3 清理仍待对象存储绑定。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
 
 ---
 
@@ -547,7 +547,7 @@ WebSocket 消息网关，支持 4096 并发客户端：
 - `miku_cron_tasks_set_msg_store` 绑定存储；`miku-crontask` 独立进程不持有私有内存环
 - 可扩展的任务注册机制
 
-WS 入站 opcode 帧会解包 `data` 再交给 handler；`SEND_MSG` 与 HTTP `POST /msg/send_msg` 共用 `miku_msggw_ws_deliver_msg`（校验 → alloc seq → `msg_store` → `PUSH_MSG` 扇出）：单聊推在线 `recvID`，群聊按成员列表扇出（排除发送者）；会话 ID 缺省为群聊 `sg_<groupID>`、单聊按双方 userID 字典序 `si_<min>_<max>`（A→B 与 B→A 同桶）；拆分部署下 API 经 `127.0.0.1:ws_port+1` 的 `POST /internal/push_msg` 投递并回写网关 `seq`/`serverMsgID`/`sendTime`，建群/入群/邀请经 `POST /internal/group_member` 同步成员；`miku-dev` 进程内直调并共享 `group_svc`。`GET_CONV_MAX_READ_SEQ` 返回各会话 `maxSeq`/`hasReadSeq`（可带 `hasReadSeq` 顺带标记已读；`contentType=302` 的 `SEND_MSG` 也会写已读）；踢人先发 `KICK_ONLINE` 再关连接，且按 `platformID` 精确踢端（`<0` 踢全部）；`/internal/kick` 同时在网关进程吊销 token，避免旧 token 重连。`SUB_USER_STATUS` 订阅后，目标用户上下线会向订阅者推送 presence；`PULL_MSG*` / `PULL_CONV_LAST_MSG` 按会话与 seq 范围拉取；`GET_NEWEST_SEQ` 只读 `peek_max_seq`，`SEND_MSG` 才 `alloc_seq`（按 `conversationID` 分桶）；`LOGOUT` 会断开该连接。
+WS 入站 opcode 帧会解包 `data` 再交给 handler；`SEND_MSG` 与 HTTP `POST /msg/send_msg` 共用 `miku_msggw_ws_deliver_msg`（校验 → alloc seq → `msg_store` → `PUSH_MSG` 扇出）：单聊推在线 `recvID`，群聊按成员列表扇出（排除发送者）；会话 ID 缺省为群聊 `sg_<groupID>`、单聊按双方 userID 字典序 `si_<min>_<max>`（A→B 与 B→A 同桶）；拆分部署下 API 经 `127.0.0.1:ws_port+1` 的 `POST /internal/push_msg` 投递并回写网关 `seq`/`serverMsgID`/`sendTime`（HTTP `send_msg` 支持 `recvID` 单聊或 `groupID` 群聊），建群/入群/邀请经 `POST /internal/group_member` 同步成员；`miku-dev` 进程内直调并共享 `group_svc`。`GET_CONV_MAX_READ_SEQ` 返回各会话 `maxSeq`/`hasReadSeq`（可带 `hasReadSeq` 顺带标记已读；`contentType=302` 的 `SEND_MSG` 也会写已读）；踢人先发 `KICK_ONLINE` 再关连接，且按 `platformID` 精确踢端（`<0` 踢全部）；`/internal/kick` 同时在网关进程吊销 token，避免旧 token 重连。`SUB_USER_STATUS` 订阅后，目标用户上下线会向订阅者推送 presence；`PULL_MSG*` / `PULL_CONV_LAST_MSG` 按会话与 seq 范围拉取；`GET_NEWEST_SEQ` 只读 `peek_max_seq`，`SEND_MSG` 才 `alloc_seq`（按 `conversationID` 分桶）；`LOGOUT` 会断开该连接。
 
 ---
 

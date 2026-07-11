@@ -537,7 +537,18 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     else if (strstr(path, "clear_conversation_msg")) method = "clearConversationMsg";
     else if (strstr(path, "user_clear_all_msg")) method = "userClearAllMsg";
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0) {
-        if (require_fields(j, resp, "sendID", "recvID", "content", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "sendID", "content", (const char *)NULL)) {
+            free(path); miku_json_destroy(j); return;
+        }
+        const char *rid = miku_json_str(miku_json_get(j, "recvID"));
+        const char *gid = miku_json_str(miku_json_get(j, "groupID"));
+        if ((!rid || !rid[0]) && (!gid || !gid[0])) {
+            free(path); miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":400,\"errMsg\":\"missing required fields: recvID or groupID\"}");
+            resp->status = 400;
+            return;
+        }
     } else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0) {
         if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
     } else if (strcmp(method, "searchMsg") == 0) {
@@ -550,14 +561,27 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         if (err == 0) {
             const char *send_id = miku_json_str(miku_json_get(j, "sendID"));
             const char *recv_id = miku_json_str(miku_json_get(j, "recvID"));
+            const char *group_id = miku_json_str(miku_json_get(j, "groupID"));
             int64_t send_time = miku_json_int(miku_json_get(out, "sendTime"));
-            if (send_id && recv_id) {
+            if (send_id && group_id && group_id[0]) {
+                miku_conversation_t conv;
+                memset(&conv, 0, sizeof(conv));
+                miku_msggw_ws_resolve_conv(conv.conversation_id, sizeof(conv.conversation_id),
+                                           NULL, group_id, send_id, NULL);
+                strncpy(conv.owner_user_id, send_id, sizeof(conv.owner_user_id) - 1);
+                strncpy(conv.group_id, group_id, sizeof(conv.group_id) - 1);
+                conv.conversation_type = MK_IM_CONV_GROUP;
+                conv.latest_msg_send_time = send_time;
+                miku_conv_handle_rpc(c->conv, "setConversation",
+                                     miku_conversation_to_json(&conv),
+                                     miku_json_create_object());
+            } else if (send_id && recv_id && recv_id[0]) {
                 miku_conversation_t conv;
                 memset(&conv, 0, sizeof(conv));
                 miku_msggw_ws_resolve_conv(conv.conversation_id, sizeof(conv.conversation_id),
                                            NULL, NULL, send_id, recv_id);
                 strncpy(conv.owner_user_id, send_id, sizeof(conv.owner_user_id) - 1);
-                conv.conversation_type = 1;
+                conv.conversation_type = MK_IM_CONV_SINGLE;
                 conv.latest_msg_send_time = send_time;
                 miku_conv_handle_rpc(c->conv, "setConversation",
                                      miku_conversation_to_json(&conv),
@@ -566,6 +590,10 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             if (c->on_msg_sent) {
                 miku_im_msg_t im;
                 miku_im_msg_from_json(&im, j);
+                if (!im.conversation_type) {
+                    if (im.group_id[0]) im.conversation_type = MK_IM_CONV_GROUP;
+                    else if (im.recv_id[0]) im.conversation_type = MK_IM_CONV_SINGLE;
+                }
                 if (im.content_type <= 0) {
                     int64_t mt = miku_json_int(miku_json_get(j, "msgType"));
                     im.content_type = mt > 0 ? (int)mt : MK_IM_MSG_TYPE_TEXT;
@@ -591,10 +619,13 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         if (wh_err == 0 && strcmp(method, "sendMsg") == 0) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
             const char *rid = miku_json_str(miku_json_get(j, "recvID"));
+            const char *gid = miku_json_str(miku_json_get(j, "groupID"));
             const char *smid = miku_json_str(miku_json_get(out, "serverMsgID"));
             char payload[1024];
-            snprintf(payload, sizeof(payload), "{\"event\":\"msgSent\",\"sendID\":\"%s\",\"recvID\":\"%s\",\"serverMsgID\":\"%s\"}",
-                     sid ? sid : "", rid ? rid : "", smid ? smid : "");
+            snprintf(payload, sizeof(payload),
+                     "{\"event\":\"msgSent\",\"sendID\":\"%s\",\"recvID\":\"%s\","
+                     "\"groupID\":\"%s\",\"serverMsgID\":\"%s\"}",
+                     sid ? sid : "", rid ? rid : "", gid ? gid : "", smid ? smid : "");
             miku_webhook_fire(c->webhook, MK_WH_AFTER_SEND_MSG, payload);
         } else if (wh_err == 0 && strcmp(method, "revokeMsg") == 0) {
             const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));

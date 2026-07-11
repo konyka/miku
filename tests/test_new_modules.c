@@ -437,6 +437,19 @@ void test_im_message_roundtrip(void) {
     mk_assert_str_eq("m1", miku_json_str(miku_json_get(out, "msgID")));
     mk_assert_str_eq("user_a", miku_json_str(miku_json_get(out, "sendID")));
     miku_json_destroy(out);
+
+    /* OpenIM HTTP uses sessionType=3 for super groups → MK_IM_CONV_GROUP */
+    miku_json_val_t *jg = miku_json_create_object();
+    miku_jss(jg, "sendID", "u1");
+    miku_jss(jg, "groupID", "g9");
+    miku_ji(jg, "sessionType", 3);
+    miku_ji(jg, "contentType", 101);
+    miku_jss(jg, "content", "g");
+    miku_im_msg_t gmsg;
+    mk_assert_int_eq(0, miku_im_msg_from_json(&gmsg, jg));
+    miku_json_destroy(jg);
+    mk_assert_int_eq(MK_IM_CONV_GROUP, gmsg.conversation_type);
+    mk_assert_str_eq("g9", gmsg.group_id);
 }
 
 void test_im_message_validate(void) {
@@ -1703,12 +1716,28 @@ static void test_validation_missing_send_fields(void) {
     char *body = extract_json_body(resp);
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":400") != NULL);
-    mk_assert(strstr(body, "recvID") != NULL);
+    mk_assert(strstr(body, "content") != NULL || strstr(body, "recvID") != NULL);
+
+    char resp_g[8192] = {0};
+    http_post_with_token(19792, "/msg/send_msg", v2_tok,
+        "{\"sendID\":\"s1\",\"content\":\"hi\"}", resp_g, sizeof(resp_g));
+    body = extract_json_body(resp_g);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":400") != NULL);
+    mk_assert(strstr(body, "recvID or groupID") != NULL);
 
     char resp2[8192] = {0};
     http_post_with_token(19792, "/msg/send_msg", v2_tok,
         "{\"sendID\":\"s1\",\"recvID\":\"r1\",\"content\":\"hi\"}", resp2, sizeof(resp2));
     body = extract_json_body(resp2);
+    mk_assert(body != NULL);
+    mk_assert(strstr(body, "\"errCode\":400") == NULL);
+
+    char resp3[8192] = {0};
+    http_post_with_token(19792, "/msg/send_msg", v2_tok,
+        "{\"sendID\":\"s1\",\"groupID\":\"g_http_1\",\"content\":\"group hi\","
+        "\"sessionType\":3,\"clientMsgID\":\"cm_g1\"}", resp3, sizeof(resp3));
+    body = extract_json_body(resp3);
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":400") == NULL);
     if (arv2) miku_json_destroy(arv2);
