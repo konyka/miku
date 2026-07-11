@@ -39,6 +39,49 @@ void miku_api_ctx_destroy(miku_api_ctx_t *ctx) {
     free(ctx);
 }
 
+static void upsert_conv_on_send(miku_conv_service_t *svc, const char *owner,
+                                const char *cid, int conv_type,
+                                const char *peer_user_id, const char *group_id,
+                                int64_t send_time, const char *content,
+                                int bump_unread) {
+    if (!svc || !owner || !owner[0] || !cid || !cid[0]) return;
+    miku_conversation_t c;
+    memset(&c, 0, sizeof(c));
+    if (miku_conv_get(svc, owner, cid, &c) != 0) {
+        strncpy(c.owner_user_id, owner, sizeof(c.owner_user_id) - 1);
+        strncpy(c.conversation_id, cid, sizeof(c.conversation_id) - 1);
+        c.conversation_type = conv_type;
+    }
+    if (peer_user_id && peer_user_id[0])
+        strncpy(c.user_id, peer_user_id, sizeof(c.user_id) - 1);
+    if (group_id && group_id[0])
+        strncpy(c.group_id, group_id, sizeof(c.group_id) - 1);
+    if (send_time > 0) c.latest_msg_send_time = send_time;
+    if (content && content[0])
+        strncpy(c.latest_msg_content, content, sizeof(c.latest_msg_content) - 1);
+    if (bump_unread) c.unread_count++;
+    if (miku_conv_update(svc, &c) == -2)
+        miku_conv_create(svc, &c);
+}
+
+typedef struct {
+    miku_conv_service_t *svc;
+    const char          *cid;
+    const char          *gid;
+    const char          *send_id;
+    int64_t              send_time;
+    const char          *content;
+} group_conv_upsert_ctx_t;
+
+static void upsert_group_member_conv(const char *user_id, int role, void *v) {
+    (void)role;
+    group_conv_upsert_ctx_t *g = (group_conv_upsert_ctx_t *)v;
+    if (!g || !user_id) return;
+    int bump = (g->send_id && strcmp(user_id, g->send_id) != 0) ? 1 : 0;
+    upsert_conv_on_send(g->svc, user_id, g->cid, MK_IM_CONV_GROUP,
+                        NULL, g->gid, g->send_time, g->content, bump);
+}
+
 static void json_resp(miku_http_response_t *resp, miku_json_val_t *j) {
     miku_string_t *s = miku_json_stringify(j);
     miku_http_response_set_json(resp, s->data);
@@ -562,30 +605,25 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             const char *send_id = miku_json_str(miku_json_get(j, "sendID"));
             const char *recv_id = miku_json_str(miku_json_get(j, "recvID"));
             const char *group_id = miku_json_str(miku_json_get(j, "groupID"));
+            const char *content = miku_json_str(miku_json_get(j, "content"));
             int64_t send_time = miku_json_int(miku_json_get(out, "sendTime"));
+            char cid[MK_CONV_ID_LEN];
             if (send_id && group_id && group_id[0]) {
-                miku_conversation_t conv;
-                memset(&conv, 0, sizeof(conv));
-                miku_msggw_ws_resolve_conv(conv.conversation_id, sizeof(conv.conversation_id),
-                                           NULL, group_id, send_id, NULL);
-                strncpy(conv.owner_user_id, send_id, sizeof(conv.owner_user_id) - 1);
-                strncpy(conv.group_id, group_id, sizeof(conv.group_id) - 1);
-                conv.conversation_type = MK_IM_CONV_GROUP;
-                conv.latest_msg_send_time = send_time;
-                miku_conv_handle_rpc(c->conv, "setConversation",
-                                     miku_conversation_to_json(&conv),
-                                     miku_json_create_object());
+                miku_conversation_id_resolve(cid, sizeof(cid), NULL, group_id, send_id, NULL);
+                group_conv_upsert_ctx_t gctx = {
+                    .svc = c->conv, .cid = cid, .gid = group_id,
+                    .send_id = send_id, .send_time = send_time, .content = content,
+                };
+                miku_group_foreach_member(c->group_svc, group_id, upsert_group_member_conv, &gctx);
+                /* Ensure sender has a row even if not yet in group_svc (split race). */
+                upsert_conv_on_send(c->conv, send_id, cid, MK_IM_CONV_GROUP,
+                                   NULL, group_id, send_time, content, 0);
             } else if (send_id && recv_id && recv_id[0]) {
-                miku_conversation_t conv;
-                memset(&conv, 0, sizeof(conv));
-                miku_msggw_ws_resolve_conv(conv.conversation_id, sizeof(conv.conversation_id),
-                                           NULL, NULL, send_id, recv_id);
-                strncpy(conv.owner_user_id, send_id, sizeof(conv.owner_user_id) - 1);
-                conv.conversation_type = MK_IM_CONV_SINGLE;
-                conv.latest_msg_send_time = send_time;
-                miku_conv_handle_rpc(c->conv, "setConversation",
-                                     miku_conversation_to_json(&conv),
-                                     miku_json_create_object());
+                miku_conversation_id_resolve(cid, sizeof(cid), NULL, NULL, send_id, recv_id);
+                upsert_conv_on_send(c->conv, send_id, cid, MK_IM_CONV_SINGLE,
+                                   recv_id, NULL, send_time, content, 0);
+                upsert_conv_on_send(c->conv, recv_id, cid, MK_IM_CONV_SINGLE,
+                                   send_id, NULL, send_time, content, 1);
             }
             if (c->on_msg_sent) {
                 miku_im_msg_t im;

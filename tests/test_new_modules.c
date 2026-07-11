@@ -1440,6 +1440,36 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert(strlen(smid) > 0);
     miku_json_destroy(r);
 
+    char conv_s[8192] = {0};
+    http_post_with_token(19780, "/conversation/get_all_conversations", token,
+        "{\"ownerUserID\":\"s1\"}", conv_s, sizeof(conv_s));
+    body = extract_json_body(conv_s);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_val_t *data = miku_json_get(r, "data");
+    mk_assert_not_null(data);
+    mk_assert_int_eq(1, (int)miku_json_size(data));
+    miku_json_val_t *c0 = miku_json_at(data, 0);
+    mk_assert_str_eq("si_r1_s1", miku_json_str(miku_json_get(c0, "conversationID")));
+    mk_assert_str_eq("r1", miku_json_str(miku_json_get(c0, "userID")));
+    miku_json_destroy(r);
+
+    char conv_r[8192] = {0};
+    http_post_with_token(19780, "/conversation/get_all_conversations", token,
+        "{\"ownerUserID\":\"r1\"}", conv_r, sizeof(conv_r));
+    body = extract_json_body(conv_r);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    data = miku_json_get(r, "data");
+    mk_assert_not_null(data);
+    mk_assert_int_eq(1, (int)miku_json_size(data));
+    c0 = miku_json_at(data, 0);
+    mk_assert_str_eq("si_r1_s1", miku_json_str(miku_json_get(c0, "conversationID")));
+    mk_assert_str_eq("s1", miku_json_str(miku_json_get(c0, "userID")));
+    mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(c0, "unreadCount")));
+    miku_json_destroy(r);
+
     char resp2[8192] = {0};
     http_post_with_token(19780, "/msg/search_msg", token,
         "{\"keyword\":\"e2e test\"}", resp2, sizeof(resp2));
@@ -1447,16 +1477,16 @@ static void test_http_e2e_msg_send_and_search(void) {
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
-    miku_json_val_t *data = miku_json_get(r, "data");
+    data = miku_json_get(r, "data");
     mk_assert_not_null(data);
-     mk_assert_int_eq(1, (int)miku_json_size(data));
-     miku_json_destroy(r);
-     if (ar) miku_json_destroy(ar);
+    mk_assert_int_eq(1, (int)miku_json_size(data));
+    miku_json_destroy(r);
+    if (ar) miku_json_destroy(ar);
 
-     miku_http_server_stop(srv);
-     pthread_join(tid, NULL);
-     miku_http_server_destroy(srv);
-     miku_api_ctx_destroy(ctx);
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
 }
 
 static int wh_trigger_count;
