@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 160 tests, 64 modules, 13 binaries, 7 RPC services — WS SEND/PULL wired to msg_store with seq; per-conversation miku_seq; localhost admin kick; in-mem deleteMsg co-located with writers; S3 cron still stub.
+> **Status**: 203 API routes, 161 tests, 64 modules, 13 binaries, 7 RPC services — WS SEND fans out PUSH_MSG to online recv; SEND/PULL via msg_store; per-conversation seq; localhost admin kick; S3 cron still stub.
 
 ## 1. Overview
 
@@ -946,7 +946,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete for the HTTP/WS API surface. **160 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse, O(1) fd map and user-id hash chains for push/kick, and requires handshake token. Inbound opcode frames unwrap `data` before `on_op`; `SEND_MSG` persists into in-process `msg_store` and `PULL_MSG*` reads by seq range; seq is per-conversation via `miku_seq`. Split deploy kick via localhost `/internal/kick`. In-mem `deleteMsg` co-located with writers. Offline push POSTs JSON to an optional `http://` endpoint when configured.
+All phases complete for the HTTP/WS API surface. **161 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse, O(1) fd map and user-id hash chains for push/kick, and requires handshake token. Inbound opcode frames unwrap `data` before `on_op`; `SEND_MSG` persists into in-process `msg_store`, ACKs the sender, and fans out `PUSH_MSG` to online `recvID` sessions via `miku_msggw_send_op_to_user`; `PULL_MSG*` reads by seq range. Seq is per-conversation via `miku_seq`. Split deploy kick via localhost `/internal/kick`. In-mem `deleteMsg` co-located with writers. Offline push POSTs JSON to an optional `http://` endpoint when configured.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

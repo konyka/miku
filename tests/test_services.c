@@ -636,6 +636,54 @@ static void test_msggateway_opcode_reply(void) {
     miku_msggw_destroy(gw);
 }
 
+static void test_msggateway_send_op_to_user(void) {
+    miku_msggw_t *gw = miku_msggw_create(19220);
+    mk_assert_not_null(gw);
+    mk_assert_int_eq(0, miku_msggw_start(gw));
+
+    /* No online sessions → 0 delivered */
+    mk_assert_int_eq(0, miku_msggw_send_op_to_user(gw, "nobody", MK_WS_OP_PUSH_MSG, "{}", 2));
+
+    char token[512] = {0};
+    mk_assert_int_eq(0, miku_token_create("push_u", 1, "openIM123", token, sizeof(token)));
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    mk_assert(fd >= 0);
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(19220);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    mk_assert_int_eq(0, connect(fd, (struct sockaddr *)&addr, sizeof(addr)));
+
+    char req[1024];
+    int len = snprintf(req, sizeof(req),
+        "GET /ws?token=%s HTTP/1.1\r\n"
+        "Host: 127.0.0.1:19220\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n", token);
+    write(fd, req, (size_t)len);
+    miku_msggw_poll(gw, 500);
+    char hs[2048] = {0};
+    ssize_t n = read(fd, hs, sizeof(hs) - 1);
+    mk_assert(n > 0);
+    mk_assert(strstr(hs, "101") != NULL);
+
+    mk_assert_int_eq(1, miku_msggw_send_op_to_user(gw, "push_u", MK_WS_OP_PUSH_MSG,
+                                                    "{\"content\":\"hi\"}", 16));
+    uint8_t rbuf[2048];
+    n = read(fd, rbuf, sizeof(rbuf) - 1);
+    mk_assert(n > 0);
+    rbuf[n] = '\0';
+    mk_assert(strstr((char *)rbuf, "2001") != NULL);
+    mk_assert(strstr((char *)rbuf, "hi") != NULL);
+
+    close(fd);
+    miku_msggw_stop(gw);
+    miku_msggw_destroy(gw);
+}
+
 static void test_msggateway_ws_upgrade(void) {
     miku_msggw_t *gw = miku_msggw_create(19200);
     mk_assert_not_null(gw);
@@ -829,6 +877,7 @@ void run_service_tests(void) {
     mk_run_test(test_msggateway_seq_peek_vs_alloc);
     mk_run_test(test_msggateway_unwrap_op_data);
     mk_run_test(test_msggateway_opcode_reply);
+    mk_run_test(test_msggateway_send_op_to_user);
     mk_run_test(test_msgtransfer_queue);
     mk_run_test(test_push_subscribe);
     mk_run_test(test_crontask_tick);

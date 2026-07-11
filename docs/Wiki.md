@@ -547,7 +547,7 @@ WebSocket 消息网关，支持 4096 并发客户端：
 - `miku_cron_tasks_set_msg_store` 绑定存储；`miku-crontask` 独立进程不持有私有内存环
 - 可扩展的任务注册机制
 
-WS 入站 opcode 帧会解包 `data` 再交给 handler；`SEND_MSG` 写入进程内 `msg_store`（含 seq），`PULL_MSG*` / `PULL_CONV_LAST_MSG` 按会话与 seq 范围拉取；`GET_NEWEST_SEQ` 只读 `peek_max_seq`，`SEND_MSG` 才 `alloc_seq`（按 `conversationID` 分桶）；`LOGOUT` 会断开该连接。
+WS 入站 opcode 帧会解包 `data` 再交给 handler；`SEND_MSG` 写入进程内 `msg_store`（含 seq），并向在线 `recvID` 推送 `PUSH_MSG`；`PULL_MSG*` / `PULL_CONV_LAST_MSG` 按会话与 seq 范围拉取；`GET_NEWEST_SEQ` 只读 `peek_max_seq`，`SEND_MSG` 才 `alloc_seq`（按 `conversationID` 分桶）；`LOGOUT` 会断开该连接。
 
 ---
 

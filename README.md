@@ -13,7 +13,7 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 | C Modules | 64 |
 | C Headers | 71 |
 | Binaries | 13 |
-| Tests | 160 |
+| Tests | 161 |
 | Lines of C Code | ~9K |
 | Build Warnings | 0 |
 
@@ -130,7 +130,7 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 - **64 modules** across 6 layers
 - **13 binaries** (12 microservices + all-in-one `miku-dev`)
 - **203 API routes** (Auth 5, User 32, Friend 26, Group 35, Msg 30, Conv 21, Third 15, Object 8, Batch 2, Statistics 4, JSSDK 2, Prometheus 11, Config 6, Restart 1, Admin 4, Version 1)
-- **160 tests + 5 benchmarks**, all passing
+- **161 tests + 5 benchmarks**, all passing
 - **Benchmarks**: JSON ~1.3M/s, HashMap ~7M/s, Cache ~4M/s, Queue ~38M/s
 
 ## Features

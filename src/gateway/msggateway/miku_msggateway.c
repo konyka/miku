@@ -217,6 +217,16 @@ int miku_msggw_send_to_user(miku_msggw_t *gw, const char *user_id,
     return sent;
 }
 
+int miku_msggw_send_op_to_user(miku_msggw_t *gw, const char *user_id,
+                                 int opcode, const char *payload, size_t len) {
+    if (!gw || !user_id) return -1;
+    char buf[8192];
+    int n = snprintf(buf, sizeof(buf), "{\"reqIdentifier\":%d,\"data\":%.*s}",
+                     opcode, (int)len, payload ? payload : "{}");
+    if (n < 0 || (size_t)n >= sizeof(buf)) return -1;
+    return miku_msggw_send_to_user(gw, user_id, buf, (size_t)n);
+}
+
 int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id) {
     if (!gw || !user_id) return -1;
     int kicked = 0;

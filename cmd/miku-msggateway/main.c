@@ -7,6 +7,7 @@
 #include "miku_ws_subscription.h"
 #include "miku_msg_store.h"
 #include "miku_json.h"
+#include "miku_string.h"
 #include "miku_http_server.h"
 #include "miku_http.h"
 #include "miku_uuid.h"
@@ -174,6 +175,23 @@ static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t
                                   store_id, sizeof(store_id));
             if (store_id[0])
                 strncpy(im.msg_id, store_id, sizeof(im.msg_id) - 1);
+        }
+
+        /* Fan-out to online receiver (single chat). */
+        if (im.recv_id[0] && strcmp(im.recv_id, im.send_id) != 0) {
+            miku_json_val_t *pj = miku_im_msg_to_json(&im);
+            if (pj) {
+                miku_string_t *ps = miku_json_stringify(pj);
+                if (ps && ps->data) {
+                    int n = miku_msggw_send_op_to_user(gc->gw, im.recv_id,
+                                                       MK_WS_OP_PUSH_MSG,
+                                                       ps->data, ps->len);
+                    MK_LOG_DEBUG("ws_op SEND_MSG push recv=%s sessions=%d",
+                                 im.recv_id, n);
+                }
+                miku_str_destroy(ps);
+                miku_json_destroy(pj);
+            }
         }
 
         char resp[512];
