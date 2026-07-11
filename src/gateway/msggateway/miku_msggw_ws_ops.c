@@ -9,7 +9,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define MK_WS_FANOUT_MAX 512
+typedef struct {
+    miku_msggw_t       *gw;
+    const miku_im_msg_t *im;
+    const char         *payload;
+    size_t              payload_len;
+    int                 members;
+    int                 pushed;
+} fanout_ctx_t;
 
 void miku_msggw_ws_resolve_conv(char *out, size_t out_sz,
                                 const char *conversation_id,
@@ -79,22 +86,36 @@ static void fill_read_seq_entry(miku_msggw_t *gw, const char *uid, const char *c
     miku_json_object_set(map, cid, entry);
 }
 
+static void fanout_one_member(const char *user_id, int role, void *v) {
+    (void)role;
+    fanout_ctx_t *f = (fanout_ctx_t *)v;
+    if (!f || !user_id) return;
+    f->members++;
+    if (f->im->send_id[0] && strcmp(user_id, f->im->send_id) == 0) return;
+    if (!f->payload) return;
+    int n = miku_msggw_send_op_to_user(f->gw, user_id, MK_WS_OP_PUSH_MSG,
+                                       f->payload, f->payload_len);
+    if (n > 0) f->pushed++;
+}
+
 static void fanout_send_msg(miku_msggw_ws_ctx_t *gc, const miku_im_msg_t *im) {
     if (!gc || !gc->gw || !im) return;
 
     int is_group = (im->conversation_type == MK_IM_CONV_GROUP) || im->group_id[0];
     if (is_group && gc->group && im->group_id[0]) {
-        miku_group_member_t members[MK_WS_FANOUT_MAX];
-        int n = miku_group_get_members(gc->group, im->group_id, members, MK_WS_FANOUT_MAX);
-        int pushed = 0;
-        for (int i = 0; i < n; i++) {
-            if (im->send_id[0] && strcmp(members[i].user_id, im->send_id) == 0)
-                continue;
-            if (push_im_to_user(gc->gw, members[i].user_id, im) > 0)
-                pushed++;
-        }
+        miku_json_val_t *pj = miku_im_msg_to_json(im);
+        miku_string_t *ps = pj ? miku_json_stringify(pj) : NULL;
+        fanout_ctx_t f = {
+            .gw = gc->gw,
+            .im = im,
+            .payload = (ps && ps->data) ? ps->data : NULL,
+            .payload_len = (ps && ps->data) ? ps->len : 0,
+        };
+        miku_group_foreach_member(gc->group, im->group_id, fanout_one_member, &f);
         MK_LOG_DEBUG("ws_op SEND_MSG group=%s members=%d online_pushed=%d",
-                     im->group_id, n, pushed);
+                     im->group_id, f.members, f.pushed);
+        miku_str_destroy(ps);
+        miku_json_destroy(pj);
         return;
     }
 

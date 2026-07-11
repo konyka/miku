@@ -75,6 +75,18 @@ int miku_group_get_members(miku_group_service_t *svc, const char *group_id, miku
     return n;
 }
 
+int miku_group_foreach_member(miku_group_service_t *svc, const char *group_id,
+                              miku_group_member_fn fn, void *ctx) {
+    if (!svc || !group_id || !fn) return 0;
+    int n = 0;
+    for (int i = 0; i < svc->member_count; i++) {
+        if (strcmp(svc->members[i].group_id, group_id) != 0) continue;
+        fn(svc->members[i].user_id, svc->members[i].role_level, ctx);
+        n++;
+    }
+    return n;
+}
+
 
 void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
                             const miku_json_val_t *req, miku_json_val_t *resp) {

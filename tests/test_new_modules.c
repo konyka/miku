@@ -380,6 +380,64 @@ void test_msggw_ws_deliver_msg(void) {
     miku_msggw_destroy(gw);
 }
 
+static void foreach_mark_late(const char *user_id, int role, void *ctx) {
+    (void)role;
+    int *flags = (int *)ctx;
+    if (!user_id || !flags) return;
+    /* user ids m000..m599 — mark index from suffix */
+    if (user_id[0] == 'm' && strlen(user_id) == 4) {
+        int idx = (user_id[1] - '0') * 100 + (user_id[2] - '0') * 10 + (user_id[3] - '0');
+        if (idx >= 0 && idx < 600) flags[idx] = 1;
+    }
+}
+
+void test_group_foreach_beyond_get_members_cap(void) {
+    miku_group_service_t *svc = miku_group_service_create();
+    mk_assert_not_null(svc);
+    miku_group_t g;
+    memset(&g, 0, sizeof(g));
+    strncpy(g.group_name, "big", sizeof(g.group_name) - 1);
+    mk_assert_int_eq(0, miku_group_create(svc, &g, "owner"));
+
+    char uid[16];
+    for (int i = 0; i < 600; i++) {
+        snprintf(uid, sizeof(uid), "m%03d", i);
+        mk_assert_int_eq(0, miku_group_add_member(svc, g.group_id, uid, 20));
+    }
+
+    miku_group_member_t capped[512];
+    int n_cap = miku_group_get_members(svc, g.group_id, capped, 512);
+    mk_assert_int_eq(512, n_cap); /* old fanout path would stop here */
+
+    int seen[600];
+    memset(seen, 0, sizeof(seen));
+    int visited = miku_group_foreach_member(svc, g.group_id, foreach_mark_late, seen);
+    mk_assert_int_eq(601, visited); /* owner + 600 */
+    mk_assert_int_eq(1, seen[0]);
+    mk_assert_int_eq(1, seen[400]);
+    mk_assert_int_eq(1, seen[550]);
+    mk_assert_int_eq(1, seen[599]);
+
+    /* Group deliver visits all members (no 512 truncation) via foreach. */
+    miku_msggw_t *gw = miku_msggw_create(19352);
+    miku_msg_store_t *store = miku_msg_store_create(NULL);
+    miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = store, .sub = NULL, .group = svc };
+    miku_im_msg_t im;
+    miku_im_msg_init(&im);
+    strncpy(im.send_id, "owner", sizeof(im.send_id) - 1);
+    strncpy(im.group_id, g.group_id, sizeof(im.group_id) - 1);
+    strncpy(im.content, "to all", sizeof(im.content) - 1);
+    im.content_type = MK_IM_MSG_TYPE_TEXT;
+    im.conversation_type = MK_IM_CONV_GROUP;
+    mk_assert_int_eq(0, miku_msggw_ws_deliver_msg(&ctx, &im));
+    mk_assert(im.seq > 0);
+    mk_assert(im.conversation_id[0] == 's' && im.conversation_id[1] == 'g');
+
+    miku_msg_store_destroy(store);
+    miku_msggw_destroy(gw);
+    miku_group_service_destroy(svc);
+}
+
 void test_gzip_roundtrip(void) {
     const char *data = "Hello, this is a test string for gzip compression in Miku IM Server!";
     size_t data_len = strlen(data);
@@ -1969,6 +2027,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_msggw_ws_resolve_conv);
     mk_run_test(test_msggw_user_read_seq);
     mk_run_test(test_msggw_ws_deliver_msg);
+    mk_run_test(test_group_foreach_beyond_get_members_cap);
     mk_run_test(test_gzip_roundtrip);
     mk_run_test(test_gzip_detect_encoding);
     mk_run_test(test_im_message_roundtrip);
