@@ -21,13 +21,13 @@ static char g_push_url[128];
 
 static void api_kick_user(const char *user_id, int platform, void *ctx) {
     (void)ctx;
-    (void)platform;
     if (!user_id || !g_kick_url[0]) return;
-    char body[160];
-    snprintf(body, sizeof(body), "{\"userID\":\"%s\"}", user_id);
+    char body[192];
+    snprintf(body, sizeof(body), "{\"userID\":\"%s\",\"platformID\":%d}", user_id, platform);
     int rc = miku_http_post_json(g_kick_url, body);
     if (rc == 0)
-        MK_LOG_INFO("force_logout: kicked via %s user=%s", g_kick_url, user_id);
+        MK_LOG_INFO("force_logout: kicked via %s user=%s platform=%d",
+                    g_kick_url, user_id, platform);
     else
         MK_LOG_WARN("force_logout: kick POST failed (%s) user=%s", g_kick_url, user_id);
 }

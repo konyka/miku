@@ -231,7 +231,7 @@ int miku_msggw_send_op_to_user(miku_msggw_t *gw, const char *user_id,
     return miku_msggw_send_to_user(gw, user_id, buf, (size_t)n);
 }
 
-int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id) {
+int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id, int platform) {
     if (!gw || !user_id) return -1;
     static const char kick_payload[] = "{\"reason\":\"forced offline\"}";
     int kicked = 0;
@@ -239,7 +239,9 @@ int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id) {
     int idx = gw->user_head[b];
     while (idx >= 0) {
         int next = gw->user_next[idx];
-        if (gw->clients[idx].online && strcmp(gw->clients[idx].user_id, user_id) == 0) {
+        if (gw->clients[idx].online &&
+            strcmp(gw->clients[idx].user_id, user_id) == 0 &&
+            (platform < 0 || gw->clients[idx].platform == platform)) {
             /* Notify SDK before closing so clients can handle force-logout cleanly. */
             miku_msggw_send_op(gw, idx, MK_WS_OP_KICK_ONLINE,
                                kick_payload, sizeof(kick_payload) - 1);

@@ -25,6 +25,7 @@ static miku_group_service_t *g_group;
 static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_msggw_t *gw = (miku_msggw_t *)ctx;
     char uid[64] = {0};
+    int platform = -1;
     if (req && req->body.data && req->body.len > 0) {
         char *tmp = strndup(req->body.data, req->body.len);
         miku_json_val_t *j = miku_json_parse_str(tmp);
@@ -32,16 +33,19 @@ static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t 
         if (j) {
             const char *u = miku_json_str(miku_json_get(j, "userID"));
             if (u) strncpy(uid, u, sizeof(uid) - 1);
+            miku_json_val_t *p = miku_json_get(j, "platformID");
+            if (p) platform = (int)miku_json_int(p);
             miku_json_destroy(j);
         }
     }
     int kicked = 0;
     if (uid[0] && gw)
-        kicked = miku_msggw_kick_user(gw, uid);
+        kicked = miku_msggw_kick_user(gw, uid, platform);
     char buf[128];
     snprintf(buf, sizeof(buf), "{\"errCode\":0,\"errMsg\":\"\",\"kicked\":%d}", kicked);
     miku_http_response_set_json(resp, buf);
-    MK_LOG_INFO("internal kick user=%s kicked=%d", uid[0] ? uid : "(empty)", kicked);
+    MK_LOG_INFO("internal kick user=%s platform=%d kicked=%d",
+                uid[0] ? uid : "(empty)", platform, kicked);
 }
 
 static void handle_internal_group_member(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {

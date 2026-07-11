@@ -405,13 +405,71 @@ static void test_msggateway_slot_reuse(void) {
         mk_assert(strstr(resp, "101") != NULL);
         mk_assert_int_eq(1, miku_msggw_client_count(gw));
 
-        miku_msggw_kick_user(gw, "slot_u");
+        miku_msggw_kick_user(gw, "slot_u", -1);
         mk_assert_int_eq(0, miku_msggw_client_count(gw));
         close(fd);
     }
 
     /* After 3 connect/kick cycles, online count stays 0 (slots reused). */
     mk_assert_int_eq(0, miku_msggw_client_count(gw));
+    miku_msggw_stop(gw);
+    miku_msggw_destroy(gw);
+}
+
+static int ws_connect_with_token(int port, const char *token) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        close(fd);
+        return -1;
+    }
+    char req[1024];
+    int len = snprintf(req, sizeof(req),
+        "GET /ws?token=%s HTTP/1.1\r\n"
+        "Host: 127.0.0.1:%d\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n", token, port);
+    write(fd, req, (size_t)len);
+    return fd;
+}
+
+static void test_msggateway_kick_by_platform(void) {
+    miku_msggw_t *gw = miku_msggw_create(19102);
+    mk_assert_not_null(gw);
+    mk_assert_int_eq(0, miku_msggw_start(gw));
+
+    char tok1[512] = {0}, tok2[512] = {0};
+    mk_assert_int_eq(0, miku_token_create("kick_u", 1, "openIM123", tok1, sizeof(tok1)));
+    mk_assert_int_eq(0, miku_token_create("kick_u", 2, "openIM123", tok2, sizeof(tok2)));
+
+    int fd1 = ws_connect_with_token(19102, tok1);
+    int fd2 = ws_connect_with_token(19102, tok2);
+    mk_assert(fd1 >= 0 && fd2 >= 0);
+    miku_msggw_poll(gw, 300);
+    char resp[1024];
+    memset(resp, 0, sizeof(resp));
+    read(fd1, resp, sizeof(resp) - 1);
+    mk_assert(strstr(resp, "101") != NULL);
+    memset(resp, 0, sizeof(resp));
+    read(fd2, resp, sizeof(resp) - 1);
+    mk_assert(strstr(resp, "101") != NULL);
+    mk_assert_int_eq(2, miku_msggw_client_count(gw));
+
+    /* Kick only platform 1 — platform 2 stays online. */
+    mk_assert_int_eq(1, miku_msggw_kick_user(gw, "kick_u", 1));
+    mk_assert_int_eq(1, miku_msggw_client_count(gw));
+
+    mk_assert_int_eq(1, miku_msggw_kick_user(gw, "kick_u", 2));
+    mk_assert_int_eq(0, miku_msggw_client_count(gw));
+
+    close(fd1);
+    close(fd2);
     miku_msggw_stop(gw);
     miku_msggw_destroy(gw);
 }
@@ -874,6 +932,7 @@ void run_service_tests(void) {
     mk_run_test(test_rpc_server_e2e);
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
+    mk_run_test(test_msggateway_kick_by_platform);
     mk_run_test(test_msggateway_seq_peek_vs_alloc);
     mk_run_test(test_msggateway_unwrap_op_data);
     mk_run_test(test_msggateway_opcode_reply);

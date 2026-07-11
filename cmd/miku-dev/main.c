@@ -68,11 +68,11 @@ static void dev_pipeline_push(const char *user_id, const char *conv_id, int64_t 
 }
 
 static void dev_kick_user(const char *user_id, int platform, void *ctx) {
-    (void)platform;
     miku_msggw_t *gw = (miku_msggw_t *)ctx;
     if (gw && user_id) {
-        int n = miku_msggw_kick_user(gw, user_id);
-        MK_LOG_INFO("force_logout: kicked %d WS session(s) for %s", n, user_id);
+        int n = miku_msggw_kick_user(gw, user_id, platform);
+        MK_LOG_INFO("force_logout: kicked %d WS session(s) for %s platform=%d",
+                    n, user_id, platform);
     }
 }
 

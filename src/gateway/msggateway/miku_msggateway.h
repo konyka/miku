@@ -51,7 +51,7 @@ MIKU_API int  miku_msggw_send_to_user(miku_msggw_t *gw, const char *user_id,
                                        const char *msg, size_t len);
 MIKU_API int  miku_msggw_send_op_to_user(miku_msggw_t *gw, const char *user_id,
                                            int opcode, const char *payload, size_t len);
-MIKU_API int  miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id);
+MIKU_API int  miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id, int platform);
 
 MIKU_API void miku_msggw_on_message(miku_msggw_t *gw, miku_msggw_on_msg_fn fn, void *ctx);
 MIKU_API void miku_msggw_on_opcode(miku_msggw_t *gw, miku_msggw_on_op_fn fn, void *ctx);
