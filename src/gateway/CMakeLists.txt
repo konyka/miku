@@ -4,6 +4,7 @@ set(MIKU_GATEWAY_SOURCES
     msggateway/miku_msggateway.c
     msggateway/miku_im_message.c
     msggateway/miku_ws_subscription.c
+    msggateway/miku_msggw_ws_ops.c
     msgtransfer/miku_msgtransfer.c
     msgtransfer/miku_mt_pipeline.c
     push/miku_push.c

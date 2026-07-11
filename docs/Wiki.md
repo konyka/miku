@@ -547,7 +547,7 @@ WebSocket 消息网关，支持 4096 并发客户端：
 - `miku_cron_tasks_set_msg_store` 绑定存储；`miku-crontask` 独立进程不持有私有内存环
 - 可扩展的任务注册机制
 
-WS 入站 opcode 帧会解包 `data` 再交给 handler；`SEND_MSG` 写入进程内 `msg_store`（含 seq），并向在线 `recvID` 推送 `PUSH_MSG`；`SUB_USER_STATUS` 订阅后，目标用户上下线会向订阅者推送 presence；`PULL_MSG*` / `PULL_CONV_LAST_MSG` 按会话与 seq 范围拉取；`GET_NEWEST_SEQ` 只读 `peek_max_seq`，`SEND_MSG` 才 `alloc_seq`（按 `conversationID` 分桶）；`LOGOUT` 会断开该连接。
+WS 入站 opcode 帧会解包 `data` 再交给 handler；`SEND_MSG` 写入进程内 `msg_store`（含 seq）：单聊向在线 `recvID` 推送 `PUSH_MSG`，群聊（`conversationType=2` / `groupID`）按成员列表扇出（排除发送者，会话 ID 缺省为 `sg_<groupID>`）；拆分部署可用 `127.0.0.1:ws_port+1` 的 `POST /internal/group_member` 同步成员；`miku-dev` 复用同一套 opcode/presence 接线并共享 API 的 `group_svc`。`SUB_USER_STATUS` 订阅后，目标用户上下线会向订阅者推送 presence；`PULL_MSG*` / `PULL_CONV_LAST_MSG` 按会话与 seq 范围拉取；`GET_NEWEST_SEQ` 只读 `peek_max_seq`，`SEND_MSG` 才 `alloc_seq`（按 `conversationID` 分桶）；`LOGOUT` 会断开该连接。
 
 ---
 

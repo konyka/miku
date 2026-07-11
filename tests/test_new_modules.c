@@ -7,6 +7,7 @@
 #include "miku_gzip.h"
 #include "miku_cron_tasks.h"
 #include "miku_ws_subscription.h"
+#include "miku_msggw_ws_ops.h"
 #include "miku_im_message.h"
 #include "miku_mt_pipeline.h"
 #include "miku_msg_store.h"
@@ -289,6 +290,22 @@ void test_ws_subscription_basic(void) {
     mk_assert(strstr(g_sub_last_payload, "offline") != NULL);
 
     miku_ws_sub_destroy(sub);
+}
+
+void test_msggw_ws_resolve_conv(void) {
+    char conv[128];
+
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "explicit", "g1", "u2");
+    mk_assert_str_eq("explicit", conv);
+
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "g9", "u2");
+    mk_assert_str_eq("sg_g9", conv);
+
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), NULL, NULL, "u2");
+    mk_assert_str_eq("u2", conv);
+
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "", "");
+    mk_assert_str_eq("default", conv);
 }
 
 void test_gzip_roundtrip(void) {
@@ -1757,6 +1774,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_offline_push_token);
     mk_run_test(test_cron_tasks_basic);
     mk_run_test(test_ws_subscription_basic);
+    mk_run_test(test_msggw_ws_resolve_conv);
     mk_run_test(test_gzip_roundtrip);
     mk_run_test(test_gzip_detect_encoding);
     mk_run_test(test_im_message_roundtrip);
