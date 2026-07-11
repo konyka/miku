@@ -16,6 +16,7 @@ MIKU_API void miku_group_service_destroy(miku_group_service_t *svc);
 MIKU_API int miku_group_create(miku_group_service_t *svc, miku_group_t *g, const char *owner_uid);
 MIKU_API miku_group_t *miku_group_find(miku_group_service_t *svc, const char *group_id);
 MIKU_API int miku_group_add_member(miku_group_service_t *svc, const char *group_id, const char *user_id, int role);
+MIKU_API int miku_group_remove_member(miku_group_service_t *svc, const char *group_id, const char *user_id);
 MIKU_API int miku_group_get_members(miku_group_service_t *svc, const char *group_id, miku_group_member_t *out, int max);
 
 MIKU_API void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,

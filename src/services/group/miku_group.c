@@ -37,6 +37,11 @@ miku_group_t *miku_group_find(miku_group_service_t *svc, const char *group_id) {
 
 int miku_group_add_member(miku_group_service_t *svc, const char *group_id, const char *user_id, int role) {
     if (!svc || !group_id || !user_id || svc->member_count >= MK_MAX_MEMBERS) return -1;
+    for (int i = 0; i < svc->member_count; i++) {
+        if (strcmp(svc->members[i].group_id, group_id) == 0 &&
+            strcmp(svc->members[i].user_id, user_id) == 0)
+            return 0; /* already a member */
+    }
     miku_group_member_t *m = &svc->members[svc->member_count++];
     strncpy(m->group_id, group_id, sizeof(m->group_id) - 1);
     strncpy(m->user_id, user_id, sizeof(m->user_id) - 1);
@@ -45,6 +50,21 @@ int miku_group_add_member(miku_group_service_t *svc, const char *group_id, const
     miku_group_t *g = miku_group_find(svc, group_id);
     if (g) g->member_count++;
     return 0;
+}
+
+int miku_group_remove_member(miku_group_service_t *svc, const char *group_id, const char *user_id) {
+    if (!svc || !group_id || !user_id) return -1;
+    for (int i = 0; i < svc->member_count; i++) {
+        if (strcmp(svc->members[i].group_id, group_id) == 0 &&
+            strcmp(svc->members[i].user_id, user_id) == 0) {
+            svc->members[i] = svc->members[svc->member_count - 1];
+            svc->member_count--;
+            miku_group_t *g = miku_group_find(svc, group_id);
+            if (g && g->member_count > 0) g->member_count--;
+            return 0;
+        }
+    }
+    return -1;
 }
 
 int miku_group_get_members(miku_group_service_t *svc, const char *group_id, miku_group_member_t *out, int max) {
@@ -126,13 +146,31 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         int rc = miku_group_add_member(svc, gid, uid, 20);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
     } else if (strcmp(method, "quitGroup") == 0) {
-        miku_ji(resp, "errCode", 0);
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        int rc = miku_group_remove_member(svc, gid, uid);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
     } else if (strcmp(method, "dismissGroup") == 0) {
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "muteGroup") == 0 || strcmp(method, "cancelMuteGroup") == 0) {
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "kickGroupMember") == 0) {
-        miku_ji(resp, "errCode", 0);
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        int rc = -1;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (gid && uid)
+            rc = miku_group_remove_member(svc, gid, uid);
+        miku_json_val_t *ids = req ? miku_json_get(req, "kickedUserIDs") : NULL;
+        if (!ids) ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
+        if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(ids);
+            for (size_t i = 0; i < n; i++) {
+                const char *u = miku_json_str(miku_json_at(ids, i));
+                if (u && miku_group_remove_member(svc, gid, u) == 0)
+                    rc = 0;
+            }
+        }
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
     } else if (strcmp(method, "transferGroupOwner") == 0) {
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "getJoinedGroupList") == 0) {

@@ -18,9 +18,9 @@
 typedef void (*miku_api_kick_fn)(const char *user_id, int platform, void *ctx);
 /* Return 0 on success. May update msg (seq, msg_id, send_time). */
 typedef int (*miku_api_msg_sent_fn)(miku_im_msg_t *msg, void *ctx);
-/* Sync a group member into msggateway (split deploy). */
+/* Sync a group member into msggateway (split deploy). remove!=0 deletes. */
 typedef void (*miku_api_group_member_fn)(const char *group_id, const char *user_id,
-                                          int role, void *ctx);
+                                          int role, int remove, void *ctx);
 
 typedef struct {
     miku_auth_service_t       *auth;

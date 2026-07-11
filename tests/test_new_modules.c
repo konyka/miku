@@ -1472,10 +1472,13 @@ static int g_gm_sync_count;
 static char g_gm_last_gid[64];
 static char g_gm_last_uid[64];
 static int g_gm_last_role;
+static int g_gm_last_remove;
 
-static void test_gm_sync_cb(const char *group_id, const char *user_id, int role, void *ctx) {
+static void test_gm_sync_cb(const char *group_id, const char *user_id, int role, int remove, void *ctx) {
     (void)ctx;
     g_gm_sync_count++;
+    g_gm_last_role = role;
+    g_gm_last_remove = remove;
     if (group_id) {
         strncpy(g_gm_last_gid, group_id, sizeof(g_gm_last_gid) - 1);
         g_gm_last_gid[sizeof(g_gm_last_gid) - 1] = '\0';
@@ -1484,13 +1487,13 @@ static void test_gm_sync_cb(const char *group_id, const char *user_id, int role,
         strncpy(g_gm_last_uid, user_id, sizeof(g_gm_last_uid) - 1);
         g_gm_last_uid[sizeof(g_gm_last_uid) - 1] = '\0';
     }
-    g_gm_last_role = role;
 }
 
 static void test_group_member_sync_callback(void) {
     g_gm_sync_count = 0;
     g_gm_last_gid[0] = g_gm_last_uid[0] = '\0';
     g_gm_last_role = 0;
+    g_gm_last_remove = -1;
 
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     mk_assert_not_null(ctx);
@@ -1530,12 +1533,22 @@ static void test_group_member_sync_callback(void) {
     mk_assert_int_eq(2, g_gm_sync_count);
     mk_assert_str_eq("gm_u2", g_gm_last_uid);
     mk_assert_int_eq(20, g_gm_last_role);
+    mk_assert_int_eq(0, g_gm_last_remove);
+
+    char quit[8192] = {0};
+    snprintf(body, sizeof(body), "{\"userID\":\"gm_u2\",\"groupID\":\"%s\"}", gid);
+    http_post_with_token(19850, "/group/quit", tok, body, quit, sizeof(quit));
+    mk_assert_int_eq(3, g_gm_sync_count);
+    mk_assert_str_eq("gm_u2", g_gm_last_uid);
+    mk_assert_int_eq(1, g_gm_last_remove);
 
     miku_group_service_t *gw_group = miku_group_service_create();
-    mk_assert_int_eq(0, miku_group_add_member(gw_group, g_gm_last_gid, "gm_owner", 100));
-    mk_assert_int_eq(0, miku_group_add_member(gw_group, g_gm_last_gid, "gm_u2", 20));
+    mk_assert_int_eq(0, miku_group_add_member(gw_group, gid, "gm_owner", 100));
+    mk_assert_int_eq(0, miku_group_add_member(gw_group, gid, "gm_u2", 20));
+    mk_assert_int_eq(0, miku_group_remove_member(gw_group, gid, "gm_u2"));
     miku_group_member_t mems[8];
-    mk_assert_int_eq(2, miku_group_get_members(gw_group, g_gm_last_gid, mems, 8));
+    mk_assert_int_eq(1, miku_group_get_members(gw_group, gid, mems, 8));
+    mk_assert_str_eq("gm_owner", mems[0].user_id);
     miku_group_service_destroy(gw_group);
 
     miku_json_destroy(r);

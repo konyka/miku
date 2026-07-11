@@ -386,9 +386,10 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
         if (require_fields(j, resp, "userID", "groupID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
     } else if (strcmp(method, "inviteToGroup") == 0 || strcmp(method, "kickGroupMember") == 0) {
         if (require_fields(j, resp, "groupID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
-        if (!miku_json_get(j, "userID") && !miku_json_get(j, "invitedUserIDs")) {
+        if (!miku_json_get(j, "userID") && !miku_json_get(j, "invitedUserIDs") &&
+            !miku_json_get(j, "kickedUserIDs")) {
             free(path); miku_json_destroy(j); miku_json_destroy(out);
-            miku_http_response_set_json(resp, "{\"errCode\":400,\"errMsg\":\"missing userID or invitedUserIDs\"}");
+            miku_http_response_set_json(resp, "{\"errCode\":400,\"errMsg\":\"missing userID\"}");
             return;
         }
     }
@@ -400,21 +401,38 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
         if (err == 0 && strcmp(method, "createGroup") == 0) {
             const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
             const char *gid = miku_json_str(miku_json_get(out, "data"));
-            if (owner && gid) c->on_group_member(gid, owner, 100, c->on_group_member_ctx);
+            if (owner && gid) c->on_group_member(gid, owner, 100, 0, c->on_group_member_ctx);
         } else if (err == 0 && strcmp(method, "joinGroup") == 0) {
             const char *uid = miku_json_str(miku_json_get(j, "userID"));
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));
-            if (uid && gid) c->on_group_member(gid, uid, 20, c->on_group_member_ctx);
+            if (uid && gid) c->on_group_member(gid, uid, 20, 0, c->on_group_member_ctx);
         } else if (err == 0 && strcmp(method, "inviteToGroup") == 0) {
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));
             const char *uid = miku_json_str(miku_json_get(j, "userID"));
-            if (gid && uid) c->on_group_member(gid, uid, 20, c->on_group_member_ctx);
+            if (gid && uid) c->on_group_member(gid, uid, 20, 0, c->on_group_member_ctx);
             miku_json_val_t *ids = miku_json_get(j, "invitedUserIDs");
             if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
                 size_t n = miku_json_size(ids);
                 for (size_t i = 0; i < n; i++) {
                     const char *u = miku_json_str(miku_json_at(ids, i));
-                    if (u) c->on_group_member(gid, u, 20, c->on_group_member_ctx);
+                    if (u) c->on_group_member(gid, u, 20, 0, c->on_group_member_ctx);
+                }
+            }
+        } else if (err == 0 && strcmp(method, "quitGroup") == 0) {
+            const char *uid = miku_json_str(miku_json_get(j, "userID"));
+            const char *gid = miku_json_str(miku_json_get(j, "groupID"));
+            if (uid && gid) c->on_group_member(gid, uid, 0, 1, c->on_group_member_ctx);
+        } else if (err == 0 && strcmp(method, "kickGroupMember") == 0) {
+            const char *gid = miku_json_str(miku_json_get(j, "groupID"));
+            const char *uid = miku_json_str(miku_json_get(j, "userID"));
+            if (gid && uid) c->on_group_member(gid, uid, 0, 1, c->on_group_member_ctx);
+            miku_json_val_t *ids = miku_json_get(j, "kickedUserIDs");
+            if (!ids) ids = miku_json_get(j, "invitedUserIDs");
+            if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+                size_t n = miku_json_size(ids);
+                for (size_t i = 0; i < n; i++) {
+                    const char *u = miku_json_str(miku_json_at(ids, i));
+                    if (u) c->on_group_member(gid, u, 0, 1, c->on_group_member_ctx);
                 }
             }
         }

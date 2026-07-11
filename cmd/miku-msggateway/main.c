@@ -55,7 +55,7 @@ static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t 
 
 static void handle_internal_group_member(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_group_service_t *group = (miku_group_service_t *)ctx;
-    char gid[64] = {0}, uid[64] = {0};
+    char gid[64] = {0}, uid[64] = {0}, action[16] = "add";
     int role = 20;
     if (req && req->body.data && req->body.len > 0) {
         char *tmp = strndup(req->body.data, req->body.len);
@@ -64,21 +64,27 @@ static void handle_internal_group_member(miku_http_request_t *req, miku_http_res
         if (j) {
             const char *g = miku_json_str(miku_json_get(j, "groupID"));
             const char *u = miku_json_str(miku_json_get(j, "userID"));
+            const char *a = miku_json_str(miku_json_get(j, "action"));
             if (g) strncpy(gid, g, sizeof(gid) - 1);
             if (u) strncpy(uid, u, sizeof(uid) - 1);
+            if (a && a[0]) strncpy(action, a, sizeof(action) - 1);
             int64_t r = miku_json_int(miku_json_get(j, "role"));
             if (r != 0) role = (int)r;
             miku_json_destroy(j);
         }
     }
     int rc = -1;
-    if (group && gid[0] && uid[0])
-        rc = miku_group_add_member(group, gid, uid, role);
+    if (group && gid[0] && uid[0]) {
+        if (strcmp(action, "remove") == 0)
+            rc = miku_group_remove_member(group, gid, uid);
+        else
+            rc = miku_group_add_member(group, gid, uid, role);
+    }
     char buf[128];
     snprintf(buf, sizeof(buf), "{\"errCode\":%d,\"errMsg\":\"\"}", rc == 0 ? 0 : 500);
     miku_http_response_set_json(resp, buf);
-    MK_LOG_INFO("internal group_member group=%s user=%s rc=%d",
-                gid[0] ? gid : "(empty)", uid[0] ? uid : "(empty)", rc);
+    MK_LOG_INFO("internal group_member action=%s group=%s user=%s rc=%d",
+                action, gid[0] ? gid : "(empty)", uid[0] ? uid : "(empty)", rc);
 }
 
 static void handle_internal_push_msg(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {

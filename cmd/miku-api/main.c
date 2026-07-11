@@ -33,16 +33,21 @@ static void api_kick_user(const char *user_id, int platform, void *ctx) {
         MK_LOG_WARN("force_logout: kick POST failed (%s) user=%s", g_kick_url, user_id);
 }
 
-static void api_group_member(const char *group_id, const char *user_id, int role, void *ctx) {
+static void api_group_member(const char *group_id, const char *user_id, int role, int remove, void *ctx) {
     (void)ctx;
     if (!group_id || !user_id || !g_group_member_url[0]) return;
-    char body[256];
-    snprintf(body, sizeof(body),
-             "{\"groupID\":\"%s\",\"userID\":\"%s\",\"role\":%d}", group_id, user_id, role);
+    char body[288];
+    if (remove)
+        snprintf(body, sizeof(body),
+                 "{\"groupID\":\"%s\",\"userID\":\"%s\",\"action\":\"remove\"}", group_id, user_id);
+    else
+        snprintf(body, sizeof(body),
+                 "{\"groupID\":\"%s\",\"userID\":\"%s\",\"role\":%d,\"action\":\"add\"}",
+                 group_id, user_id, role);
     int rc = miku_http_post_json(g_group_member_url, body);
     if (rc == 0)
-        MK_LOG_INFO("group_member sync via %s group=%s user=%s role=%d",
-                    g_group_member_url, group_id, user_id, role);
+        MK_LOG_INFO("group_member sync via %s group=%s user=%s remove=%d",
+                    g_group_member_url, group_id, user_id, remove);
     else
         MK_LOG_WARN("group_member sync failed (%s) group=%s user=%s",
                     g_group_member_url, group_id, user_id);
