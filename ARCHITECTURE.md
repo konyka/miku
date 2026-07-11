@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 157 tests, 64 modules, 13 binaries, 7 RPC services — in-mem msg_store is process-local: deleteMsg cron co-located with writers (msgtransfer/dev); MsgGateway fd/user indexes; offline-push HTTP optional; S3 cron still stub.
+> **Status**: 203 API routes, 157 tests, 64 modules, 13 binaries, 7 RPC services — in-mem deleteMsg co-located with writers; MsgGateway admin kick on ws_port+1; miku-api force_logout kicks via HTTP; offline-push HTTP optional; S3 cron still stub.
 
 ## 1. Overview
 
@@ -946,7 +946,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete for the HTTP/WS API surface. **157 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse, O(1) fd map and user-id hash chains for push/kick, and requires handshake token. HTTP routes dispatch via O(1) hashmap. Webhooks POST asynchronously via thread pool. `force_logout` can kick WS sessions when `on_kick` is wired (miku-dev). `msg_store` keeps an 8k in-memory ring with free-list + msg_id hash (Mongo optional); cron `deleteMsg`/`clearUserMsg` and `miku-msgtransfer` mongo flush call into it. Offline push POSTs JSON to an optional `http://` endpoint when configured.
+All phases complete for the HTTP/WS API surface. **157 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse, O(1) fd map and user-id hash chains for push/kick, and requires handshake token. Split deploy: `miku-msggateway` exposes localhost `POST /internal/kick` on `ws_port+1`; `miku-api` wires `on_kick` via `miku_http_post_json`. In-mem `deleteMsg` co-located with writers. Offline push POSTs JSON to an optional `http://` endpoint when configured.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

@@ -142,7 +142,7 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 - Custom binary RPC with Protobuf codec (API currently embeds services in-process; RPC binaries available for split deploy)
 - MsgTransfer pipeline with batch flush (Redis/Mongo/Push callbacks)
 - Offline push notifications (FCM/Getui/JPUSH/Dummy; optional `http://` gateway via `miku_offline_push_set_endpoint`)
-- Cron: in-memory `deleteMsg` runs in-process with writers (`miku-msgtransfer` / `miku-dev`); `miku-crontask` keeps schedule hooks for shared backends / S3
+- Split deploy: `miku-api` `force_logout` kicks WS via `miku-msggateway` localhost `POST /internal/kick` on `ws_port+1`
 - MsgTransfer mongo flush + deleteMsg cron share one `msg_store` so purge actually removes persisted messages
 - Webhook/callback system (11 event types; outbound HTTP POST async via thread pool, short connect timeout)
 - Per-user rate limiting (mutex-protected sliding window + LRU eviction)

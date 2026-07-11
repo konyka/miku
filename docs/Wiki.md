@@ -45,7 +45,7 @@
 | C 代码行数 | ~9K |
 | 构建警告 | 0 |
 
-Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。消息存储在无 Mongo 时使用 8k 内存环，cron `deleteMsg`/`clearUserMsg` 会真实清理；离线推送可配置 `http://` 网关 POST；S3 清理仍待对象存储绑定。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
+Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。消息存储在无 Mongo 时使用 8k 内存环，cron `deleteMsg` 与写入同进程；离线推送可配置 `http://` 网关 POST；拆分部署时 `miku-api` 的 `force_logout` 通过 `ws_port+1` 的 `/internal/kick` 踢掉 WS。S3 清理仍待对象存储绑定。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
 
 ---
 

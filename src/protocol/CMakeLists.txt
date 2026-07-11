@@ -1,6 +1,7 @@
 # Protocol library: HTTP parser, WebSocket, RPC framework, Protobuf, JSON
 set(MIKU_PROTOCOL_SOURCES
     miku_http.c
+    miku_http_client.c
     miku_http_server.c
     miku_json.c
     miku_websocket.c
