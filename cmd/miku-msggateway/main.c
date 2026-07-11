@@ -5,6 +5,7 @@
 #include "miku_msggateway.h"
 #include "miku_im_message.h"
 #include "miku_ws_subscription.h"
+#include "miku_msg_store.h"
 #include "miku_json.h"
 #include "miku_http_server.h"
 #include "miku_http.h"
@@ -18,10 +19,12 @@
 static miku_graceful_t g_graceful;
 static miku_http_server_t *g_admin;
 static miku_msggw_t *g_gw;
+static miku_msg_store_t *g_store;
 
 typedef struct {
-    miku_msggw_t    *gw;
-    miku_ws_sub_t   *sub;
+    miku_msggw_t      *gw;
+    miku_ws_sub_t     *sub;
+    miku_msg_store_t  *store;
 } gw_ctx_t;
 
 static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
@@ -108,10 +111,40 @@ static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t
         break;
     }
     case MK_WS_OP_PULL_MSG_BY_SEQ:
-    case MK_WS_OP_PULL_MSG:
-        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"msgs\":[]}");
-        MK_LOG_INFO("ws_op[%d]: PULL client=%d (empty until store wired)", opcode, client_idx);
+    case MK_WS_OP_PULL_MSG: {
+        char conv[128] = {0};
+        int64_t begin_seq = 0, end_seq = 0;
+        if (payload && len > 0) {
+            char *tmp = strndup(payload, len);
+            miku_json_val_t *j = miku_json_parse_str(tmp);
+            free(tmp);
+            if (j) {
+                const char *c = miku_json_str(miku_json_get(j, "conversationID"));
+                if (c) strncpy(conv, c, sizeof(conv) - 1);
+                begin_seq = miku_json_int(miku_json_get(j, "beginSeq"));
+                if (begin_seq == 0)
+                    begin_seq = miku_json_int(miku_json_get(j, "startSeq"));
+                end_seq = miku_json_int(miku_json_get(j, "endSeq"));
+                miku_json_destroy(j);
+            }
+        }
+        char *msgs = NULL;
+        if (gc->store && conv[0])
+            miku_msg_store_find_by_conv(gc->store, conv, begin_seq, end_seq, &msgs);
+        if (!msgs) msgs = strdup("[]");
+        size_t need = strlen(msgs) + 64;
+        char *resp = (char *)malloc(need);
+        if (resp) {
+            snprintf(resp, need, "{\"errCode\":0,\"msgs\":%s}", msgs);
+            reply_json(gc->gw, client_idx, opcode, resp);
+            free(resp);
+        } else {
+            reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"msgs\":[]}");
+        }
+        free(msgs);
+        MK_LOG_INFO("ws_op[%d]: PULL client=%d conv=%s", opcode, client_idx, conv);
         break;
+    }
     case MK_WS_OP_SEND_MSG: {
         char *tmp = payload && len > 0 ? strndup(payload, len) : NULL;
         miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
@@ -125,10 +158,23 @@ static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t
         if (!im.send_id[0] && uid[0])
             strncpy(im.send_id, uid, sizeof(im.send_id) - 1);
         miku_im_msg_generate_id(&im);
+        const char *conv = im.conversation_id[0] ? im.conversation_id
+                           : (im.recv_id[0] ? im.recv_id : "default");
+        if (!im.conversation_id[0])
+            strncpy(im.conversation_id, conv, sizeof(im.conversation_id) - 1);
         int64_t seq = 0;
-        miku_msggw_alloc_seq(gc->gw, im.conversation_id[0] ? im.conversation_id : im.recv_id, &seq);
+        miku_msggw_alloc_seq(gc->gw, conv, &seq);
         im.seq = seq;
         if (im.send_time <= 0) im.send_time = miku_timestamp_ms();
+
+        char store_id[64] = {0};
+        if (gc->store) {
+            miku_msg_store_insert(gc->store, conv, im.send_id, im.content_type,
+                                  im.content, im.send_time, im.seq,
+                                  store_id, sizeof(store_id));
+            if (store_id[0])
+                strncpy(im.msg_id, store_id, sizeof(im.msg_id) - 1);
+        }
 
         char resp[512];
         snprintf(resp, sizeof(resp),
@@ -141,17 +187,39 @@ static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t
                     opcode, client_idx, im.send_id, im.recv_id, (long long)im.seq);
         break;
     }
+    case MK_WS_OP_PULL_CONV_LAST_MSG: {
+        char conv[128] = {0};
+        if (payload && len > 0) {
+            char *tmp = strndup(payload, len);
+            miku_json_val_t *j = miku_json_parse_str(tmp);
+            free(tmp);
+            if (j) {
+                const char *c = miku_json_str(miku_json_get(j, "conversationID"));
+                if (c) strncpy(conv, c, sizeof(conv) - 1);
+                miku_json_destroy(j);
+            }
+        }
+        int64_t max_seq = 0;
+        miku_msggw_peek_max_seq(gc->gw, conv[0] ? conv : "default", &max_seq);
+        char *msgs = NULL;
+        if (gc->store && conv[0] && max_seq > 0)
+            miku_msg_store_find_by_conv(gc->store, conv, max_seq, max_seq, &msgs);
+        if (!msgs) msgs = strdup("[]");
+        size_t need = strlen(msgs) + 64;
+        char *resp = (char *)malloc(need);
+        if (resp) {
+            snprintf(resp, need, "{\"errCode\":0,\"msgs\":%s}", msgs);
+            reply_json(gc->gw, client_idx, opcode, resp);
+            free(resp);
+        }
+        free(msgs);
+        break;
+    }
     case MK_WS_OP_SEND_SIGNAL_MSG:
         reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
-        MK_LOG_INFO("ws_op[%d]: SEND_SIGNAL_MSG client=%d", opcode, client_idx);
         break;
     case MK_WS_OP_GET_CONV_MAX_READ_SEQ:
         reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"maxReadSeqs\":{}}");
-        MK_LOG_INFO("ws_op[%d]: GET_CONV_MAX_READ_SEQ client=%d", opcode, client_idx);
-        break;
-    case MK_WS_OP_PULL_CONV_LAST_MSG:
-        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"msgs\":[]}");
-        MK_LOG_INFO("ws_op[%d]: PULL_CONV_LAST_MSG client=%d", opcode, client_idx);
         break;
     case MK_WS_OP_PUSH_MSG:
     case MK_WS_OP_KICK_ONLINE:
@@ -233,12 +301,25 @@ int main(int argc, char **argv) {
     g_gw = miku_msggw_create(port);
     if (!g_gw) { MK_LOG_ERROR("Failed to create message gateway"); return 1; }
 
+    g_store = miku_msg_store_create(NULL);
+    if (!g_store) {
+        MK_LOG_ERROR("Failed to create msg_store");
+        miku_msggw_destroy(g_gw);
+        return 1;
+    }
+
     miku_ws_sub_t *sub = miku_ws_sub_create();
-    if (!sub) { MK_LOG_ERROR("Failed to create subscription manager"); miku_msggw_destroy(g_gw); return 1; }
+    if (!sub) {
+        MK_LOG_ERROR("Failed to create subscription manager");
+        miku_msg_store_destroy(g_store);
+        miku_msggw_destroy(g_gw);
+        return 1;
+    }
 
     static gw_ctx_t gctx;
     gctx.gw = g_gw;
     gctx.sub = sub;
+    gctx.store = g_store;
 
     miku_msggw_on_message(g_gw, on_ws_message, &gctx);
     miku_msggw_on_opcode(g_gw, on_ws_opcode, &gctx);
@@ -256,7 +337,7 @@ int main(int argc, char **argv) {
     }
 
     miku_msggw_start(g_gw);
-    MK_LOG_INFO("miku-msggateway ready (ws://0.0.0.0:%d, opcode replies enabled)", port);
+    MK_LOG_INFO("miku-msggateway ready (ws://0.0.0.0:%d, msg_store wired)", port);
 
     while (miku_graceful_running(&g_graceful)) {
         miku_msggw_poll(g_gw, 100);
@@ -271,6 +352,7 @@ int main(int argc, char **argv) {
     miku_msggw_stop(g_gw);
     miku_msggw_destroy(g_gw);
     miku_ws_sub_destroy(sub);
+    miku_msg_store_destroy(g_store);
     miku_graceful_cleanup(&g_graceful);
     return 0;
 }

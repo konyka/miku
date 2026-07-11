@@ -11,7 +11,7 @@ MIKU_API void               miku_msg_store_destroy(miku_msg_store_t *store);
 
 MIKU_API int  miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
                                      const char *sender_id, int content_type,
-                                     const char *content, int64_t send_time,
+                                     const char *content, int64_t send_time, int64_t seq,
                                      char *out_msg_id, size_t msg_id_cap);
 MIKU_API int  miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversation_id,
                                            int64_t start_seq, int64_t end_seq,

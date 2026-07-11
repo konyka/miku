@@ -17,6 +17,7 @@ typedef struct {
     char    content[1024];
     int     content_type;
     int64_t send_time;
+    int64_t seq;
     int     status;
     int     used;
 } mem_msg_t;
@@ -153,7 +154,7 @@ int miku_msg_store_count(miku_msg_store_t *store) {
 
 int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
                            const char *sender_id, int content_type,
-                           const char *content, int64_t send_time,
+                           const char *content, int64_t send_time, int64_t seq,
                            char *out_msg_id, size_t msg_id_cap) {
     if (!store || !conversation_id || !sender_id || !content) return -1;
 
@@ -167,6 +168,7 @@ int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
     strncpy(m->content, content, sizeof(m->content) - 1);
     m->content_type = content_type;
     m->send_time = send_time > 0 ? send_time : miku_timestamp_ms();
+    m->seq = seq;
     m->status = 1;
     id_hash_put(store, m->msg_id, mem_slot_of(store, m));
 
@@ -174,15 +176,17 @@ int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
         strncpy(out_msg_id, msg_id, msg_id_cap - 1);
 
     if (!store->enabled) {
-        MK_LOG_DEBUG("msg_store: insert mem (conv=%s msg=%s)", conversation_id, msg_id);
+        MK_LOG_DEBUG("msg_store: insert mem (conv=%s msg=%s seq=%lld)",
+                     conversation_id, msg_id, (long long)seq);
         return 0;
     }
 
     char doc[4096];
     int n = snprintf(doc, sizeof(doc),
         "{\"msgID\":\"%s\",\"conversationID\":\"%s\",\"sendID\":\"%s\","
-        "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%ld,\"status\":1}",
-        msg_id, conversation_id, sender_id, content_type, content, (long)send_time);
+        "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%ld,\"seq\":%lld,\"status\":1}",
+        msg_id, conversation_id, sender_id, content_type, content,
+        (long)send_time, (long long)seq);
     if (n < 0 || (size_t)n >= sizeof(doc)) return -1;
 
     return miku_mongo_insert(store->mongo, "messages", doc);
@@ -191,7 +195,6 @@ int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
 int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversation_id,
                                   int64_t start_seq, int64_t end_seq,
                                   char **results_json) {
-    (void)start_seq; (void)end_seq;
     if (!store || !conversation_id) return -1;
 
     if (store->enabled) {
@@ -211,13 +214,16 @@ int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversatio
     for (int i = 0; i < store->mem_cap; i++) {
         mem_msg_t *m = &store->mem[i];
         if (!m->used || strcmp(m->conversation_id, conversation_id) != 0) continue;
+        if (m->seq < start_seq) continue;
+        if (end_seq > 0 && m->seq > end_seq) continue;
         char item[1536];
         int n = snprintf(item, sizeof(item),
             "%s{\"msgID\":\"%s\",\"conversationID\":\"%s\",\"sendID\":\"%s\","
-            "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%lld,\"status\":%d}",
+            "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%lld,\"seq\":%lld,\"status\":%d}",
             first ? "" : ",",
             m->msg_id, m->conversation_id, m->sender_id,
-            m->content_type, m->content, (long long)m->send_time, m->status);
+            m->content_type, m->content, (long long)m->send_time,
+            (long long)m->seq, m->status);
         if (n < 0) continue;
         if (pos + (size_t)n + 2 > cap) {
             size_t ncap = cap * 2;
@@ -256,9 +262,10 @@ int miku_msg_store_find_one(miku_msg_store_t *store, const char *msg_id,
     if (!buf) return -1;
     snprintf(buf, 1536,
         "{\"msgID\":\"%s\",\"conversationID\":\"%s\",\"sendID\":\"%s\","
-        "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%lld,\"status\":%d}",
+        "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%lld,\"seq\":%lld,\"status\":%d}",
         m->msg_id, m->conversation_id, m->sender_id,
-        m->content_type, m->content, (long long)m->send_time, m->status);
+        m->content_type, m->content, (long long)m->send_time,
+        (long long)m->seq, m->status);
     if (result_json) *result_json = buf;
     else free(buf);
     return 0;

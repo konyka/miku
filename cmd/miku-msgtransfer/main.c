@@ -35,7 +35,7 @@ static void pipeline_to_mongo(const miku_msg_t *msgs, int count, void *ctx) {
         const char *conv = m->recv_id[0] ? m->recv_id : m->send_id;
         char out_id[64] = {0};
         if (miku_msg_store_insert(store, conv, m->send_id, (int)m->msg_type,
-                                   m->content, m->send_time,
+                                   m->content, m->send_time, m->seq,
                                    out_id, sizeof(out_id)) == 0)
             ok++;
     }

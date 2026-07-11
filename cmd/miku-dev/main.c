@@ -54,7 +54,7 @@ static void dev_pipeline_mongo(const miku_msg_t *msgs, int count, void *ctx) {
         const miku_msg_t *m = &msgs[i];
         const char *conv = m->recv_id[0] ? m->recv_id : m->send_id;
         if (miku_msg_store_insert(store, conv, m->send_id, (int)m->msg_type,
-                                   m->content, m->send_time, NULL, 0) == 0)
+                                   m->content, m->send_time, m->seq, NULL, 0) == 0)
             ok++;
     }
     MK_LOG_DEBUG("dev pipeline: persisted %d/%d msgs (store=%d)",
