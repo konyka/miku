@@ -503,12 +503,19 @@ static void ws_msg_cb(const char *user_id, const char *msg, size_t len, void *ct
 static void test_msggateway_seq_peek_vs_alloc(void) {
     miku_msggw_t *gw = miku_msggw_create(19211);
     mk_assert_not_null(gw);
-    int64_t a = -1, b = -1, c = -1;
+    int64_t a = -1, b = -1, c = -1, d = -1;
     mk_assert_int_eq(0, miku_msggw_peek_max_seq(gw, "c1", &a));
     mk_assert_int_eq(0, miku_msggw_peek_max_seq(gw, "c1", &b));
     mk_assert_long_eq((long)a, (long)b);
     mk_assert_int_eq(0, miku_msggw_alloc_seq(gw, "c1", &c));
     mk_assert_long_eq((long)(a + 1), (long)c);
+    mk_assert_int_eq(0, miku_msggw_peek_max_seq(gw, "c1", &b));
+    mk_assert_long_eq((long)c, (long)b);
+    /* Per-conversation: c2 stays at 0 while c1 advanced */
+    mk_assert_int_eq(0, miku_msggw_peek_max_seq(gw, "c2", &d));
+    mk_assert_long_eq(0, (long)d);
+    mk_assert_int_eq(0, miku_msggw_alloc_seq(gw, "c2", &d));
+    mk_assert_long_eq(1, (long)d);
     mk_assert_int_eq(0, miku_msggw_peek_max_seq(gw, "c1", &b));
     mk_assert_long_eq((long)c, (long)b);
     miku_msggw_destroy(gw);

@@ -6,6 +6,7 @@
 #include "miku_token.h"
 #include "miku_io.h"
 #include "miku_hash.h"
+#include "miku_seq.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -36,7 +37,7 @@ struct miku_msggw_s {
     void                *on_op_ctx;
     int64_t              total_msgs_in;
     int64_t              total_msgs_out;
-    int64_t              global_seq;
+    miku_seq_t          *seq;
 };
 
 miku_msggw_t *miku_msggw_create(int port) {
@@ -44,6 +45,8 @@ miku_msggw_t *miku_msggw_create(int port) {
     if (gw) {
         gw->port = port;
         gw->listen_fd = -1;
+        gw->seq = miku_seq_create();
+        if (!gw->seq) { free(gw); return NULL; }
         for (int i = 0; i < MK_GW_FD_MAP; i++) gw->fd_map[i] = -1;
         for (int i = 0; i < MK_GW_USER_HASH; i++) gw->user_head[i] = -1;
         for (int i = 0; i < MK_GW_MAX_CLIENTS; i++) gw->user_next[i] = -1;
@@ -54,6 +57,7 @@ miku_msggw_t *miku_msggw_create(int port) {
 void miku_msggw_destroy(miku_msggw_t *gw) {
     if (!gw) return;
     if (gw->io) miku_io_destroy(gw->io);
+    miku_seq_destroy(gw->seq);
     free(gw);
 }
 
@@ -276,16 +280,18 @@ int miku_msggw_broadcast_op(miku_msggw_t *gw, int opcode,
 }
 
 int miku_msggw_peek_max_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq) {
-    if (!gw || !seq) return -1;
-    (void)conversation_id;
-    *seq = gw->global_seq;
+    if (!gw || !seq || !gw->seq) return -1;
+    const char *cid = (conversation_id && conversation_id[0]) ? conversation_id : "default";
+    *seq = miku_seq_current(gw->seq, cid);
     return 0;
 }
 
 int miku_msggw_alloc_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq) {
-    if (!gw || !seq) return -1;
-    (void)conversation_id;
-    *seq = ++gw->global_seq;
+    if (!gw || !seq || !gw->seq) return -1;
+    const char *cid = (conversation_id && conversation_id[0]) ? conversation_id : "default";
+    int64_t n = miku_seq_next(gw->seq, cid);
+    if (n < 0) return -1;
+    *seq = n;
     return 0;
 }
 

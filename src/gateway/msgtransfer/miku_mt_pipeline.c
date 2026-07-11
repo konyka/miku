@@ -1,12 +1,13 @@
 #include "miku_mt_pipeline.h"
 #include "miku_log.h"
+#include "miku_seq.h"
 #include <stdlib.h>
 #include <string.h>
 
 struct miku_mt_pipeline_s {
     miku_msg_t           batch[MK_PIPELINE_BATCH_SIZE];
     int                  batch_count;
-    int64_t              global_seq;
+    miku_seq_t          *seq;
     miku_mt_to_redis_fn  to_redis;
     void                *to_redis_ctx;
     miku_mt_to_mongo_fn  to_mongo;
@@ -19,10 +20,18 @@ struct miku_mt_pipeline_s {
 };
 
 miku_mt_pipeline_t *miku_mt_pipeline_create(void) {
-    return (miku_mt_pipeline_t *)calloc(1, sizeof(miku_mt_pipeline_t));
+    miku_mt_pipeline_t *p = (miku_mt_pipeline_t *)calloc(1, sizeof(miku_mt_pipeline_t));
+    if (!p) return NULL;
+    p->seq = miku_seq_create();
+    if (!p->seq) { free(p); return NULL; }
+    return p;
 }
 
-void miku_mt_pipeline_destroy(miku_mt_pipeline_t *p) { free(p); }
+void miku_mt_pipeline_destroy(miku_mt_pipeline_t *p) {
+    if (!p) return;
+    miku_seq_destroy(p->seq);
+    free(p);
+}
 
 int miku_mt_pipeline_submit(miku_mt_pipeline_t *p, const miku_msg_t *msg) {
     if (!p || !msg) return -1;
@@ -53,9 +62,9 @@ int miku_mt_pipeline_pending(miku_mt_pipeline_t *p) {
 }
 
 int64_t miku_mt_pipeline_seq_next(miku_mt_pipeline_t *p, const char *conv_id) {
-    if (!p) return -1;
-    (void)conv_id;
-    return __sync_add_and_fetch(&p->global_seq, 1);
+    if (!p || !p->seq) return -1;
+    const char *cid = (conv_id && conv_id[0]) ? conv_id : "default";
+    return miku_seq_next(p->seq, cid);
 }
 
 void miku_mt_pipeline_on_redis(miku_mt_pipeline_t *p, miku_mt_to_redis_fn fn, void *ctx) {
