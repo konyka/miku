@@ -64,13 +64,37 @@ static int api_msg_sent(miku_im_msg_t *im, void *ctx) {
         miku_str_destroy(ps);
         return -1;
     }
-    int rc = miku_http_post_json(g_push_url, ps->data);
+    char resp[512];
+    int rc = miku_http_post_json_resp(g_push_url, ps->data, resp, sizeof(resp));
     miku_str_destroy(ps);
-    if (rc == 0)
-        MK_LOG_INFO("sendMsg: pushed via %s send=%s recv=%s", g_push_url, im->send_id, im->recv_id);
-    else
+    if (rc != 0) {
         MK_LOG_WARN("sendMsg: push POST failed (%s) send=%s", g_push_url, im->send_id);
-    return rc;
+        return -1;
+    }
+    /* Gateway allocates per-conversation seq; adopt it for the HTTP response. */
+    if (resp[0]) {
+        miku_json_val_t *rj = miku_json_parse_str(resp);
+        if (rj) {
+            int64_t err = miku_json_int(miku_json_get(rj, "errCode"));
+            if (err != 0) {
+                miku_json_destroy(rj);
+                MK_LOG_WARN("sendMsg: push deliver errCode=%lld send=%s",
+                            (long long)err, im->send_id);
+                return -1;
+            }
+            int64_t seq = miku_json_int(miku_json_get(rj, "seq"));
+            int64_t st = miku_json_int(miku_json_get(rj, "sendTime"));
+            const char *smid = miku_json_str(miku_json_get(rj, "serverMsgID"));
+            if (seq > 0) im->seq = seq;
+            if (st > 0) im->send_time = st;
+            if (smid && smid[0])
+                strncpy(im->msg_id, smid, sizeof(im->msg_id) - 1);
+            miku_json_destroy(rj);
+        }
+    }
+    MK_LOG_INFO("sendMsg: pushed via %s send=%s recv=%s seq=%lld",
+                g_push_url, im->send_id, im->recv_id, (long long)im->seq);
+    return 0;
 }
 
 int main(int argc, char **argv) {

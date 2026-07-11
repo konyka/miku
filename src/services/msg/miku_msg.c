@@ -52,6 +52,26 @@ int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *cl
     return -2;
 }
 
+int miku_msg_update_delivery(miku_msg_service_t *svc, const char *client_msg_id,
+                             int64_t seq, const char *server_msg_id, int64_t send_time) {
+    if (!svc || !client_msg_id || !client_msg_id[0]) return -1;
+    for (int i = svc->count - 1; i >= 0; i--) {
+        if (strcmp(svc->msgs[i].client_msg_id, client_msg_id) != 0) continue;
+        if (seq > 0) svc->msgs[i].seq = seq;
+        if (server_msg_id && server_msg_id[0]) {
+            strncpy(svc->msgs[i].server_msg_id, server_msg_id,
+                    sizeof(svc->msgs[i].server_msg_id) - 1);
+            svc->msgs[i].server_msg_id[sizeof(svc->msgs[i].server_msg_id) - 1] = '\0';
+        }
+        if (send_time > 0) {
+            svc->msgs[i].send_time = send_time;
+            svc->msgs[i].create_time = send_time;
+        }
+        return 0;
+    }
+    return -1;
+}
+
 
 void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                           const miku_json_val_t *req, miku_json_val_t *resp) {

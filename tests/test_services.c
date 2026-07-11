@@ -212,6 +212,23 @@ static void test_msg_send_and_query(void) {
     mk_assert(strlen(m.server_msg_id) > 0);
     mk_assert_long_eq(1, (long)m.seq);
 
+    strncpy(m.client_msg_id, "c_upd_1", sizeof(m.client_msg_id) - 1);
+    mk_assert_int_eq(0, miku_msg_send(svc, &m));
+    mk_assert_int_eq(0, miku_msg_update_delivery(svc, "c_upd_1", 99, "gw_id", 12345));
+    miku_msg_t out[4];
+    int n = miku_msg_get_by_conv(svc, "s1_r1", 0, 0, 10, out, 4);
+    mk_assert(n >= 1);
+    int found = 0;
+    for (int i = 0; i < n; i++) {
+        if (strcmp(out[i].client_msg_id, "c_upd_1") == 0) {
+            mk_assert_long_eq(99, (long)out[i].seq);
+            mk_assert_str_eq("gw_id", out[i].server_msg_id);
+            mk_assert_long_eq(12345, (long)out[i].send_time);
+            found = 1;
+        }
+    }
+    mk_assert_int_eq(1, found);
+
     miku_msg_service_destroy(svc);
 }
 

@@ -1,6 +1,7 @@
 #include "miku_test.h"
 #include "miku_http.h"
 #include "miku_http_server.h"
+#include "miku_http_client.h"
 #include "miku_json.h"
 #include "miku_websocket.h"
 #include "miku_rpc.h"
@@ -201,6 +202,39 @@ void test_http_server_ping(void) {
     mk_assert(strstr(buf, "pong") != NULL);
 
     close(fd);
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+}
+
+static void push_echo_handler(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)req; (void)ctx;
+    miku_http_response_set_json(resp,
+        "{\"errCode\":0,\"serverMsgID\":\"gw_smid\",\"seq\":42,\"sendTime\":99}");
+}
+
+void test_http_post_json_resp(void) {
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19877);
+    mk_assert_not_null(srv);
+    miku_http_server_route(srv, "POST", "/internal/push_msg", push_echo_handler, NULL);
+    pthread_t tid;
+    pthread_create(&tid, NULL, server_thread, srv);
+    usleep(100000);
+
+    char body[256] = {0};
+    int rc = miku_http_post_json_resp("http://127.0.0.1:19877/internal/push_msg",
+                                      "{\"sendID\":\"a\",\"recvID\":\"b\"}",
+                                      body, sizeof(body));
+    mk_assert_int_eq(0, rc);
+    mk_assert(strstr(body, "\"seq\":42") != NULL);
+    mk_assert(strstr(body, "gw_smid") != NULL);
+
+    miku_json_val_t *j = miku_json_parse_str(body);
+    mk_assert_not_null(j);
+    mk_assert_int_eq(42, (int)miku_json_int(miku_json_get(j, "seq")));
+    mk_assert_str_eq("gw_smid", miku_json_str(miku_json_get(j, "serverMsgID")));
+    miku_json_destroy(j);
+
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
     miku_http_server_destroy(srv);
@@ -640,6 +674,7 @@ void run_protocol_tests(void) {
     mk_run_test(test_http_status_text);
     mk_run_test(test_http_method_name);
     mk_run_test(test_http_server_ping);
+    mk_run_test(test_http_post_json_resp);
 
     printf("\n");
     mk_run_test(test_json_parse_object);

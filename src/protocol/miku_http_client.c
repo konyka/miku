@@ -61,7 +61,10 @@ static int connect_timeout(int fd, const struct sockaddr *addr, socklen_t alen, 
     return 0;
 }
 
-int miku_http_post_json(const char *url, const char *payload) {
+int miku_http_post_json_resp(const char *url, const char *payload,
+                             char *resp_body, size_t resp_cap) {
+    if (resp_body && resp_cap > 0) resp_body[0] = '\0';
+
     char host[256], path[512];
     int port = 80;
     if (parse_http_url(url, host, sizeof(host), &port, path, sizeof(path)) != 0)
@@ -124,5 +127,19 @@ int miku_http_post_json(const char *url, const char *payload) {
 
     int status = 0;
     if (sscanf(buf, "HTTP/%*s %d", &status) != 1) return -1;
-    return (status >= 200 && status < 300) ? 0 : -1;
+    if (status < 200 || status >= 300) return -1;
+
+    if (resp_body && resp_cap > 0) {
+        char *body = strstr(buf, "\r\n\r\n");
+        if (body) {
+            body += 4;
+            strncpy(resp_body, body, resp_cap - 1);
+            resp_body[resp_cap - 1] = '\0';
+        }
+    }
+    return 0;
+}
+
+int miku_http_post_json(const char *url, const char *payload) {
+    return miku_http_post_json_resp(url, payload, NULL, 0);
 }

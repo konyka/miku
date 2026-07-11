@@ -578,6 +578,9 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                     if (im.seq > 0) miku_ji(out, "seq", im.seq);
                     if (im.send_time > 0) miku_ji(out, "sendTime", im.send_time);
                     if (im.msg_id[0]) miku_jss(out, "serverMsgID", im.msg_id);
+                    if (im.client_msg_id[0] && (im.seq > 0 || im.msg_id[0]))
+                        miku_msg_update_delivery(c->msg, im.client_msg_id, im.seq,
+                                                 im.msg_id, im.send_time);
                 }
             }
         }
