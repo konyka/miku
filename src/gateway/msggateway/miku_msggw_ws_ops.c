@@ -1,6 +1,7 @@
 #include "miku_msggw_ws_ops.h"
 #include "miku_im_message.h"
 #include "miku_json.h"
+#include "miku_json_util.h"
 #include "miku_string.h"
 #include "miku_log.h"
 
@@ -52,6 +53,18 @@ static int push_im_to_user(miku_msggw_t *gw, const char *user_id, const miku_im_
     miku_str_destroy(ps);
     miku_json_destroy(pj);
     return n;
+}
+
+static void fill_read_seq_entry(miku_msggw_t *gw, const char *uid, const char *cid,
+                                miku_json_val_t *map) {
+    if (!gw || !cid || !cid[0] || !map) return;
+    int64_t max_seq = 0;
+    miku_msggw_peek_max_seq(gw, cid, &max_seq);
+    int64_t has_read = (uid && uid[0]) ? miku_msggw_get_user_read(gw, uid, cid) : 0;
+    miku_json_val_t *entry = miku_json_create_object();
+    miku_ji(entry, "maxSeq", max_seq);
+    miku_ji(entry, "hasReadSeq", has_read);
+    miku_json_object_set(map, cid, entry);
 }
 
 static void fanout_send_msg(miku_msggw_ws_ctx_t *gc, const miku_im_msg_t *im) {
@@ -166,13 +179,14 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         free(tmp);
         miku_im_msg_t im;
         miku_im_msg_init(&im);
+        int64_t has_read_seq = 0;
         if (j) {
             miku_im_msg_from_json(&im, j);
+            has_read_seq = miku_json_int(miku_json_get(j, "hasReadSeq"));
             miku_json_destroy(j);
         }
         if (!im.send_id[0] && uid[0])
             strncpy(im.send_id, uid, sizeof(im.send_id) - 1);
-        miku_im_msg_generate_id(&im);
 
         char conv[128];
         miku_msggw_ws_resolve_conv(conv, sizeof(conv),
@@ -183,6 +197,23 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             if (im.group_id[0]) im.conversation_type = MK_IM_CONV_GROUP;
             else if (im.recv_id[0]) im.conversation_type = MK_IM_CONV_SINGLE;
         }
+
+        /* Read receipt: update hasReadSeq without allocating chat seq / fan-out. */
+        if (im.content_type == MK_IM_MSG_TYPE_READ) {
+            int64_t rs = has_read_seq > 0 ? has_read_seq : im.seq;
+            if (rs > 0 && uid[0])
+                miku_msggw_set_user_read(gc->gw, uid, conv, rs);
+            char resp[256];
+            snprintf(resp, sizeof(resp),
+                     "{\"errCode\":0,\"conversationID\":\"%s\",\"hasReadSeq\":%lld}",
+                     conv, (long long)rs);
+            reply_json(gc->gw, client_idx, opcode, resp);
+            MK_LOG_INFO("ws_op[%d]: SEND_MSG READ client=%d conv=%s hasReadSeq=%lld",
+                        opcode, client_idx, conv, (long long)rs);
+            break;
+        }
+
+        miku_im_msg_generate_id(&im);
 
         int64_t seq = 0;
         miku_msggw_alloc_seq(gc->gw, conv, &seq);
@@ -243,9 +274,50 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
     case MK_WS_OP_SEND_SIGNAL_MSG:
         reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         break;
-    case MK_WS_OP_GET_CONV_MAX_READ_SEQ:
-        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"maxReadSeqs\":{}}");
+    case MK_WS_OP_GET_CONV_MAX_READ_SEQ: {
+        miku_json_val_t *out = miku_json_create_object();
+        miku_json_val_t *map = miku_json_create_object();
+        miku_ji(out, "errCode", 0);
+
+        char *tmp = payload && len > 0 ? strndup(payload, len) : NULL;
+        miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
+        free(tmp);
+
+        if (j) {
+            miku_json_val_t *ids = miku_json_get(j, "conversationIDs");
+            if (!ids) ids = miku_json_get(j, "conversationIDList");
+            if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+                size_t n = miku_json_size(ids);
+                for (size_t i = 0; i < n; i++) {
+                    const char *cid = miku_json_str(miku_json_at(ids, i));
+                    fill_read_seq_entry(gc->gw, uid, cid, map);
+                }
+            } else {
+                const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
+                fill_read_seq_entry(gc->gw, uid, cid, map);
+            }
+            /* Optional mark-as-read in same round-trip: hasReadSeq + conversationID */
+            const char *mark_cid = miku_json_str(miku_json_get(j, "conversationID"));
+            int64_t mark_seq = miku_json_int(miku_json_get(j, "hasReadSeq"));
+            if (mark_cid && mark_cid[0] && mark_seq > 0 && uid[0]) {
+                miku_msggw_set_user_read(gc->gw, uid, mark_cid, mark_seq);
+                fill_read_seq_entry(gc->gw, uid, mark_cid, map);
+            }
+            miku_json_destroy(j);
+        }
+
+        miku_json_object_set(out, "maxReadSeqs", map);
+        miku_string_t *ps = miku_json_stringify(out);
+        if (ps && ps->data)
+            reply_json(gc->gw, client_idx, opcode, ps->data);
+        else
+            reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"maxReadSeqs\":{}}");
+        miku_str_destroy(ps);
+        miku_json_destroy(out);
+        MK_LOG_INFO("ws_op[%d]: GET_CONV_MAX_READ_SEQ client=%d user=%s",
+                    opcode, client_idx, uid[0] ? uid : "(anon)");
         break;
+    }
     case MK_WS_OP_PUSH_MSG:
     case MK_WS_OP_KICK_ONLINE:
         break;

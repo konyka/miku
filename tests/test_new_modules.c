@@ -8,6 +8,7 @@
 #include "miku_cron_tasks.h"
 #include "miku_ws_subscription.h"
 #include "miku_msggw_ws_ops.h"
+#include "miku_msggateway.h"
 #include "miku_im_message.h"
 #include "miku_mt_pipeline.h"
 #include "miku_msg_store.h"
@@ -306,6 +307,24 @@ void test_msggw_ws_resolve_conv(void) {
 
     miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "", "");
     mk_assert_str_eq("default", conv);
+}
+
+void test_msggw_user_read_seq(void) {
+    miku_msggw_t *gw = miku_msggw_create(19350);
+    mk_assert_not_null(gw);
+
+    int64_t max_seq = 0;
+    mk_assert_int_eq(0, miku_msggw_alloc_seq(gw, "c1", &max_seq));
+    mk_assert_long_eq(1, (long)max_seq);
+    mk_assert_int_eq(0, miku_msggw_alloc_seq(gw, "c1", &max_seq));
+    mk_assert_long_eq(2, (long)max_seq);
+
+    mk_assert_long_eq(0, (long)miku_msggw_get_user_read(gw, "u1", "c1"));
+    mk_assert_int_eq(0, miku_msggw_set_user_read(gw, "u1", "c1", 2));
+    mk_assert_long_eq(2, (long)miku_msggw_get_user_read(gw, "u1", "c1"));
+    mk_assert_long_eq(0, (long)miku_msggw_get_user_read(gw, "u2", "c1"));
+
+    miku_msggw_destroy(gw);
 }
 
 void test_gzip_roundtrip(void) {
@@ -1775,6 +1794,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_cron_tasks_basic);
     mk_run_test(test_ws_subscription_basic);
     mk_run_test(test_msggw_ws_resolve_conv);
+    mk_run_test(test_msggw_user_read_seq);
     mk_run_test(test_gzip_roundtrip);
     mk_run_test(test_gzip_detect_encoding);
     mk_run_test(test_im_message_roundtrip);

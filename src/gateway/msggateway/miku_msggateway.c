@@ -233,12 +233,16 @@ int miku_msggw_send_op_to_user(miku_msggw_t *gw, const char *user_id,
 
 int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id) {
     if (!gw || !user_id) return -1;
+    static const char kick_payload[] = "{\"reason\":\"forced offline\"}";
     int kicked = 0;
     uint32_t b = user_bucket(user_id);
     int idx = gw->user_head[b];
     while (idx >= 0) {
         int next = gw->user_next[idx];
         if (gw->clients[idx].online && strcmp(gw->clients[idx].user_id, user_id) == 0) {
+            /* Notify SDK before closing so clients can handle force-logout cleanly. */
+            miku_msggw_send_op(gw, idx, MK_WS_OP_KICK_ONLINE,
+                               kick_payload, sizeof(kick_payload) - 1);
             miku_ws_send_close(gw->clients[idx].fd, 1000, "kicked");
             client_offline(gw, idx);
             kicked++;
@@ -317,6 +321,20 @@ int miku_msggw_alloc_seq(miku_msggw_t *gw, const char *conversation_id, int64_t 
 
 int miku_msggw_get_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq) {
     return miku_msggw_alloc_seq(gw, conversation_id, seq);
+}
+
+int miku_msggw_set_user_read(miku_msggw_t *gw, const char *user_id,
+                               const char *conversation_id, int64_t read_seq) {
+    if (!gw || !gw->seq || !user_id || !conversation_id) return -1;
+    const char *cid = conversation_id[0] ? conversation_id : "default";
+    return miku_seq_set_user_read(gw->seq, user_id, cid, read_seq);
+}
+
+int64_t miku_msggw_get_user_read(miku_msggw_t *gw, const char *user_id,
+                                   const char *conversation_id) {
+    if (!gw || !gw->seq || !user_id || !conversation_id) return 0;
+    const char *cid = conversation_id[0] ? conversation_id : "default";
+    return miku_seq_get_user_read(gw->seq, user_id, cid);
 }
 
 int miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background) {

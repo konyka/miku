@@ -67,6 +67,10 @@ MIKU_API int  miku_msggw_alloc_seq(miku_msggw_t *gw, const char *conversation_id
                                      int64_t *seq);
 /* Deprecated alias of alloc_seq — prefer peek_max_seq for reads. */
 MIKU_API int  miku_msggw_get_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq);
+MIKU_API int  miku_msggw_set_user_read(miku_msggw_t *gw, const char *user_id,
+                                         const char *conversation_id, int64_t read_seq);
+MIKU_API int64_t miku_msggw_get_user_read(miku_msggw_t *gw, const char *user_id,
+                                            const char *conversation_id);
 MIKU_API int  miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background);
 MIKU_API int  miku_msggw_disconnect_client(miku_msggw_t *gw, int client_idx);
 MIKU_API int  miku_msggw_get_client_user_id(miku_msggw_t *gw, int client_idx,
