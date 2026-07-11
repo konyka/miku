@@ -810,6 +810,30 @@ static void test_token_revoke_force_logout(void) {
     miku_auth_service_destroy(svc);
 }
 
+/* Simulates split-deploy: API revoked locally; gateway must revoke via /internal/kick path. */
+static void test_token_revoke_propagates_like_gateway(void) {
+    miku_token_revoke_clear();
+    char token[512] = {0};
+    mk_assert_int_eq(0, miku_token_create("gw_rev", 2, "openIM123", token, sizeof(token)));
+
+    char uid[64] = {0};
+    int plat = 0;
+    mk_assert_int_eq(0, miku_token_verify_ex(token, "openIM123", uid, sizeof(uid), &plat, NULL));
+    mk_assert_str_eq("gw_rev", uid);
+    mk_assert_int_eq(2, plat);
+
+    /* What handle_internal_kick does in miku-msggateway after receiving API POST. */
+    mk_assert_int_eq(0, miku_token_revoke("gw_rev", 2));
+    mk_assert_int_eq(-1, miku_token_verify_ex(token, "openIM123", uid, sizeof(uid), &plat, NULL));
+
+    /* Other platform still valid until revoked. */
+    char token_p1[512] = {0};
+    mk_assert_int_eq(0, miku_token_create("gw_rev", 1, "openIM123", token_p1, sizeof(token_p1)));
+    mk_assert_int_eq(0, miku_token_verify_ex(token_p1, "openIM123", uid, sizeof(uid), &plat, NULL));
+
+    miku_token_revoke_clear();
+}
+
 static void test_cross_service_msg_flow(void) {
     miku_user_service_t *user_svc = miku_user_service_create();
     miku_msg_service_t *msg_svc = miku_msg_service_create();
@@ -922,6 +946,7 @@ void run_service_tests(void) {
     mk_run_test(test_auth_user_token);
     mk_run_test(test_auth_bad_secret);
     mk_run_test(test_token_revoke_force_logout);
+    mk_run_test(test_token_revoke_propagates_like_gateway);
     mk_run_test(test_user_register_and_find);
     mk_run_test(test_friend_add_and_check);
     mk_run_test(test_group_create_and_members);

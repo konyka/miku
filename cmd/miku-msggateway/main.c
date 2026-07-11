@@ -10,6 +10,7 @@
 #include "miku_group.h"
 #include "miku_json.h"
 #include "miku_http_server.h"
+#include "miku_token.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,12 +40,16 @@ static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t 
         }
     }
     int kicked = 0;
-    if (uid[0] && gw)
-        kicked = miku_msggw_kick_user(gw, uid, platform);
+    if (uid[0]) {
+        /* Propagate revoke into this process so WS re-handshake rejects the token. */
+        miku_token_revoke(uid, platform);
+        if (gw)
+            kicked = miku_msggw_kick_user(gw, uid, platform);
+    }
     char buf[128];
     snprintf(buf, sizeof(buf), "{\"errCode\":0,\"errMsg\":\"\",\"kicked\":%d}", kicked);
     miku_http_response_set_json(resp, buf);
-    MK_LOG_INFO("internal kick user=%s platform=%d kicked=%d",
+    MK_LOG_INFO("internal kick+revoke user=%s platform=%d kicked=%d",
                 uid[0] ? uid : "(empty)", platform, kicked);
 }
 
