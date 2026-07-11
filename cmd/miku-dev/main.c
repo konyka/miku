@@ -47,8 +47,18 @@ static void dev_pipeline_redis(const miku_msg_t *msgs, int count, void *ctx) {
 }
 
 static void dev_pipeline_mongo(const miku_msg_t *msgs, int count, void *ctx) {
-    (void)msgs; (void)ctx;
-    MK_LOG_DEBUG("dev pipeline: %d msgs to MongoDB", count);
+    miku_msg_store_t *store = (miku_msg_store_t *)ctx;
+    if (!store || !msgs || count <= 0) return;
+    int ok = 0;
+    for (int i = 0; i < count; i++) {
+        const miku_msg_t *m = &msgs[i];
+        const char *conv = m->recv_id[0] ? m->recv_id : m->send_id;
+        if (miku_msg_store_insert(store, conv, m->send_id, (int)m->msg_type,
+                                   m->content, m->send_time, NULL, 0) == 0)
+            ok++;
+    }
+    MK_LOG_DEBUG("dev pipeline: persisted %d/%d msgs (store=%d)",
+                 ok, count, miku_msg_store_count(store));
 }
 
 static void dev_pipeline_push(const char *user_id, const char *conv_id, int64_t seq, void *ctx) {
@@ -111,15 +121,15 @@ int main(int argc, char **argv) {
     ctx->on_kick_ctx = gw;
     miku_ws_sub_t *sub = miku_ws_sub_create();
     miku_msgtransfer_t *mt = miku_msgtransfer_create();
+    g_msg_store = miku_msg_store_create(NULL);
     miku_mt_pipeline_t *pipe = miku_mt_pipeline_create();
     miku_mt_pipeline_on_redis(pipe, dev_pipeline_redis, NULL);
-    miku_mt_pipeline_on_mongo(pipe, dev_pipeline_mongo, NULL);
+    miku_mt_pipeline_on_mongo(pipe, dev_pipeline_mongo, g_msg_store);
     miku_mt_pipeline_on_push(pipe, dev_pipeline_push, NULL);
 
     miku_push_t *push = miku_push_create();
     miku_offline_push_t *offline = miku_offline_push_create(MK_PUSH_PROVIDER_DUMMY);
 
-    g_msg_store = miku_msg_store_create(NULL);
     miku_crontask_t *cron = miku_crontask_create();
     g_cron_impl = miku_cron_tasks_create();
     miku_cron_tasks_set_msg_store(g_cron_impl, g_msg_store);

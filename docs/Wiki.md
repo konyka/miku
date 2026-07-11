@@ -541,10 +541,10 @@ WebSocket 消息网关，支持 4096 并发客户端：
 #### 6.5 定时任务（miku-crontask）
 
 定时任务调度器（最大 256 个任务）：
-- `deleteMsg` — 按保留天数调用 `miku_msg_store_purge_older_than` 清理过期消息
+- `deleteMsg` — 按保留天数调用 `miku_msg_store_purge_older_than`；**内存 store 与写入同进程**（`miku-msgtransfer` / `miku-dev`），避免跨进程空跑
 - `clearUserMsg` — 调用 `miku_msg_store_clear_user` 清理指定用户消息
 - `clearS3` — 定期清理 S3 过期文件（仍待对象存储绑定）
-- `miku_cron_tasks_set_msg_store` 绑定存储；`miku-dev` 与 `miku-crontask` 已接线
+- `miku_cron_tasks_set_msg_store` 绑定存储；`miku-crontask` 独立进程不持有私有内存环
 - 可扩展的任务注册机制
 
 MsgGateway 推送/踢人通过 `user_id` 哈希链定位连接，IO 回调通过 `fd→idx` 映射（fd&lt;65536）O(1) 查找。
