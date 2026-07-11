@@ -385,9 +385,41 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
                || strcmp(method, "dismissGroup") == 0) {
         if (require_fields(j, resp, "userID", "groupID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
     } else if (strcmp(method, "inviteToGroup") == 0 || strcmp(method, "kickGroupMember") == 0) {
-        if (require_fields(j, resp, "groupID", "invitedUserIDs", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "groupID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (!miku_json_get(j, "userID") && !miku_json_get(j, "invitedUserIDs")) {
+            free(path); miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp, "{\"errCode\":400,\"errMsg\":\"missing userID or invitedUserIDs\"}");
+            return;
+        }
     }
     miku_group_handle_rpc(c->group_svc, method, j, out);
+
+    /* Sync members to msggateway so split-deploy group PUSH works. */
+    if (c->on_group_member) {
+        int64_t err = miku_json_int(miku_json_get(out, "errCode"));
+        if (err == 0 && strcmp(method, "createGroup") == 0) {
+            const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
+            const char *gid = miku_json_str(miku_json_get(out, "data"));
+            if (owner && gid) c->on_group_member(gid, owner, 100, c->on_group_member_ctx);
+        } else if (err == 0 && strcmp(method, "joinGroup") == 0) {
+            const char *uid = miku_json_str(miku_json_get(j, "userID"));
+            const char *gid = miku_json_str(miku_json_get(j, "groupID"));
+            if (uid && gid) c->on_group_member(gid, uid, 20, c->on_group_member_ctx);
+        } else if (err == 0 && strcmp(method, "inviteToGroup") == 0) {
+            const char *gid = miku_json_str(miku_json_get(j, "groupID"));
+            const char *uid = miku_json_str(miku_json_get(j, "userID"));
+            if (gid && uid) c->on_group_member(gid, uid, 20, c->on_group_member_ctx);
+            miku_json_val_t *ids = miku_json_get(j, "invitedUserIDs");
+            if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+                size_t n = miku_json_size(ids);
+                for (size_t i = 0; i < n; i++) {
+                    const char *u = miku_json_str(miku_json_at(ids, i));
+                    if (u) c->on_group_member(gid, u, 20, c->on_group_member_ctx);
+                }
+            }
+        }
+    }
+
     if (c->webhook) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
         if (err == 0 && strcmp(method, "createGroup") == 0) {

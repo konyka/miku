@@ -75,8 +75,19 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         if (g) miku_json_object_set(resp, "data", miku_group_to_json(g));
     } else if (strcmp(method, "inviteToGroup") == 0) {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        int rc = -1;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        int rc = miku_group_add_member(svc, gid, uid, 20);
+        if (gid && uid)
+            rc = miku_group_add_member(svc, gid, uid, 20);
+        miku_json_val_t *ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
+        if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(ids);
+            for (size_t i = 0; i < n; i++) {
+                const char *u = miku_json_str(miku_json_at(ids, i));
+                if (u && miku_group_add_member(svc, gid, u, 20) == 0)
+                    rc = 0;
+            }
+        }
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
     } else if (strcmp(method, "getGroupMemberList") == 0) {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;

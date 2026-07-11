@@ -1468,6 +1468,84 @@ static void test_webhook_group_create_trigger(void) {
     miku_api_ctx_destroy(ctx);
 }
 
+static int g_gm_sync_count;
+static char g_gm_last_gid[64];
+static char g_gm_last_uid[64];
+static int g_gm_last_role;
+
+static void test_gm_sync_cb(const char *group_id, const char *user_id, int role, void *ctx) {
+    (void)ctx;
+    g_gm_sync_count++;
+    if (group_id) {
+        strncpy(g_gm_last_gid, group_id, sizeof(g_gm_last_gid) - 1);
+        g_gm_last_gid[sizeof(g_gm_last_gid) - 1] = '\0';
+    }
+    if (user_id) {
+        strncpy(g_gm_last_uid, user_id, sizeof(g_gm_last_uid) - 1);
+        g_gm_last_uid[sizeof(g_gm_last_uid) - 1] = '\0';
+    }
+    g_gm_last_role = role;
+}
+
+static void test_group_member_sync_callback(void) {
+    g_gm_sync_count = 0;
+    g_gm_last_gid[0] = g_gm_last_uid[0] = '\0';
+    g_gm_last_role = 0;
+
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    ctx->on_group_member = test_gm_sync_cb;
+
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19850);
+    mk_assert_not_null(srv);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char auth[8192] = {0};
+    http_post_to(19850, "/auth/user_token",
+        "{\"userID\":\"gm_owner\",\"secret\":\"openIM123\",\"platformID\":1}", auth, sizeof(auth));
+    miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth));
+    const char *tok = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
+    mk_assert(tok && tok[0]);
+
+    char resp[8192] = {0};
+    http_post_with_token(19850, "/group/create", tok,
+        "{\"ownerUserID\":\"gm_owner\",\"groupName\":\"sync group\"}", resp, sizeof(resp));
+    miku_json_val_t *r = miku_json_parse_str(extract_json_body(resp));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    const char *gid = miku_json_str(miku_json_get(r, "data"));
+    mk_assert(gid && gid[0]);
+    mk_assert_int_eq(1, g_gm_sync_count);
+    mk_assert_str_eq(gid, g_gm_last_gid);
+    mk_assert_str_eq("gm_owner", g_gm_last_uid);
+    mk_assert_int_eq(100, g_gm_last_role);
+
+    char join[8192] = {0};
+    char body[256];
+    snprintf(body, sizeof(body), "{\"userID\":\"gm_u2\",\"groupID\":\"%s\"}", gid);
+    http_post_with_token(19850, "/group/join", tok, body, join, sizeof(join));
+    mk_assert_int_eq(2, g_gm_sync_count);
+    mk_assert_str_eq("gm_u2", g_gm_last_uid);
+    mk_assert_int_eq(20, g_gm_last_role);
+
+    miku_group_service_t *gw_group = miku_group_service_create();
+    mk_assert_int_eq(0, miku_group_add_member(gw_group, g_gm_last_gid, "gm_owner", 100));
+    mk_assert_int_eq(0, miku_group_add_member(gw_group, g_gm_last_gid, "gm_u2", 20));
+    miku_group_member_t mems[8];
+    mk_assert_int_eq(2, miku_group_get_members(gw_group, g_gm_last_gid, mems, 8));
+    miku_group_service_destroy(gw_group);
+
+    miku_json_destroy(r);
+    if (ar) miku_json_destroy(ar);
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
 static void test_ratelimit_per_key(void) {
     miku_ratelimit_t *rl = miku_ratelimit_create(60000, 2);
     mk_assert_int_eq(1, miku_ratelimit_allow(rl, "alice"));
@@ -1882,6 +1960,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_webhook_msg_send_trigger);
     mk_run_test(test_webhook_friend_add_trigger);
     mk_run_test(test_webhook_group_create_trigger);
+    mk_run_test(test_group_member_sync_callback);
 
     mk_run_test(test_ratelimit_per_key);
     mk_run_test(test_ratelimit_http_429);
