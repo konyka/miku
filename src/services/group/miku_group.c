@@ -21,10 +21,12 @@ int miku_group_create(miku_group_service_t *svc, miku_group_t *g, const char *ow
     miku_uuid_generate(g->group_id);
     strncpy(g->owner_user_id, owner_uid, sizeof(g->owner_user_id) - 1);
     g->create_time = miku_timestamp_ms();
-    g->member_count = 1;
+    g->member_count = 0;
     g->status = 0;
     svc->groups[svc->group_count++] = *g;
     miku_group_add_member(svc, g->group_id, owner_uid, 100);
+    miku_group_t *stored = miku_group_find(svc, g->group_id);
+    if (stored) g->member_count = stored->member_count;
     return 0;
 }
 

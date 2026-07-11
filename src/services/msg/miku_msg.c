@@ -17,6 +17,10 @@ void miku_msg_service_destroy(miku_msg_service_t *svc) { free(svc); }
 
 int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m) {
     if (!svc || !m || svc->count >= MK_MAX_MSGS) return -1;
+    if (!m->conversation_id[0]) {
+        miku_conversation_id_resolve(m->conversation_id, sizeof(m->conversation_id),
+                                     NULL, m->group_id, m->send_id, m->recv_id);
+    }
     miku_uuid_generate(m->server_msg_id);
     m->seq = ++svc->seq;
     m->send_time = miku_timestamp_ms();
@@ -33,8 +37,8 @@ int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,
     int n = 0;
     for (int i = svc->count - 1; i >= 0 && n < count && n < max; i--) {
         miku_msg_t *m = &svc->msgs[i];
-        bool match_conv = (strstr(conv_id, m->send_id) != NULL && strstr(conv_id, m->recv_id) != NULL);
-        if (match_conv && m->send_time >= start && (end == 0 || m->send_time <= end))
+        if (strcmp(m->conversation_id, conv_id) != 0) continue;
+        if (m->send_time >= start && (end == 0 || m->send_time <= end))
             out[n++] = *m;
     }
     return n;

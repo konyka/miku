@@ -161,10 +161,11 @@ static void test_group_create_and_members(void) {
     miku_group_t *found = miku_group_find(svc, g.group_id);
     mk_assert_not_null(found);
     mk_assert_str_eq("owner1", found->owner_user_id);
-    mk_assert_int_eq(2, found->member_count);
+    mk_assert_int_eq(1, found->member_count);
 
     rc = miku_group_add_member(svc, g.group_id, "member1", 20);
     mk_assert_int_eq(0, rc);
+    mk_assert_int_eq(2, miku_group_find(svc, g.group_id)->member_count);
 
     miku_group_member_t members[16];
     int n = miku_group_get_members(svc, g.group_id, members, 16);
@@ -214,9 +215,10 @@ static void test_msg_send_and_query(void) {
 
     strncpy(m.client_msg_id, "c_upd_1", sizeof(m.client_msg_id) - 1);
     mk_assert_int_eq(0, miku_msg_send(svc, &m));
+    mk_assert_str_eq("si_r1_s1", m.conversation_id);
     mk_assert_int_eq(0, miku_msg_update_delivery(svc, "c_upd_1", 99, "gw_id", 12345));
     miku_msg_t out[4];
-    int n = miku_msg_get_by_conv(svc, "s1_r1", 0, 0, 10, out, 4);
+    int n = miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4);
     mk_assert(n >= 1);
     int found = 0;
     for (int i = 0; i < n; i++) {
@@ -228,6 +230,36 @@ static void test_msg_send_and_query(void) {
         }
     }
     mk_assert_int_eq(1, found);
+
+    /* Substring userIDs must not leak across conversations. */
+    miku_msg_t ice;
+    memset(&ice, 0, sizeof(ice));
+    strncpy(ice.send_id, "alice", sizeof(ice.send_id) - 1);
+    strncpy(ice.recv_id, "bob", sizeof(ice.recv_id) - 1);
+    strncpy(ice.content, "a", sizeof(ice.content) - 1);
+    ice.msg_type = MK_MSG_TYPE_TEXT;
+    mk_assert_int_eq(0, miku_msg_send(svc, &ice));
+    mk_assert_str_eq("si_alice_bob", ice.conversation_id);
+    n = miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4);
+    mk_assert(n >= 1);
+    for (int i = 0; i < n; i++)
+        mk_assert(strcmp(out[i].send_id, "alice") != 0);
+    n = miku_msg_get_by_conv(svc, "si_alice_bob", 0, 0, 10, out, 4);
+    mk_assert_int_eq(1, n);
+    mk_assert_str_eq("alice", out[0].send_id);
+
+    miku_msg_t gm;
+    memset(&gm, 0, sizeof(gm));
+    strncpy(gm.send_id, "owner", sizeof(gm.send_id) - 1);
+    strncpy(gm.group_id, "g9", sizeof(gm.group_id) - 1);
+    strncpy(gm.content, "ghi", sizeof(gm.content) - 1);
+    gm.msg_type = MK_MSG_TYPE_TEXT;
+    gm.session_type = 3;
+    mk_assert_int_eq(0, miku_msg_send(svc, &gm));
+    mk_assert_str_eq("sg_g9", gm.conversation_id);
+    n = miku_msg_get_by_conv(svc, "sg_g9", 0, 0, 10, out, 4);
+    mk_assert_int_eq(1, n);
+    mk_assert_str_eq("g9", out[0].group_id);
 
     miku_msg_service_destroy(svc);
 }

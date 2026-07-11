@@ -1,5 +1,6 @@
 #include "miku_msggw_ws_ops.h"
 #include "miku_im_message.h"
+#include "miku_models.h"
 #include "miku_json.h"
 #include "miku_json_util.h"
 #include "miku_string.h"
@@ -23,35 +24,7 @@ void miku_msggw_ws_resolve_conv(char *out, size_t out_sz,
                                 const char *group_id,
                                 const char *send_id,
                                 const char *recv_id) {
-    if (!out || out_sz == 0) return;
-    out[0] = '\0';
-    if (conversation_id && conversation_id[0]) {
-        strncpy(out, conversation_id, out_sz - 1);
-        out[out_sz - 1] = '\0';
-        return;
-    }
-    if (group_id && group_id[0]) {
-        snprintf(out, out_sz, "sg_%s", group_id);
-        return;
-    }
-    if (send_id && send_id[0] && recv_id && recv_id[0]) {
-        const char *a = send_id, *b = recv_id;
-        if (strcmp(a, b) > 0) { a = recv_id; b = send_id; }
-        snprintf(out, out_sz, "si_%s_%s", a, b);
-        return;
-    }
-    if (recv_id && recv_id[0]) {
-        strncpy(out, recv_id, out_sz - 1);
-        out[out_sz - 1] = '\0';
-        return;
-    }
-    if (send_id && send_id[0]) {
-        strncpy(out, send_id, out_sz - 1);
-        out[out_sz - 1] = '\0';
-        return;
-    }
-    strncpy(out, "default", out_sz - 1);
-    out[out_sz - 1] = '\0';
+    miku_conversation_id_resolve(out, out_sz, conversation_id, group_id, send_id, recv_id);
 }
 
 static int reply_json(miku_msggw_t *gw, int client_idx, int opcode, const char *json) {

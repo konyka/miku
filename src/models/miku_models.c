@@ -69,6 +69,8 @@ miku_json_val_t *miku_msg_to_json(const miku_msg_t *m) {
     set_str(j, "clientMsgID", m->client_msg_id);
     set_str(j, "sendID", m->send_id);
     set_str(j, "recvID", m->recv_id);
+    set_str(j, "groupID", m->group_id);
+    set_str(j, "conversationID", m->conversation_id);
     set_int(j, "sessionType", m->session_type);
     set_int(j, "contentType", (int64_t)m->msg_type);
     set_str(j, "content", m->content);
@@ -88,16 +90,56 @@ int miku_msg_from_json(const miku_json_val_t *j, miku_msg_t *m) {
     json_str(j, "clientMsgID", m->client_msg_id, sizeof(m->client_msg_id));
     json_str(j, "sendID", m->send_id, sizeof(m->send_id));
     json_str(j, "recvID", m->recv_id, sizeof(m->recv_id));
+    json_str(j, "groupID", m->group_id, sizeof(m->group_id));
+    json_str(j, "conversationID", m->conversation_id, sizeof(m->conversation_id));
     json_str(j, "content", m->content, sizeof(m->content));
     json_str(j, "ex", m->ex, sizeof(m->ex));
     m->session_type = (int)json_int(j, "sessionType");
     m->msg_type = (miku_msg_type_t)json_int(j, "contentType");
+    if (m->msg_type == 0)
+        m->msg_type = (miku_msg_type_t)json_int(j, "msgType");
     m->seq = json_int(j, "seq");
     m->send_time = json_int(j, "sendTime");
     m->create_time = json_int(j, "createTime");
     m->status = (int)json_int(j, "status");
     m->is_read = (int)json_int(j, "isRead");
     return 0;
+}
+
+void miku_conversation_id_resolve(char *out, size_t out_sz,
+                                  const char *conversation_id,
+                                  const char *group_id,
+                                  const char *send_id,
+                                  const char *recv_id) {
+    if (!out || out_sz == 0) return;
+    out[0] = '\0';
+    if (conversation_id && conversation_id[0]) {
+        strncpy(out, conversation_id, out_sz - 1);
+        out[out_sz - 1] = '\0';
+        return;
+    }
+    if (group_id && group_id[0]) {
+        snprintf(out, out_sz, "sg_%s", group_id);
+        return;
+    }
+    if (send_id && send_id[0] && recv_id && recv_id[0]) {
+        const char *a = send_id, *b = recv_id;
+        if (strcmp(a, b) > 0) { a = recv_id; b = send_id; }
+        snprintf(out, out_sz, "si_%s_%s", a, b);
+        return;
+    }
+    if (recv_id && recv_id[0]) {
+        strncpy(out, recv_id, out_sz - 1);
+        out[out_sz - 1] = '\0';
+        return;
+    }
+    if (send_id && send_id[0]) {
+        strncpy(out, send_id, out_sz - 1);
+        out[out_sz - 1] = '\0';
+        return;
+    }
+    strncpy(out, "default", out_sz - 1);
+    out[out_sz - 1] = '\0';
 }
 
 miku_json_val_t *miku_conversation_to_json(const miku_conversation_t *c) {
