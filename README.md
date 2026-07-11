@@ -144,6 +144,7 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 - Offline push notifications (FCM/Getui/JPUSH/Dummy providers — provider HTTP calls are stubs)
 - Cron task scheduler with task implementations (deleteMsg, clearS3 — cleanup logic is stubbed)
 - Webhook/callback system (11 event types; outbound HTTP POST async via thread pool, short connect timeout)
+- Per-user rate limiting (mutex-protected sliding window + LRU eviction)
 - Token revoke / force_logout (in-memory blacklist; miku-dev kicks WS sessions via on_kick callback)
 - Per-conversation sequence number management + user read tracking
 - Incremental sync (friends/blacks/groups/members/conversations)
