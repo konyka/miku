@@ -297,6 +297,17 @@ int miku_msggw_disconnect_client(miku_msggw_t *gw, int client_idx) {
     return 0;
 }
 
+int miku_msggw_get_client_user_id(miku_msggw_t *gw, int client_idx,
+                                    char *out, size_t out_cap) {
+    if (!gw || !out || out_cap == 0 || client_idx < 0 || client_idx >= gw->client_count)
+        return -1;
+    if (!gw->clients[client_idx].online || !gw->clients[client_idx].user_id[0])
+        return -1;
+    strncpy(out, gw->clients[client_idx].user_id, out_cap - 1);
+    out[out_cap - 1] = '\0';
+    return 0;
+}
+
 int miku_msggw_unwrap_op_data(const char *envelope_json, int *out_opcode,
                                 char **out_data, size_t *out_len) {
     if (!envelope_json || !out_opcode || !out_data) return -1;

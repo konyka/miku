@@ -19,12 +19,16 @@
 #include "miku_middleware.h"
 #include "miku_json_util.h"
 #include "miku_token.h"
+#include "miku_websocket.h"
 #include <string.h>
 #include <stdio.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <poll.h>
 
 static void test_model_user_json_roundtrip(void) {
     miku_user_t u;
@@ -521,6 +525,96 @@ static void test_msggateway_unwrap_op_data(void) {
     mk_assert_int_eq(-1, miku_msggw_unwrap_op_data("{}", &opcode, &data, &len));
 }
 
+static void test_op_reply_cb(int client_idx, int opcode, const char *payload, size_t len, void *ctx) {
+    (void)payload; (void)len;
+    miku_msggw_t *gw = (miku_msggw_t *)ctx;
+    if (opcode != MK_WS_OP_GET_NEWEST_SEQ) return;
+    int64_t seq = 0;
+    miku_msggw_get_seq(gw, "conv_t", &seq);
+    char resp[128];
+    snprintf(resp, sizeof(resp), "{\"errCode\":0,\"maxSeq\":%lld}", (long long)seq);
+    miku_msggw_send_op(gw, client_idx, opcode, resp, strlen(resp));
+}
+
+static int ws_client_send_text_masked(int fd, const char *text) {
+    size_t tlen = strlen(text);
+    uint8_t *payload = (uint8_t *)malloc(tlen);
+    if (!payload) return -1;
+    memcpy(payload, text, tlen);
+    miku_ws_frame_t f;
+    memset(&f, 0, sizeof(f));
+    f.fin = true;
+    f.opcode = MK_WS_TEXT;
+    f.masked = true;
+    f.masking_key[0] = 0x11;
+    f.masking_key[1] = 0x22;
+    f.masking_key[2] = 0x33;
+    f.masking_key[3] = 0x44;
+    f.payload = payload;
+    f.payload_len = tlen;
+    uint8_t buf[4096];
+    size_t out_len = 0;
+    int rc = miku_ws_frame_encode(&f, buf, sizeof(buf), &out_len);
+    free(payload);
+    if (rc != 0) return -1;
+    return write(fd, buf, out_len) == (ssize_t)out_len ? 0 : -1;
+}
+
+static void test_msggateway_opcode_reply(void) {
+    miku_msggw_t *gw = miku_msggw_create(19210);
+    mk_assert_not_null(gw);
+    mk_assert_int_eq(0, miku_msggw_start(gw));
+    miku_msggw_on_opcode(gw, test_op_reply_cb, gw);
+
+    char token[512] = {0};
+    mk_assert_int_eq(0, miku_token_create("op_user", 1, "openIM123", token, sizeof(token)));
+
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    mk_assert(fd >= 0);
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(19210);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    mk_assert_int_eq(0, connect(fd, (struct sockaddr *)&addr, sizeof(addr)));
+
+    char req[1024];
+    int len = snprintf(req, sizeof(req),
+        "GET /ws?token=%s HTTP/1.1\r\n"
+        "Host: 127.0.0.1:19210\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n", token);
+    write(fd, req, (size_t)len);
+    miku_msggw_poll(gw, 500);
+
+    char hs[4096] = {0};
+    ssize_t n = read(fd, hs, sizeof(hs) - 1);
+    mk_assert(n > 0);
+    mk_assert(strstr(hs, "101") != NULL);
+
+    char uid[64] = {0};
+    mk_assert_int_eq(0, miku_msggw_get_client_user_id(gw, 0, uid, sizeof(uid)));
+    mk_assert_str_eq("op_user", uid);
+
+    const char *frame =
+        "{\"reqIdentifier\":1001,\"data\":{\"conversationID\":\"conv_t\"}}";
+    mk_assert_int_eq(0, ws_client_send_text_masked(fd, frame));
+    miku_msggw_poll(gw, 500);
+
+    /* Server frames are unmasked; read raw and look for maxSeq in payload bytes */
+    uint8_t rbuf[2048];
+    n = read(fd, rbuf, sizeof(rbuf));
+    mk_assert(n > 0);
+    rbuf[n < (ssize_t)sizeof(rbuf) ? n : (ssize_t)sizeof(rbuf) - 1] = '\0';
+    mk_assert(strstr((char *)rbuf, "maxSeq") != NULL);
+    mk_assert(strstr((char *)rbuf, "1001") != NULL);
+
+    close(fd);
+    miku_msggw_stop(gw);
+    miku_msggw_destroy(gw);
+}
+
 static void test_msggateway_ws_upgrade(void) {
     miku_msggw_t *gw = miku_msggw_create(19200);
     mk_assert_not_null(gw);
@@ -712,6 +806,7 @@ void run_service_tests(void) {
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
     mk_run_test(test_msggateway_unwrap_op_data);
+    mk_run_test(test_msggateway_opcode_reply);
     mk_run_test(test_msgtransfer_queue);
     mk_run_test(test_push_subscribe);
     mk_run_test(test_crontask_tick);

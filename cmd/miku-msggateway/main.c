@@ -8,6 +8,7 @@
 #include "miku_json.h"
 #include "miku_http_server.h"
 #include "miku_http.h"
+#include "miku_uuid.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,6 +52,11 @@ static void *admin_thread(void *arg) {
     return NULL;
 }
 
+static int reply_json(miku_msggw_t *gw, int client_idx, int opcode, const char *json) {
+    if (!gw || !json) return -1;
+    return miku_msggw_send_op(gw, client_idx, opcode, json, strlen(json));
+}
+
 static void on_ws_message(const char *user_id, const char *msg, size_t len, void *ctx) {
     (void)ctx;
     if (!user_id || !msg) return;
@@ -72,49 +78,88 @@ static void on_ws_message(const char *user_id, const char *msg, size_t len, void
 
 static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t len, void *ctx) {
     gw_ctx_t *gc = (gw_ctx_t *)ctx;
-    if (!gc) return;
+    if (!gc || !gc->gw) return;
+
+    char uid[64] = {0};
+    miku_msggw_get_client_user_id(gc->gw, client_idx, uid, sizeof(uid));
 
     switch (opcode) {
-    case MK_WS_OP_GET_NEWEST_SEQ:
-        MK_LOG_INFO("ws_op[%d]: GET_NEWEST_SEQ client=%d", opcode, client_idx);
+    case MK_WS_OP_GET_NEWEST_SEQ: {
+        char conv[128] = {0};
+        if (payload && len > 0) {
+            char *tmp = strndup(payload, len);
+            miku_json_val_t *j = miku_json_parse_str(tmp);
+            free(tmp);
+            if (j) {
+                const char *c = miku_json_str(miku_json_get(j, "conversationID"));
+                if (c) strncpy(conv, c, sizeof(conv) - 1);
+                miku_json_destroy(j);
+            }
+        }
+        int64_t seq = 0;
+        miku_msggw_get_seq(gc->gw, conv[0] ? conv : "default", &seq);
+        char resp[256];
+        snprintf(resp, sizeof(resp),
+                 "{\"errCode\":0,\"conversationID\":\"%s\",\"maxSeq\":%lld}",
+                 conv, (long long)seq);
+        reply_json(gc->gw, client_idx, opcode, resp);
+        MK_LOG_INFO("ws_op[%d]: GET_NEWEST_SEQ client=%d maxSeq=%lld",
+                    opcode, client_idx, (long long)seq);
         break;
+    }
     case MK_WS_OP_PULL_MSG_BY_SEQ:
-        MK_LOG_INFO("ws_op[%d]: PULL_MSG_BY_SEQ client=%d", opcode, client_idx);
+    case MK_WS_OP_PULL_MSG:
+        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"msgs\":[]}");
+        MK_LOG_INFO("ws_op[%d]: PULL client=%d (empty until store wired)", opcode, client_idx);
         break;
     case MK_WS_OP_SEND_MSG: {
-        char *tmp = strndup(payload, len);
-        miku_json_val_t *j = miku_json_parse_str(tmp);
+        char *tmp = payload && len > 0 ? strndup(payload, len) : NULL;
+        miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
         free(tmp);
+        miku_im_msg_t im;
+        miku_im_msg_init(&im);
         if (j) {
-            miku_im_msg_t im;
-            if (miku_im_msg_from_json(&im, j) == 0) {
-                MK_LOG_INFO("ws_op[%d]: SEND_MSG client=%d sendID=%s recvID=%s type=%d",
-                             opcode, client_idx, im.send_id, im.recv_id, im.content_type);
-            }
+            miku_im_msg_from_json(&im, j);
             miku_json_destroy(j);
         }
+        if (!im.send_id[0] && uid[0])
+            strncpy(im.send_id, uid, sizeof(im.send_id) - 1);
+        miku_im_msg_generate_id(&im);
+        int64_t seq = 0;
+        miku_msggw_get_seq(gc->gw, im.conversation_id[0] ? im.conversation_id : im.recv_id, &seq);
+        im.seq = seq;
+        if (im.send_time <= 0) im.send_time = miku_timestamp_ms();
+
+        char resp[512];
+        snprintf(resp, sizeof(resp),
+                 "{\"errCode\":0,\"clientMsgID\":\"%s\",\"serverMsgID\":\"%s\","
+                 "\"sendTime\":%lld,\"seq\":%lld}",
+                 im.client_msg_id, im.msg_id,
+                 (long long)im.send_time, (long long)im.seq);
+        reply_json(gc->gw, client_idx, opcode, resp);
+        MK_LOG_INFO("ws_op[%d]: SEND_MSG client=%d sendID=%s recvID=%s seq=%lld",
+                    opcode, client_idx, im.send_id, im.recv_id, (long long)im.seq);
         break;
     }
     case MK_WS_OP_SEND_SIGNAL_MSG:
+        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         MK_LOG_INFO("ws_op[%d]: SEND_SIGNAL_MSG client=%d", opcode, client_idx);
         break;
-    case MK_WS_OP_PULL_MSG:
-        MK_LOG_INFO("ws_op[%d]: PULL_MSG client=%d", opcode, client_idx);
-        break;
     case MK_WS_OP_GET_CONV_MAX_READ_SEQ:
+        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"maxReadSeqs\":{}}");
         MK_LOG_INFO("ws_op[%d]: GET_CONV_MAX_READ_SEQ client=%d", opcode, client_idx);
         break;
     case MK_WS_OP_PULL_CONV_LAST_MSG:
+        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0,\"msgs\":[]}");
         MK_LOG_INFO("ws_op[%d]: PULL_CONV_LAST_MSG client=%d", opcode, client_idx);
         break;
     case MK_WS_OP_PUSH_MSG:
-        MK_LOG_INFO("ws_op[%d]: PUSH_MSG client=%d", opcode, client_idx);
-        break;
     case MK_WS_OP_KICK_ONLINE:
-        MK_LOG_INFO("ws_op[%d]: KICK_ONLINE client=%d", opcode, client_idx);
+        /* Server→client opcodes; ignore if client echoes them. */
         break;
     case MK_WS_OP_LOGOUT:
         MK_LOG_INFO("ws_op[%d]: LOGOUT client=%d — disconnecting", opcode, client_idx);
+        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         miku_msggw_disconnect_client(gc->gw, client_idx);
         break;
     case MK_WS_OP_SET_BACKGROUND: {
@@ -129,33 +174,39 @@ static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t
             }
         }
         miku_msggw_set_background(gc->gw, client_idx, bg != 0);
+        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         MK_LOG_INFO("ws_op[%d]: SET_BACKGROUND client=%d bg=%d", opcode, client_idx, bg);
         break;
     }
     case MK_WS_OP_SUB_USER_STATUS: {
-        char *tmp = strndup(payload, len);
-        miku_json_val_t *j = miku_json_parse_str(tmp);
+        char *tmp = payload && len > 0 ? strndup(payload, len) : NULL;
+        miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
         free(tmp);
+        const char *subscriber = uid[0] ? uid : "anonymous";
         if (j) {
             const char *target = miku_json_str(miku_json_get(j, "userID"));
             const char *action = miku_json_str(miku_json_get(j, "action"));
             if (target && action) {
                 if (strcmp(action, "subscribe") == 0) {
-                    miku_ws_sub_subscribe(gc->sub, "self", target);
-                    MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS subscribe target=%s", opcode, target);
+                    miku_ws_sub_subscribe(gc->sub, subscriber, target);
+                    MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS subscribe %s→%s",
+                                opcode, subscriber, target);
                 } else if (strcmp(action, "unsubscribe") == 0) {
-                    miku_ws_sub_unsubscribe(gc->sub, "self", target);
-                    MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS unsubscribe target=%s", opcode, target);
+                    miku_ws_sub_unsubscribe(gc->sub, subscriber, target);
+                    MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS unsubscribe %s→%s",
+                                opcode, subscriber, target);
                 }
             }
             miku_json_destroy(j);
         }
+        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         break;
     }
     case MK_WS_OP_DATA_ERROR:
         MK_LOG_WARN("ws_op[%d]: DATA_ERROR client=%d", opcode, client_idx);
         break;
     default:
+        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         MK_LOG_DEBUG("ws_op: unknown opcode=%d client=%d", opcode, client_idx);
         break;
     }
@@ -205,7 +256,7 @@ int main(int argc, char **argv) {
     }
 
     miku_msggw_start(g_gw);
-    MK_LOG_INFO("miku-msggateway ready (ws://0.0.0.0:%d, admin POST /internal/kick)", port);
+    MK_LOG_INFO("miku-msggateway ready (ws://0.0.0.0:%d, opcode replies enabled)", port);
 
     while (miku_graceful_running(&g_graceful)) {
         miku_msggw_poll(g_gw, 100);

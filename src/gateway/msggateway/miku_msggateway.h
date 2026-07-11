@@ -59,6 +59,8 @@ MIKU_API int  miku_msggw_broadcast_op(miku_msggw_t *gw, int opcode,
 MIKU_API int  miku_msggw_get_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq);
 MIKU_API int  miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background);
 MIKU_API int  miku_msggw_disconnect_client(miku_msggw_t *gw, int client_idx);
+MIKU_API int  miku_msggw_get_client_user_id(miku_msggw_t *gw, int client_idx,
+                                             char *out, size_t out_cap);
 
 /* Unwrap {"reqIdentifier":N,"data":...} → opcode + data JSON (caller frees *out_data). */
 MIKU_API int  miku_msggw_unwrap_op_data(const char *envelope_json, int *out_opcode,
