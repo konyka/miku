@@ -11,6 +11,7 @@
 #include "miku_offline_push.h"
 #include "miku_crontask.h"
 #include "miku_cron_tasks.h"
+#include "miku_msg_store.h"
 #include "miku_im_message.h"
 #include "miku_ws_subscription.h"
 #include "miku_auth.h"
@@ -30,6 +31,7 @@
 
 static miku_graceful_t g_graceful;
 static miku_cron_tasks_t *g_cron_impl;
+static miku_msg_store_t *g_msg_store;
 
 static void dev_cron_delete_msg(void *ctx) {
     miku_cron_delete_expired_msgs((miku_cron_tasks_t *)ctx, 180);
@@ -117,8 +119,10 @@ int main(int argc, char **argv) {
     miku_push_t *push = miku_push_create();
     miku_offline_push_t *offline = miku_offline_push_create(MK_PUSH_PROVIDER_DUMMY);
 
+    g_msg_store = miku_msg_store_create(NULL);
     miku_crontask_t *cron = miku_crontask_create();
     g_cron_impl = miku_cron_tasks_create();
+    miku_cron_tasks_set_msg_store(g_cron_impl, g_msg_store);
     miku_crontask_add(cron, "deleteMsg", dev_cron_delete_msg, g_cron_impl, 86400000);
     miku_crontask_add(cron, "clearS3",   dev_cron_clear_s3,   g_cron_impl, 604800000);
 
@@ -166,6 +170,7 @@ int main(int argc, char **argv) {
 
     miku_crontask_destroy(cron);
     miku_cron_tasks_destroy(g_cron_impl);
+    miku_msg_store_destroy(g_msg_store);
     miku_push_destroy(push);
     miku_offline_push_destroy(offline);
     miku_msgtransfer_destroy(mt);

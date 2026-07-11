@@ -22,4 +22,10 @@ MIKU_API int  miku_msg_store_update_status(miku_msg_store_t *store, const char *
                                              int status);
 MIKU_API int  miku_msg_store_delete(miku_msg_store_t *store, const char *msg_id);
 
+/* Delete messages with send_time < cutoff_ms. Returns number removed. */
+MIKU_API int  miku_msg_store_purge_older_than(miku_msg_store_t *store, int64_t cutoff_ms);
+/* Delete all messages from a sender. Returns number removed. */
+MIKU_API int  miku_msg_store_clear_user(miku_msg_store_t *store, const char *user_id);
+MIKU_API int  miku_msg_store_count(miku_msg_store_t *store);
+
 #endif

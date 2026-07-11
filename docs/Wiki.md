@@ -45,7 +45,7 @@
 | C 代码行数 | ~9K |
 | 构建警告 | 0 |
 
-Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。部分外部能力（离线推送 HTTP、定时清理）仍为 stub。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
+Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。消息存储在无 Mongo 时使用 8k 内存环，cron `deleteMsg`/`clearUserMsg` 会真实清理；离线推送可配置 `http://` 网关 POST；S3 清理仍待对象存储绑定。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
 
 ---
 
@@ -409,7 +409,7 @@ LRU + TTL 本地缓存：
 
 #### 4.5 消息存储（miku_msg_store）
 
-MongoDB 消息持久化封装。
+消息持久化封装：Mongo 可选；无 Mongo 时使用容量 8192 的内存槽位（满则按 `send_time` 淘汰最旧）。提供 `purge_older_than` / `clear_user` / `count`，供 cron 清理。
 
 #### 4.6 会话缓存（miku_session_cache）
 
@@ -535,13 +535,16 @@ WebSocket 消息网关，支持 4096 并发客户端：
   - **Getui** — 个推
   - **JPUSH** — 极光推送
   - **Dummy** — 空实现（测试用）
+- `miku_offline_push_set_endpoint(url)`：配置 `http://` 网关后，非 DUMMY 会 POST JSON（token/title/content）；未配置时 dry-run
 - 订阅/取消订阅管理
 
 #### 6.5 定时任务（miku-crontask）
 
 定时任务调度器（最大 256 个任务）：
-- `deleteMsg` — 定期清理过期消息
-- `clearS3` — 定期清理 S3 过期文件
+- `deleteMsg` — 按保留天数调用 `miku_msg_store_purge_older_than` 清理过期消息
+- `clearUserMsg` — 调用 `miku_msg_store_clear_user` 清理指定用户消息
+- `clearS3` — 定期清理 S3 过期文件（仍待对象存储绑定）
+- `miku_cron_tasks_set_msg_store` 绑定存储；`miku-dev` 已接线
 - 可扩展的任务注册机制
 
 ---

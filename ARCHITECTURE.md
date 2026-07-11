@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 157 tests, 64 modules, 13 binaries, 7 RPC services — API surface parity with OpenIM; offline-push provider HTTP and cron cleanup remain stubs.
+> **Status**: 203 API routes, 157 tests, 64 modules, 13 binaries, 7 RPC services — API surface parity with OpenIM; msg_store in-memory purge + cron delete wired; offline-push HTTP gateway optional; S3 cron still stub.
 
 ## 1. Overview
 
@@ -946,7 +946,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete for the HTTP/WS API surface. **157 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse and requires handshake token. HTTP routes dispatch via O(1) hashmap. Webhooks POST asynchronously via thread pool. `force_logout` can kick WS sessions when `on_kick` is wired (miku-dev). Provider stubs remain for offline-push HTTP and cron cleanup.
+All phases complete for the HTTP/WS API surface. **157 tests + 5 benchmarks** passing. **64 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse and requires handshake token. HTTP routes dispatch via O(1) hashmap. Webhooks POST asynchronously via thread pool. `force_logout` can kick WS sessions when `on_kick` is wired (miku-dev). `msg_store` keeps an 8k in-memory ring (Mongo optional) with `purge_older_than` / `clear_user`; cron `deleteMsg`/`clearUserMsg` call into it. Offline push POSTs JSON to an optional `http://` endpoint when configured.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

@@ -141,8 +141,8 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 - WebSocket gateway (RFC 6455) with epoll I/O, handshake token auth (`?token=` or header), 12 protocol opcodes, IM message parsing, user status subscriptions
 - Custom binary RPC with Protobuf codec (API currently embeds services in-process; RPC binaries available for split deploy)
 - MsgTransfer pipeline with batch flush (Redis/Mongo/Push callbacks)
-- Offline push notifications (FCM/Getui/JPUSH/Dummy providers — provider HTTP calls are stubs)
-- Cron task scheduler with task implementations (deleteMsg, clearS3 — cleanup logic is stubbed)
+- Offline push notifications (FCM/Getui/JPUSH/Dummy; optional `http://` gateway via `miku_offline_push_set_endpoint`)
+- Cron task scheduler with real message purge via in-memory/`msg_store` (`deleteMsg`/`clearUserMsg`; S3 cleanup still pending object-store binding)
 - Webhook/callback system (11 event types; outbound HTTP POST async via thread pool, short connect timeout)
 - Per-user rate limiting (mutex-protected sliding window + LRU eviction)
 - Token revoke / force_logout (in-memory blacklist; miku-dev kicks WS sessions via on_kick callback)

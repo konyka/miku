@@ -208,8 +208,25 @@ void test_cron_tasks_basic(void) {
     miku_cron_tasks_t *ct = miku_cron_tasks_create();
     mk_assert_not_null(ct);
 
+    miku_msg_store_t *store = miku_msg_store_create(NULL);
+    mk_assert_not_null(store);
+    miku_cron_tasks_set_msg_store(ct, store);
+
+    char mid[64] = {0};
+    int64_t old_ts = miku_timestamp_ms() - 40LL * 86400000LL;
+    mk_assert_int_eq(0, miku_msg_store_insert(store, "c1", "u1", 101, "old", old_ts, mid, sizeof(mid)));
+    mk_assert_int_eq(0, miku_msg_store_insert(store, "c1", "u1", 101, "new",
+                                               miku_timestamp_ms(), NULL, 0));
+    mk_assert_int_eq(2, miku_msg_store_count(store));
+
     mk_assert_int_eq(0, miku_cron_delete_expired_msgs(ct, 30));
+    mk_assert_long_eq(1, (long)miku_cron_total_msgs_deleted(ct));
+    mk_assert_int_eq(1, miku_msg_store_count(store));
+
     mk_assert_int_eq(0, miku_cron_clear_user_msgs(ct, "u1"));
+    mk_assert_int_eq(0, miku_msg_store_count(store));
+    mk_assert_long_eq(2, (long)miku_cron_total_msgs_deleted(ct));
+
     mk_assert_int_eq(0, miku_cron_clear_s3_files(ct, 7));
 
     {
@@ -220,6 +237,7 @@ void test_cron_tasks_basic(void) {
     mk_assert_long_eq(0, (long)miku_cron_get_last_run(ct, "nonexistent"));
 
     miku_cron_tasks_destroy(ct);
+    miku_msg_store_destroy(store);
 }
 
 void test_ws_subscription_basic(void) {
@@ -417,25 +435,33 @@ void test_msg_store_stub(void) {
     int rc = miku_msg_store_insert(s, "conv_1", "user_a", 101, "hello", 1000000, msg_id, sizeof(msg_id));
     mk_assert_int_eq(0, rc);
     mk_assert_int_ne(0, (int)msg_id[0]);
+    mk_assert_int_eq(1, miku_msg_store_count(s));
 
     char *results = NULL;
     rc = miku_msg_store_find_by_conv(s, "conv_1", 0, 100, &results);
     mk_assert_int_eq(0, rc);
     mk_assert_not_null(results);
-    mk_assert_str_eq("[]", results);
+    mk_assert(strstr(results, msg_id) != NULL);
     free(results);
 
     char *one = NULL;
     rc = miku_msg_store_find_one(s, msg_id, &one);
     mk_assert_int_eq(0, rc);
     mk_assert_not_null(one);
+    mk_assert(strstr(one, "hello") != NULL);
     free(one);
 
     rc = miku_msg_store_update_status(s, msg_id, 2);
     mk_assert_int_eq(0, rc);
 
+    mk_assert_int_eq(1, miku_msg_store_purge_older_than(s, 2000000));
+    mk_assert_int_eq(0, miku_msg_store_count(s));
+
+    rc = miku_msg_store_insert(s, "conv_1", "user_a", 101, "hi", miku_timestamp_ms(), msg_id, sizeof(msg_id));
+    mk_assert_int_eq(0, rc);
     rc = miku_msg_store_delete(s, msg_id);
     mk_assert_int_eq(0, rc);
+    mk_assert_int_eq(0, miku_msg_store_count(s));
 
     mk_assert_int_eq(-1, miku_msg_store_insert(s, NULL, "u", 1, "c", 0, NULL, 0));
 
