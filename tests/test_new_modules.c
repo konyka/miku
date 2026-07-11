@@ -25,6 +25,7 @@
 #include "miku_third.h"
 #include "miku_api.h"
 #include "miku_http_server.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -141,6 +142,46 @@ void test_seq_user_read(void) {
 
     miku_seq_set_user_read(seq, "u1", "conv_1", 10);
     mk_assert_long_eq(10, (long)miku_seq_get_user_read(seq, "u1", "conv_1"));
+
+    miku_seq_destroy(seq);
+}
+
+typedef struct {
+    miku_seq_t *seq;
+    int         iters;
+} seq_conc_arg_t;
+
+static void *seq_conc_worker(void *arg) {
+    seq_conc_arg_t *a = (seq_conc_arg_t *)arg;
+    for (int i = 0; i < a->iters; i++)
+        miku_seq_next(a->seq, "shared_conv");
+    return NULL;
+}
+
+void test_seq_hash_many_and_concurrent(void) {
+    miku_seq_t *seq = miku_seq_create();
+    mk_assert_not_null(seq);
+
+    char cid[64];
+    for (int i = 0; i < 1000; i++) {
+        snprintf(cid, sizeof(cid), "c_%d", i);
+        mk_assert_long_eq(1, (long)miku_seq_next(seq, cid));
+        mk_assert_long_eq(2, (long)miku_seq_next(seq, cid));
+        mk_assert_long_eq(2, (long)miku_seq_current(seq, cid));
+    }
+    mk_assert_long_eq(2, (long)miku_seq_current(seq, "c_0"));
+    mk_assert_long_eq(2, (long)miku_seq_current(seq, "c_999"));
+
+    seq_conc_arg_t a = { .seq = seq, .iters = 2000 };
+    pthread_t t1, t2;
+    pthread_create(&t1, NULL, seq_conc_worker, &a);
+    pthread_create(&t2, NULL, seq_conc_worker, &a);
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+    mk_assert_long_eq(4000, (long)miku_seq_current(seq, "shared_conv"));
+
+    miku_seq_set_user_read(seq, "u1", "c_42", 7);
+    mk_assert_long_eq(7, (long)miku_seq_get_user_read(seq, "u1", "c_42"));
 
     miku_seq_destroy(seq);
 }
@@ -2018,6 +2059,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_webhook_event_names);
     mk_run_test(test_seq_basic);
     mk_run_test(test_seq_user_read);
+    mk_run_test(test_seq_hash_many_and_concurrent);
     mk_run_test(test_incr_sync_basic);
     mk_run_test(test_incr_sync_changes);
     mk_run_test(test_offline_push_basic);
