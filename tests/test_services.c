@@ -500,6 +500,20 @@ static void ws_msg_cb(const char *user_id, const char *msg, size_t len, void *ct
     g_ws_msg_count++;
 }
 
+static void test_msggateway_seq_peek_vs_alloc(void) {
+    miku_msggw_t *gw = miku_msggw_create(19211);
+    mk_assert_not_null(gw);
+    int64_t a = -1, b = -1, c = -1;
+    mk_assert_int_eq(0, miku_msggw_peek_max_seq(gw, "c1", &a));
+    mk_assert_int_eq(0, miku_msggw_peek_max_seq(gw, "c1", &b));
+    mk_assert_long_eq((long)a, (long)b);
+    mk_assert_int_eq(0, miku_msggw_alloc_seq(gw, "c1", &c));
+    mk_assert_long_eq((long)(a + 1), (long)c);
+    mk_assert_int_eq(0, miku_msggw_peek_max_seq(gw, "c1", &b));
+    mk_assert_long_eq((long)c, (long)b);
+    miku_msggw_destroy(gw);
+}
+
 static void test_msggateway_unwrap_op_data(void) {
     int opcode = 0;
     char *data = NULL;
@@ -530,7 +544,7 @@ static void test_op_reply_cb(int client_idx, int opcode, const char *payload, si
     miku_msggw_t *gw = (miku_msggw_t *)ctx;
     if (opcode != MK_WS_OP_GET_NEWEST_SEQ) return;
     int64_t seq = 0;
-    miku_msggw_get_seq(gw, "conv_t", &seq);
+    miku_msggw_peek_max_seq(gw, "conv_t", &seq);
     char resp[128];
     snprintf(resp, sizeof(resp), "{\"errCode\":0,\"maxSeq\":%lld}", (long long)seq);
     miku_msggw_send_op(gw, client_idx, opcode, resp, strlen(resp));
@@ -805,6 +819,7 @@ void run_service_tests(void) {
     mk_run_test(test_rpc_server_e2e);
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
+    mk_run_test(test_msggateway_seq_peek_vs_alloc);
     mk_run_test(test_msggateway_unwrap_op_data);
     mk_run_test(test_msggateway_opcode_reply);
     mk_run_test(test_msgtransfer_queue);

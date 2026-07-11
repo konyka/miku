@@ -97,7 +97,7 @@ static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t
             }
         }
         int64_t seq = 0;
-        miku_msggw_get_seq(gc->gw, conv[0] ? conv : "default", &seq);
+        miku_msggw_peek_max_seq(gc->gw, conv[0] ? conv : "default", &seq);
         char resp[256];
         snprintf(resp, sizeof(resp),
                  "{\"errCode\":0,\"conversationID\":\"%s\",\"maxSeq\":%lld}",
@@ -126,7 +126,7 @@ static void on_ws_opcode(int client_idx, int opcode, const char *payload, size_t
             strncpy(im.send_id, uid, sizeof(im.send_id) - 1);
         miku_im_msg_generate_id(&im);
         int64_t seq = 0;
-        miku_msggw_get_seq(gc->gw, im.conversation_id[0] ? im.conversation_id : im.recv_id, &seq);
+        miku_msggw_alloc_seq(gc->gw, im.conversation_id[0] ? im.conversation_id : im.recv_id, &seq);
         im.seq = seq;
         if (im.send_time <= 0) im.send_time = miku_timestamp_ms();
 

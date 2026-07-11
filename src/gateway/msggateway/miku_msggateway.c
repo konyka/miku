@@ -275,11 +275,22 @@ int miku_msggw_broadcast_op(miku_msggw_t *gw, int opcode,
     return sent;
 }
 
-int miku_msggw_get_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq) {
+int miku_msggw_peek_max_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq) {
+    if (!gw || !seq) return -1;
+    (void)conversation_id;
+    *seq = gw->global_seq;
+    return 0;
+}
+
+int miku_msggw_alloc_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq) {
     if (!gw || !seq) return -1;
     (void)conversation_id;
     *seq = ++gw->global_seq;
     return 0;
+}
+
+int miku_msggw_get_seq(miku_msggw_t *gw, const char *conversation_id, int64_t *seq) {
+    return miku_msggw_alloc_seq(gw, conversation_id, seq);
 }
 
 int miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background) {
