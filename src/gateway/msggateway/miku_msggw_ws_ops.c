@@ -59,6 +59,33 @@ static void fill_read_seq_entry(miku_msggw_t *gw, const char *uid, const char *c
     miku_json_object_set(map, cid, entry);
 }
 
+static int fill_peer_from_si_conv(const char *conv, const char *self,
+                                  char *peer, size_t peer_sz) {
+    if (!conv || !self || !self[0] || !peer || peer_sz == 0 ||
+        strncmp(conv, "si_", 3) != 0)
+        return -1;
+    const char *rest = conv + 3;
+    size_t slen = strlen(self);
+    size_t rlen = strlen(rest);
+    peer[0] = '\0';
+    /* si_<self>_<peer> */
+    if (rlen > slen + 1 && strncmp(rest, self, slen) == 0 && rest[slen] == '_') {
+        strncpy(peer, rest + slen + 1, peer_sz - 1);
+        peer[peer_sz - 1] = '\0';
+        return peer[0] ? 0 : -1;
+    }
+    /* si_<peer>_<self> */
+    if (rlen > slen + 1 && rest[rlen - slen - 1] == '_' &&
+        strcmp(rest + (rlen - slen), self) == 0) {
+        size_t plen = rlen - slen - 1;
+        if (plen >= peer_sz) return -1;
+        memcpy(peer, rest, plen);
+        peer[plen] = '\0';
+        return 0;
+    }
+    return -1;
+}
+
 static void fanout_one_member(const char *user_id, int role, void *v) {
     (void)role;
     fanout_ctx_t *f = (fanout_ctx_t *)v;
@@ -251,18 +278,34 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             else if (im.recv_id[0]) im.conversation_type = MK_IM_CONV_SINGLE;
         }
 
-        /* Read receipt: update hasReadSeq without allocating chat seq / fan-out. */
+        /* Read receipt: update hasReadSeq, then PUSH to peer(s) without alloc/store. */
         if (im.content_type == MK_IM_MSG_TYPE_READ) {
             int64_t rs = has_read_seq > 0 ? has_read_seq : im.seq;
             if (rs > 0 && uid[0])
                 miku_msggw_set_user_read(gc->gw, uid, conv, rs);
+            im.seq = rs;
+            if (!im.content[0])
+                strncpy(im.content, "read", sizeof(im.content) - 1);
+            if (!im.group_id[0] && strncmp(conv, "sg_", 3) == 0) {
+                strncpy(im.group_id, conv + 3, sizeof(im.group_id) - 1);
+                im.conversation_type = MK_IM_CONV_GROUP;
+            }
+            if (!im.recv_id[0] && !im.group_id[0]) {
+                const char *self = uid[0] ? uid : im.send_id;
+                fill_peer_from_si_conv(conv, self, im.recv_id, sizeof(im.recv_id));
+            }
+            if (!im.conversation_type) {
+                if (im.group_id[0]) im.conversation_type = MK_IM_CONV_GROUP;
+                else if (im.recv_id[0]) im.conversation_type = MK_IM_CONV_SINGLE;
+            }
+            fanout_send_msg(gc, &im);
             char resp[256];
             snprintf(resp, sizeof(resp),
                      "{\"errCode\":0,\"conversationID\":\"%s\",\"hasReadSeq\":%lld}",
                      conv, (long long)rs);
             reply_json(gc->gw, client_idx, opcode, resp);
-            MK_LOG_INFO("ws_op[%d]: SEND_MSG READ client=%d conv=%s hasReadSeq=%lld",
-                        opcode, client_idx, conv, (long long)rs);
+            MK_LOG_INFO("ws_op[%d]: SEND_MSG READ client=%d conv=%s hasReadSeq=%lld recv=%s group=%s",
+                        opcode, client_idx, conv, (long long)rs, im.recv_id, im.group_id);
             break;
         }
 

@@ -652,6 +652,24 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     }
 
+    if (strcmp(method, "markConversationAsRead") == 0 ||
+        strcmp(method, "setConversationHasReadSeq") == 0 ||
+        strcmp(method, "markMsgsAsRead") == 0) {
+        int64_t mark_err = miku_json_int(miku_json_get(out, "errCode"));
+        if (mark_err == 0) {
+            const char *owner = miku_json_str(miku_json_get(j, "userID"));
+            if (!owner || !owner[0]) owner = miku_json_str(miku_json_get(j, "ownerUserID"));
+            const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
+            if (owner && owner[0] && cid && cid[0]) {
+                miku_conversation_t cv;
+                if (miku_conv_get(c->conv, owner, cid, &cv) == 0) {
+                    cv.unread_count = 0;
+                    miku_conv_update(c->conv, &cv);
+                }
+            }
+        }
+    }
+
     if (c->webhook) {
         int64_t wh_err = miku_json_int(miku_json_get(out, "errCode"));
         if (wh_err == 0 && strcmp(method, "sendMsg") == 0) {

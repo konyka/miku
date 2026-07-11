@@ -142,6 +142,9 @@ void test_seq_user_read(void) {
 
     miku_seq_set_user_read(seq, "u1", "conv_1", 10);
     mk_assert_long_eq(10, (long)miku_seq_get_user_read(seq, "u1", "conv_1"));
+    /* Out-of-order / retry must not lower the watermark. */
+    miku_seq_set_user_read(seq, "u1", "conv_1", 5);
+    mk_assert_long_eq(10, (long)miku_seq_get_user_read(seq, "u1", "conv_1"));
 
     miku_seq_destroy(seq);
 }
@@ -549,6 +552,18 @@ void test_im_message_roundtrip(void) {
     miku_json_destroy(jg);
     mk_assert_int_eq(MK_IM_CONV_GROUP, gmsg.conversation_type);
     mk_assert_str_eq("g9", gmsg.group_id);
+
+    miku_im_msg_t readm;
+    miku_im_msg_init(&readm);
+    strncpy(readm.send_id, "u1", sizeof(readm.send_id) - 1);
+    strncpy(readm.recv_id, "u2", sizeof(readm.recv_id) - 1);
+    readm.content_type = MK_IM_MSG_TYPE_READ;
+    readm.seq = 42;
+    strncpy(readm.content, "read", sizeof(readm.content) - 1);
+    miku_json_val_t *rj = miku_im_msg_to_json(&readm);
+    mk_assert_not_null(rj);
+    mk_assert_int_eq(42, (int)miku_json_int(miku_json_get(rj, "hasReadSeq")));
+    miku_json_destroy(rj);
 }
 
 void test_im_message_validate(void) {
@@ -1468,6 +1483,20 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_str_eq("si_r1_s1", miku_json_str(miku_json_get(c0, "conversationID")));
     mk_assert_str_eq("s1", miku_json_str(miku_json_get(c0, "userID")));
     mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(c0, "unreadCount")));
+    miku_json_destroy(r);
+
+    char mark[8192] = {0};
+    http_post_with_token(19780, "/msg/mark_conversation_as_read", token,
+        "{\"userID\":\"r1\",\"conversationID\":\"si_r1_s1\"}", mark, sizeof(mark));
+    char conv_r2[8192] = {0};
+    http_post_with_token(19780, "/conversation/get_all_conversations", token,
+        "{\"ownerUserID\":\"r1\"}", conv_r2, sizeof(conv_r2));
+    body = extract_json_body(conv_r2);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    data = miku_json_get(r, "data");
+    c0 = miku_json_at(data, 0);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(c0, "unreadCount")));
     miku_json_destroy(r);
 
     char resp2[8192] = {0};

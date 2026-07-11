@@ -12,7 +12,9 @@
 #include "miku_http_server.h"
 #include "miku_rpc_server.h"
 #include "miku_msggateway.h"
+#include "miku_msggw_ws_ops.h"
 #include "miku_im_message.h"
+#include "miku_msg_store.h"
 #include "miku_msgtransfer.h"
 #include "miku_push.h"
 #include "miku_crontask.h"
@@ -791,6 +793,81 @@ static void test_msggateway_send_op_to_user(void) {
     miku_msggw_destroy(gw);
 }
 
+static int ws_connect_user(miku_msggw_t *gw, int port, const char *user, int *out_fd) {
+    char token[512] = {0};
+    if (miku_token_create(user, 1, "openIM123", token, sizeof(token)) != 0) return -1;
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) { close(fd); return -1; }
+    char req[1024];
+    int len = snprintf(req, sizeof(req),
+        "GET /ws?token=%s HTTP/1.1\r\n"
+        "Host: 127.0.0.1:%d\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+        "Sec-WebSocket-Version: 13\r\n\r\n", token, port);
+    write(fd, req, (size_t)len);
+    miku_msggw_poll(gw, 500);
+    char hs[2048] = {0};
+    ssize_t n = read(fd, hs, sizeof(hs) - 1);
+    if (n <= 0 || !strstr(hs, "101")) { close(fd); return -1; }
+    *out_fd = fd;
+    return 0;
+}
+
+static void test_msggateway_read_receipt_fanout(void) {
+    miku_msggw_t *gw = miku_msggw_create(19225);
+    miku_msg_store_t *store = miku_msg_store_create(NULL);
+    mk_assert_not_null(gw);
+    mk_assert_not_null(store);
+    mk_assert_int_eq(0, miku_msggw_start(gw));
+    miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = store, .sub = NULL, .group = NULL };
+    miku_msggw_on_opcode(gw, miku_msggw_ws_on_opcode, &ctx);
+
+    int fd_a = -1, fd_b = -1;
+    mk_assert_int_eq(0, ws_connect_user(gw, 19225, "read_a", &fd_a));
+    mk_assert_int_eq(0, ws_connect_user(gw, 19225, "read_b", &fd_b));
+
+    const char *frame =
+        "{\"reqIdentifier\":1003,\"data\":{\"sendID\":\"read_a\",\"recvID\":\"read_b\","
+        "\"conversationID\":\"si_read_a_read_b\",\"contentType\":302,"
+        "\"hasReadSeq\":7,\"content\":\"read\"}}";
+    mk_assert_int_eq(0, ws_client_send_text_masked(fd_a, frame));
+    miku_msggw_poll(gw, 500);
+
+    /* Drain sender ACK; peer frame may embed NUL in WS extended-length header. */
+    {
+        uint8_t dump[2048];
+        struct pollfd pfd = { .fd = fd_a, .events = POLLIN };
+        if (poll(&pfd, 1, 50) > 0) (void)read(fd_a, dump, sizeof(dump));
+    }
+    uint8_t rbuf[4096];
+    struct pollfd pb = { .fd = fd_b, .events = POLLIN };
+    mk_assert(poll(&pb, 1, 500) > 0);
+    ssize_t n = read(fd_b, rbuf, sizeof(rbuf) - 1);
+    mk_assert(n > 0);
+    const char *json = NULL;
+    for (ssize_t i = 0; i < n; i++) {
+        if (rbuf[i] == '{') { json = (const char *)(rbuf + i); break; }
+    }
+    mk_assert_not_null(json);
+    mk_assert(strstr(json, "2001") != NULL);
+    mk_assert(strstr(json, "hasReadSeq") != NULL);
+    mk_assert(strstr(json, "302") != NULL);
+    mk_assert_long_eq(7, (long)miku_msggw_get_user_read(gw, "read_a", "si_read_a_read_b"));
+
+    close(fd_a);
+    close(fd_b);
+    miku_msggw_stop(gw);
+    miku_msg_store_destroy(store);
+    miku_msggw_destroy(gw);
+}
+
 static void test_msggateway_ws_upgrade(void) {
     miku_msggw_t *gw = miku_msggw_create(19200);
     mk_assert_not_null(gw);
@@ -1011,6 +1088,7 @@ void run_service_tests(void) {
     mk_run_test(test_msggateway_unwrap_op_data);
     mk_run_test(test_msggateway_opcode_reply);
     mk_run_test(test_msggateway_send_op_to_user);
+    mk_run_test(test_msggateway_read_receipt_fanout);
     mk_run_test(test_msgtransfer_queue);
     mk_run_test(test_push_subscribe);
     mk_run_test(test_crontask_tick);

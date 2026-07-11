@@ -90,6 +90,8 @@ miku_json_val_t *miku_im_msg_to_json(const miku_im_msg_t *msg) {
     if (msg->sender_face_url[0]) miku_jss(j, "senderFaceURL", msg->sender_face_url);
     miku_ji(j, "isRead", msg->is_read);
     miku_ji(j, "status", msg->status);
+    if (msg->content_type == MK_IM_MSG_TYPE_READ && msg->seq > 0)
+        miku_ji(j, "hasReadSeq", msg->seq);
     return j;
 }
 

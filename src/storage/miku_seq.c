@@ -169,7 +169,7 @@ int miku_seq_set_user_read(miku_seq_t *seq, const char *user_id,
         pthread_mutex_unlock(&seq->lock);
         return -1;
     }
-    ur->read_seq = read_seq;
+    ur->read_seq = read_seq > ur->read_seq ? read_seq : ur->read_seq;
     pthread_mutex_unlock(&seq->lock);
     return 0;
 }
