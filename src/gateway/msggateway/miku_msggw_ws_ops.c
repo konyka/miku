@@ -90,6 +90,51 @@ static void fanout_send_msg(miku_msggw_ws_ctx_t *gc, const miku_im_msg_t *im) {
         push_im_to_user(gc->gw, im->recv_id, im);
 }
 
+int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *gc, miku_im_msg_t *im) {
+    if (!gc || !gc->gw || !im) return -1;
+
+    char conv[128];
+    miku_msggw_ws_resolve_conv(conv, sizeof(conv),
+                               im->conversation_id, im->group_id, im->recv_id);
+    if (!im->conversation_id[0])
+        strncpy(im->conversation_id, conv, sizeof(im->conversation_id) - 1);
+    if (!im->conversation_type) {
+        if (im->group_id[0]) im->conversation_type = MK_IM_CONV_GROUP;
+        else if (im->recv_id[0]) im->conversation_type = MK_IM_CONV_SINGLE;
+    }
+    if (im->content_type <= 0)
+        im->content_type = MK_IM_MSG_TYPE_TEXT;
+
+    if (miku_im_msg_validate(im) != 0) {
+        MK_LOG_WARN("deliver_msg: validate failed send=%s recv=%s group=%s type=%d",
+                    im->send_id, im->recv_id, im->group_id, im->content_type);
+        return -1;
+    }
+
+    miku_im_msg_generate_id(im);
+
+    int64_t seq = 0;
+    if (miku_msggw_alloc_seq(gc->gw, conv, &seq) != 0)
+        return -1;
+    im->seq = seq;
+    if (im->send_time <= 0) im->send_time = miku_timestamp_ms();
+    if (im->create_time <= 0) im->create_time = im->send_time;
+
+    char store_id[64] = {0};
+    if (gc->store) {
+        miku_msg_store_insert(gc->store, conv, im->send_id, im->content_type,
+                              im->content, im->send_time, im->seq,
+                              store_id, sizeof(store_id));
+        if (store_id[0])
+            strncpy(im->msg_id, store_id, sizeof(im->msg_id) - 1);
+    }
+
+    fanout_send_msg(gc, im);
+    MK_LOG_DEBUG("deliver_msg: conv=%s send=%s recv=%s group=%s seq=%lld",
+                 conv, im->send_id, im->recv_id, im->group_id, (long long)im->seq);
+    return 0;
+}
+
 void miku_msggw_ws_sub_notify(const char *subscriber, const char *payload,
                               size_t len, void *ctx) {
     miku_msggw_t *gw = (miku_msggw_t *)ctx;
@@ -213,23 +258,11 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             break;
         }
 
-        miku_im_msg_generate_id(&im);
-
-        int64_t seq = 0;
-        miku_msggw_alloc_seq(gc->gw, conv, &seq);
-        im.seq = seq;
-        if (im.send_time <= 0) im.send_time = miku_timestamp_ms();
-
-        char store_id[64] = {0};
-        if (gc->store) {
-            miku_msg_store_insert(gc->store, conv, im.send_id, im.content_type,
-                                  im.content, im.send_time, im.seq,
-                                  store_id, sizeof(store_id));
-            if (store_id[0])
-                strncpy(im.msg_id, store_id, sizeof(im.msg_id) - 1);
+        if (miku_msggw_ws_deliver_msg(gc, &im) != 0) {
+            reply_json(gc->gw, client_idx, opcode,
+                       "{\"errCode\":1001,\"errMsg\":\"invalid message\"}");
+            break;
         }
-
-        fanout_send_msg(gc, &im);
 
         char resp[512];
         snprintf(resp, sizeof(resp),

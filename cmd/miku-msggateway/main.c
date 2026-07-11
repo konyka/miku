@@ -72,6 +72,38 @@ static void handle_internal_group_member(miku_http_request_t *req, miku_http_res
                 gid[0] ? gid : "(empty)", uid[0] ? uid : "(empty)", rc);
 }
 
+static void handle_internal_push_msg(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    miku_msggw_ws_ctx_t *ws = (miku_msggw_ws_ctx_t *)ctx;
+    miku_im_msg_t im;
+    miku_im_msg_init(&im);
+    int rc = -1;
+    if (req && req->body.data && req->body.len > 0 && ws) {
+        char *tmp = strndup(req->body.data, req->body.len);
+        miku_json_val_t *j = miku_json_parse_str(tmp);
+        free(tmp);
+        if (j) {
+            miku_im_msg_from_json(&im, j);
+            if (im.content_type <= 0) {
+                int64_t mt = miku_json_int(miku_json_get(j, "msgType"));
+                im.content_type = mt > 0 ? (int)mt : MK_IM_MSG_TYPE_TEXT;
+            }
+            miku_json_destroy(j);
+            rc = miku_msggw_ws_deliver_msg(ws, &im);
+        }
+    }
+    char buf[256];
+    if (rc == 0) {
+        snprintf(buf, sizeof(buf),
+                 "{\"errCode\":0,\"serverMsgID\":\"%s\",\"seq\":%lld,\"sendTime\":%lld}",
+                 im.msg_id, (long long)im.seq, (long long)im.send_time);
+    } else {
+        snprintf(buf, sizeof(buf), "{\"errCode\":500,\"errMsg\":\"deliver failed\"}");
+    }
+    miku_http_response_set_json(resp, buf);
+    MK_LOG_INFO("internal push_msg send=%s recv=%s group=%s rc=%d seq=%lld",
+                im.send_id, im.recv_id, im.group_id, rc, (long long)im.seq);
+}
+
 static void *admin_thread(void *arg) {
     (void)arg;
     if (g_admin) miku_http_server_start(g_admin);
@@ -158,6 +190,8 @@ int main(int argc, char **argv) {
         miku_http_server_route(g_admin, "POST", "/internal/kick", handle_internal_kick, g_gw);
         miku_http_server_route(g_admin, "POST", "/internal/group_member",
                                handle_internal_group_member, g_group);
+        miku_http_server_route(g_admin, "POST", "/internal/push_msg",
+                               handle_internal_push_msg, &gctx);
         pthread_t th;
         if (pthread_create(&th, NULL, admin_thread, NULL) == 0)
             pthread_detach(th);

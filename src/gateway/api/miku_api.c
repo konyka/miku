@@ -512,6 +512,23 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                                      miku_conversation_to_json(&conv),
                                      miku_json_create_object());
             }
+            if (c->on_msg_sent) {
+                miku_im_msg_t im;
+                miku_im_msg_from_json(&im, j);
+                if (im.content_type <= 0) {
+                    int64_t mt = miku_json_int(miku_json_get(j, "msgType"));
+                    im.content_type = mt > 0 ? (int)mt : MK_IM_MSG_TYPE_TEXT;
+                }
+                const char *smid = miku_json_str(miku_json_get(out, "serverMsgID"));
+                if (smid && smid[0])
+                    strncpy(im.msg_id, smid, sizeof(im.msg_id) - 1);
+                if (send_time > 0) im.send_time = send_time;
+                if (c->on_msg_sent(&im, c->on_msg_sent_ctx) == 0) {
+                    if (im.seq > 0) miku_ji(out, "seq", im.seq);
+                    if (im.send_time > 0) miku_ji(out, "sendTime", im.send_time);
+                    if (im.msg_id[0]) miku_jss(out, "serverMsgID", im.msg_id);
+                }
+            }
         }
     }
 

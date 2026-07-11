@@ -327,6 +327,39 @@ void test_msggw_user_read_seq(void) {
     miku_msggw_destroy(gw);
 }
 
+void test_msggw_ws_deliver_msg(void) {
+    miku_msggw_t *gw = miku_msggw_create(19351);
+    miku_msg_store_t *store = miku_msg_store_create(NULL);
+    mk_assert_not_null(gw);
+    mk_assert_not_null(store);
+
+    miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = store, .sub = NULL, .group = NULL };
+    miku_im_msg_t im;
+    miku_im_msg_init(&im);
+    strncpy(im.send_id, "alice", sizeof(im.send_id) - 1);
+    strncpy(im.recv_id, "bob", sizeof(im.recv_id) - 1);
+    strncpy(im.content, "hello via deliver", sizeof(im.content) - 1);
+    im.content_type = MK_IM_MSG_TYPE_TEXT;
+
+    mk_assert_int_eq(0, miku_msggw_ws_deliver_msg(&ctx, &im));
+    mk_assert_long_eq(1, (long)im.seq);
+    mk_assert(im.msg_id[0] != '\0');
+    mk_assert_int_eq(1, miku_msg_store_count(store));
+
+    char *msgs = NULL;
+    mk_assert_int_eq(0, miku_msg_store_find_by_conv(store, "bob", 1, 1, &msgs));
+    mk_assert_not_null(msgs);
+    mk_assert(strstr(msgs, "hello via deliver") != NULL);
+    free(msgs);
+
+    miku_im_msg_t bad;
+    miku_im_msg_init(&bad);
+    mk_assert_int_eq(-1, miku_msggw_ws_deliver_msg(&ctx, &bad));
+
+    miku_msg_store_destroy(store);
+    miku_msggw_destroy(gw);
+}
+
 void test_gzip_roundtrip(void) {
     const char *data = "Hello, this is a test string for gzip compression in Miku IM Server!";
     size_t data_len = strlen(data);
@@ -1795,6 +1828,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_ws_subscription_basic);
     mk_run_test(test_msggw_ws_resolve_conv);
     mk_run_test(test_msggw_user_read_seq);
+    mk_run_test(test_msggw_ws_deliver_msg);
     mk_run_test(test_gzip_roundtrip);
     mk_run_test(test_gzip_detect_encoding);
     mk_run_test(test_im_message_roundtrip);

@@ -6,6 +6,7 @@
 #include "miku_ws_subscription.h"
 #include "miku_msg_store.h"
 #include "miku_group.h"
+#include "miku_im_message.h"
 
 typedef struct {
     miku_msggw_t           *gw;
@@ -19,6 +20,9 @@ MIKU_API void miku_msggw_ws_resolve_conv(char *out, size_t out_sz,
                                          const char *conversation_id,
                                          const char *group_id,
                                          const char *recv_id);
+
+/* Persist + fan-out (alloc seq, msg_store insert, PUSH_MSG). Updates im in-place. */
+MIKU_API int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *ctx, miku_im_msg_t *im);
 
 MIKU_API void miku_msggw_ws_sub_notify(const char *subscriber, const char *payload,
                                        size_t len, void *ctx);

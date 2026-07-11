@@ -7,6 +7,9 @@
 #include "miku_api.h"
 #include "miku_middleware.h"
 #include "miku_http_client.h"
+#include "miku_im_message.h"
+#include "miku_json.h"
+#include "miku_string.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +17,7 @@
 
 static miku_graceful_t g_graceful;
 static char g_kick_url[128];
+static char g_push_url[128];
 
 static void api_kick_user(const char *user_id, int platform, void *ctx) {
     (void)ctx;
@@ -26,6 +30,26 @@ static void api_kick_user(const char *user_id, int platform, void *ctx) {
         MK_LOG_INFO("force_logout: kicked via %s user=%s", g_kick_url, user_id);
     else
         MK_LOG_WARN("force_logout: kick POST failed (%s) user=%s", g_kick_url, user_id);
+}
+
+static int api_msg_sent(miku_im_msg_t *im, void *ctx) {
+    (void)ctx;
+    if (!im || !g_push_url[0]) return -1;
+    miku_json_val_t *j = miku_im_msg_to_json(im);
+    if (!j) return -1;
+    miku_string_t *ps = miku_json_stringify(j);
+    miku_json_destroy(j);
+    if (!ps || !ps->data) {
+        miku_str_destroy(ps);
+        return -1;
+    }
+    int rc = miku_http_post_json(g_push_url, ps->data);
+    miku_str_destroy(ps);
+    if (rc == 0)
+        MK_LOG_INFO("sendMsg: pushed via %s send=%s recv=%s", g_push_url, im->send_id, im->recv_id);
+    else
+        MK_LOG_WARN("sendMsg: push POST failed (%s) send=%s", g_push_url, im->send_id);
+    return rc;
 }
 
 int main(int argc, char **argv) {
@@ -45,16 +69,20 @@ int main(int argc, char **argv) {
 
     if (port < 0) port = sc.api_port;
     snprintf(g_kick_url, sizeof(g_kick_url), "http://127.0.0.1:%d/internal/kick", sc.ws_port + 1);
+    snprintf(g_push_url, sizeof(g_push_url), "http://127.0.0.1:%d/internal/push_msg", sc.ws_port + 1);
 
     miku_log_init(NULL, MK_LOG_DEBUG);
     miku_graceful_init(&g_graceful, 500);
-    MK_LOG_INFO("miku-api starting on %s:%d (kick→%s)", listen_addr, port, g_kick_url);
+    MK_LOG_INFO("miku-api starting on %s:%d (kick→%s push→%s)",
+                listen_addr, port, g_kick_url, g_push_url);
 
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     if (!ctx) { MK_LOG_ERROR("Failed to create API context"); return 1; }
     ctx->stats.port = port;
     ctx->on_kick = api_kick_user;
     ctx->on_kick_ctx = NULL;
+    ctx->on_msg_sent = api_msg_sent;
+    ctx->on_msg_sent_ctx = NULL;
 
     miku_http_server_t *srv = miku_http_server_create(listen_addr, port);
     if (!srv) { MK_LOG_ERROR("Failed to create HTTP server on %s:%d", listen_addr, port); miku_api_ctx_destroy(ctx); return 1; }

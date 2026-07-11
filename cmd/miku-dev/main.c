@@ -76,6 +76,10 @@ static void dev_kick_user(const char *user_id, int platform, void *ctx) {
     }
 }
 
+static int dev_msg_sent(miku_im_msg_t *im, void *ctx) {
+    return miku_msggw_ws_deliver_msg((miku_msggw_ws_ctx_t *)ctx, im);
+}
+
 int main(int argc, char **argv) {
     const char *config_dir = "config/";
     int api_port = -1;
@@ -136,6 +140,8 @@ int main(int argc, char **argv) {
     miku_ws_sub_set_notify(sub, miku_msggw_ws_sub_notify, gw);
     miku_msggw_on_opcode(gw, miku_msggw_ws_on_opcode, &ws_ctx);
     miku_msggw_on_presence(gw, miku_msggw_ws_on_presence, &ws_ctx);
+    ctx->on_msg_sent = dev_msg_sent;
+    ctx->on_msg_sent_ctx = &ws_ctx;
 
     miku_push_t *push = miku_push_create();
     miku_offline_push_t *offline = miku_offline_push_create(MK_PUSH_PROVIDER_DUMMY);

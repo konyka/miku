@@ -13,8 +13,11 @@
 #include "miku_stats.h"
 #include "miku_ratelimit.h"
 #include "miku_webhook.h"
+#include "miku_im_message.h"
 
 typedef void (*miku_api_kick_fn)(const char *user_id, int platform, void *ctx);
+/* Return 0 on success. May update msg (seq, msg_id, send_time). */
+typedef int (*miku_api_msg_sent_fn)(miku_im_msg_t *msg, void *ctx);
 
 typedef struct {
     miku_auth_service_t       *auth;
@@ -30,6 +33,9 @@ typedef struct {
     /* Optional: wired by miku-dev to kick WS sessions on force_logout */
     miku_api_kick_fn           on_kick;
     void                      *on_kick_ctx;
+    /* Optional: bridge HTTP sendMsg → WS msg_store + PUSH_MSG */
+    miku_api_msg_sent_fn       on_msg_sent;
+    void                      *on_msg_sent_ctx;
 } miku_api_ctx_t;
 
 MIKU_API miku_api_ctx_t *miku_api_ctx_create(void);
