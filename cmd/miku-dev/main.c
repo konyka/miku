@@ -54,6 +54,15 @@ static void dev_pipeline_push(const char *user_id, const char *conv_id, int64_t 
     MK_LOG_DEBUG("dev pipeline: push user=%s conv=%s seq=%ld", user_id, conv_id, (long)seq);
 }
 
+static void dev_kick_user(const char *user_id, int platform, void *ctx) {
+    (void)platform;
+    miku_msggw_t *gw = (miku_msggw_t *)ctx;
+    if (gw && user_id) {
+        int n = miku_msggw_kick_user(gw, user_id);
+        MK_LOG_INFO("force_logout: kicked %d WS session(s) for %s", n, user_id);
+    }
+}
+
 int main(int argc, char **argv) {
     const char *config_dir = "config/";
     int api_port = -1;
@@ -96,6 +105,8 @@ int main(int argc, char **argv) {
     miku_api_register_routes(srv, ctx);
 
     miku_msggw_t *gw = miku_msggw_create(ws_port);
+    ctx->on_kick = dev_kick_user;
+    ctx->on_kick_ctx = gw;
     miku_ws_sub_t *sub = miku_ws_sub_create();
     miku_msgtransfer_t *mt = miku_msgtransfer_create();
     miku_mt_pipeline_t *pipe = miku_mt_pipeline_create();

@@ -41,7 +41,7 @@
 | C 模块数 | 64 |
 | C 头文件数 | 71 |
 | 可执行文件 | 13 |
-| 测试数 | 156 |
+| 测试数 | 157 |
 | C 代码行数 | ~9K |
 | 构建警告 | 0 |
 
@@ -362,7 +362,7 @@ CORS → RequestID → Logging → Auth → Stats → Route Handler
 | `USER_ONLINE` / `USER_OFFLINE` | 用户上下线 |
 | `MSG_REVOKE` | 消息撤回 |
 
-支持同步和异步触发。配置 URL 后通过原生 socket 发送 `HTTP POST`（短超时，失败计入 `total_failed`，不阻塞业务返回）。
+支持同步和异步触发。`fire()` 将 URL POST 投递到内部线程池（不阻塞 API）；`fire_sync()` 同步等待。失败计入 `total_failed`。
 
 #### 3.11 Gzip 压缩（miku_gzip）
 

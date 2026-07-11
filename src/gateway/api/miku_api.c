@@ -203,12 +203,14 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
         if (require_fields(j, resp, "userID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         int rc = miku_auth_force_logout(c->auth, uid, -1);
+        if (rc == 0 && c->on_kick) c->on_kick(uid, -1, c->on_kick_ctx);
         miku_ji(out, "errCode", rc == 0 ? 0 : 500);
     } else if (strstr(path, "force_logout")) {
         if (require_fields(j, resp, "userID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         int plat = (int)miku_json_int(miku_json_get(j, "platformID"));
         int rc = miku_auth_force_logout(c->auth, uid, plat);
+        if (rc == 0 && c->on_kick) c->on_kick(uid, plat, c->on_kick_ctx);
         miku_ji(out, "errCode", rc == 0 ? 0 : 500);
     } else {
         miku_ji(out, "errCode", 404);

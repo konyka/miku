@@ -368,6 +368,49 @@ static void test_msggateway_lifecycle(void) {
     miku_msggw_destroy(gw);
 }
 
+static void test_msggateway_slot_reuse(void) {
+    miku_msggw_t *gw = miku_msggw_create(19101);
+    mk_assert_not_null(gw);
+    mk_assert_int_eq(0, miku_msggw_start(gw));
+
+    char token[512] = {0};
+    mk_assert_int_eq(0, miku_token_create("slot_u", 1, "openIM123", token, sizeof(token)));
+
+    for (int round = 0; round < 3; round++) {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        mk_assert(fd >= 0);
+        struct sockaddr_in addr = {0};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(19101);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        mk_assert_int_eq(0, connect(fd, (struct sockaddr *)&addr, sizeof(addr)));
+
+        char req[1024];
+        int len = snprintf(req, sizeof(req),
+            "GET /ws?token=%s HTTP/1.1\r\n"
+            "Host: 127.0.0.1:19101\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+            "Sec-WebSocket-Version: 13\r\n\r\n", token);
+        write(fd, req, (size_t)len);
+        miku_msggw_poll(gw, 300);
+        char resp[1024] = {0};
+        read(fd, resp, sizeof(resp) - 1);
+        mk_assert(strstr(resp, "101") != NULL);
+        mk_assert_int_eq(1, miku_msggw_client_count(gw));
+
+        miku_msggw_kick_user(gw, "slot_u");
+        mk_assert_int_eq(0, miku_msggw_client_count(gw));
+        close(fd);
+    }
+
+    /* After 3 connect/kick cycles, online count stays 0 (slots reused). */
+    mk_assert_int_eq(0, miku_msggw_client_count(gw));
+    miku_msggw_stop(gw);
+    miku_msggw_destroy(gw);
+}
+
 static void test_msgtransfer_queue(void) {
     miku_msgtransfer_t *mt = miku_msgtransfer_create();
     mk_assert_not_null(mt);
@@ -641,6 +684,7 @@ void run_service_tests(void) {
     mk_run_test(test_api_gateway_e2e);
     mk_run_test(test_rpc_server_e2e);
     mk_run_test(test_msggateway_lifecycle);
+    mk_run_test(test_msggateway_slot_reuse);
     mk_run_test(test_msgtransfer_queue);
     mk_run_test(test_push_subscribe);
     mk_run_test(test_crontask_tick);

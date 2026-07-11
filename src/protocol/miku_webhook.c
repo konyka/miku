@@ -1,5 +1,7 @@
 #include "miku_webhook.h"
 #include "miku_log.h"
+#include "miku_threadpool.h"
+#include "miku_atomic.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -18,10 +20,17 @@ struct miku_webhook_s {
     int                    url_count;
     miku_webhook_handler_fn handler;
     void                  *handler_ctx;
-    int64_t                total_fired;
-    int64_t                total_success;
-    int64_t                total_failed;
+    miku_threadpool_t     *pool;
+    miku_atomic_int64_t    total_fired;
+    miku_atomic_int64_t    total_success;
+    miku_atomic_int64_t    total_failed;
 };
+
+typedef struct {
+    miku_webhook_t *wh;
+    char            url[512];
+    char            body[MK_WH_MAX_PAYLOAD + 256];
+} wh_job_t;
 
 static const char *event_names[] = {
     "unknown",
@@ -34,10 +43,24 @@ static const char *event_names[] = {
 };
 
 miku_webhook_t *miku_webhook_create(void) {
-    return (miku_webhook_t *)calloc(1, sizeof(miku_webhook_t));
+    miku_webhook_t *wh = (miku_webhook_t *)calloc(1, sizeof(miku_webhook_t));
+    if (!wh) return NULL;
+    wh->pool = miku_threadpool_create(2);
+    return wh;
 }
 
-void miku_webhook_destroy(miku_webhook_t *wh) { free(wh); }
+void miku_webhook_destroy(miku_webhook_t *wh) {
+    if (!wh) return;
+    if (wh->pool) {
+        miku_threadpool_wait_idle(wh->pool);
+        miku_threadpool_destroy(wh->pool);
+    }
+    free(wh);
+}
+
+void miku_webhook_wait_idle(miku_webhook_t *wh) {
+    if (wh && wh->pool) miku_threadpool_wait_idle(wh->pool);
+}
 
 int miku_webhook_add_url(miku_webhook_t *wh, const char *url) {
     if (!wh || !url) return -1;
@@ -63,7 +86,6 @@ void miku_webhook_set_handler(miku_webhook_t *wh, miku_webhook_handler_fn fn, vo
     wh->handler_ctx = ctx;
 }
 
-/* Parse http://host[:port]/path into components. Returns 0 on success. */
 static int parse_http_url(const char *url, char *host, size_t host_cap,
                            int *port, char *path, size_t path_cap) {
     if (!url || strncmp(url, "http://", 7) != 0) return -1;
@@ -113,8 +135,6 @@ static int connect_timeout(int fd, const struct sockaddr *addr, socklen_t alen, 
     return 0;
 }
 
-/* POST JSON payload to url. Returns 0 on HTTP 2xx, -1 otherwise.
- * If resp is non-NULL, copies response body (best-effort). */
 static int http_post_json(const char *url, const char *payload,
                            char *resp, size_t resp_cap) {
     char host[256], path[512];
@@ -193,8 +213,50 @@ static int http_post_json(const char *url, const char *payload,
     return (status >= 200 && status < 300) ? 0 : -1;
 }
 
-static void post_all_urls(miku_webhook_t *wh, miku_webhook_event_t event,
-                           const char *payload, char *resp, size_t resp_cap) {
+static void post_job(void *arg) {
+    wh_job_t *job = (wh_job_t *)arg;
+    if (!job || !job->wh) { free(job); return; }
+    if (http_post_json(job->url, job->body, NULL, 0) == 0)
+        miku_atomic_fetch_add(&job->wh->total_success, 1);
+    else
+        miku_atomic_fetch_add(&job->wh->total_failed, 1);
+    free(job);
+}
+
+static void enqueue_url_posts(miku_webhook_t *wh, miku_webhook_event_t event,
+                               const char *payload) {
+    char envelope[MK_WH_MAX_PAYLOAD + 256];
+    snprintf(envelope, sizeof(envelope),
+             "{\"event\":\"%s\",\"data\":%s}",
+             miku_webhook_event_name(event),
+             payload && payload[0] ? payload : "{}");
+
+    for (int i = 0; i < wh->url_count; i++) {
+        if (wh->urls[i][0] == '\0') continue;
+        if (!wh->pool) {
+            if (http_post_json(wh->urls[i], envelope, NULL, 0) == 0)
+                miku_atomic_fetch_add(&wh->total_success, 1);
+            else
+                miku_atomic_fetch_add(&wh->total_failed, 1);
+            continue;
+        }
+        wh_job_t *job = (wh_job_t *)calloc(1, sizeof(*job));
+        if (!job) {
+            miku_atomic_fetch_add(&wh->total_failed, 1);
+            continue;
+        }
+        job->wh = wh;
+        strncpy(job->url, wh->urls[i], sizeof(job->url) - 1);
+        strncpy(job->body, envelope, sizeof(job->body) - 1);
+        if (miku_threadpool_submit(wh->pool, post_job, job) != 0) {
+            free(job);
+            miku_atomic_fetch_add(&wh->total_failed, 1);
+        }
+    }
+}
+
+static void post_all_urls_sync(miku_webhook_t *wh, miku_webhook_event_t event,
+                                const char *payload, char *resp, size_t resp_cap) {
     char envelope[MK_WH_MAX_PAYLOAD + 256];
     snprintf(envelope, sizeof(envelope),
              "{\"event\":\"%s\",\"data\":%s}",
@@ -206,23 +268,23 @@ static void post_all_urls(miku_webhook_t *wh, miku_webhook_event_t event,
         char *rbuf = (i == 0) ? resp : NULL;
         size_t rcap = (i == 0) ? resp_cap : 0;
         if (http_post_json(wh->urls[i], envelope, rbuf, rcap) == 0)
-            wh->total_success++;
+            miku_atomic_fetch_add(&wh->total_success, 1);
         else
-            wh->total_failed++;
+            miku_atomic_fetch_add(&wh->total_failed, 1);
     }
 }
 
 int miku_webhook_fire(miku_webhook_t *wh, miku_webhook_event_t event, const char *payload) {
     if (!wh) return -1;
-    wh->total_fired++;
+    miku_atomic_fetch_add(&wh->total_fired, 1);
 
     if (wh->handler) {
         wh->handler(event, payload, wh->handler_ctx);
     }
 
     if (wh->url_count > 0) {
-        MK_LOG_DEBUG("webhook: fire %s → %d urls", miku_webhook_event_name(event), wh->url_count);
-        post_all_urls(wh, event, payload, NULL, 0);
+        MK_LOG_DEBUG("webhook: fire %s → %d urls (async)", miku_webhook_event_name(event), wh->url_count);
+        enqueue_url_posts(wh, event, payload);
     }
     return 0;
 }
@@ -230,7 +292,7 @@ int miku_webhook_fire(miku_webhook_t *wh, miku_webhook_event_t event, const char
 int miku_webhook_fire_sync(miku_webhook_t *wh, miku_webhook_event_t event,
                              const char *payload, char *resp, size_t resp_cap) {
     if (!wh) return -1;
-    wh->total_fired++;
+    miku_atomic_fetch_add(&wh->total_fired, 1);
 
     if (wh->handler) {
         wh->handler(event, payload, wh->handler_ctx);
@@ -240,7 +302,7 @@ int miku_webhook_fire_sync(miku_webhook_t *wh, miku_webhook_event_t event,
 
     if (wh->url_count > 0) {
         MK_LOG_DEBUG("webhook: fire_sync %s", miku_webhook_event_name(event));
-        post_all_urls(wh, event, payload, resp, resp_cap);
+        post_all_urls_sync(wh, event, payload, resp, resp_cap);
     }
     return 0;
 }

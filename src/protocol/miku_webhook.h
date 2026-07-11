@@ -32,10 +32,16 @@ MIKU_API int  miku_webhook_add_url(miku_webhook_t *wh, const char *url);
 MIKU_API int  miku_webhook_remove_url(miku_webhook_t *wh, const char *url);
 MIKU_API void miku_webhook_set_handler(miku_webhook_t *wh, miku_webhook_handler_fn fn, void *ctx);
 
+/* Async: local handler runs inline; URL POSTs are queued on an internal thread pool. */
 MIKU_API int  miku_webhook_fire(miku_webhook_t *wh, miku_webhook_event_t event,
                                   const char *payload);
+/* Sync: blocks until URL POSTs complete (or timeout). */
 MIKU_API int  miku_webhook_fire_sync(miku_webhook_t *wh, miku_webhook_event_t event,
                                        const char *payload, char *resp, size_t resp_cap);
 
 MIKU_API const char *miku_webhook_event_name(miku_webhook_event_t event);
+
+/* Drain async queue (tests / shutdown). */
+MIKU_API void miku_webhook_wait_idle(miku_webhook_t *wh);
+
 #endif

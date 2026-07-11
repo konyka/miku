@@ -333,8 +333,18 @@ static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *pla
 }
 
 static int find_or_add_client(miku_msggw_t *gw, int fd) {
+    /* Prefer reusing an offline slot so client_count does not grow forever. */
+    int free_idx = -1;
     for (int i = 0; i < gw->client_count; i++) {
         if (gw->clients[i].fd == fd && gw->clients[i].online) return i;
+        if (free_idx < 0 && !gw->clients[i].online) free_idx = i;
+    }
+    if (free_idx >= 0) {
+        memset(&gw->clients[free_idx], 0, sizeof(gw->clients[free_idx]));
+        gw->clients[free_idx].fd = fd;
+        gw->clients[free_idx].online = true;
+        gw->clients[free_idx].connect_time = miku_timestamp_ms();
+        return free_idx;
     }
     if (gw->client_count >= MK_GW_MAX_CLIENTS) return -1;
     int idx = gw->client_count++;

@@ -14,6 +14,8 @@
 #include "miku_ratelimit.h"
 #include "miku_webhook.h"
 
+typedef void (*miku_api_kick_fn)(const char *user_id, int platform, void *ctx);
+
 typedef struct {
     miku_auth_service_t       *auth;
     miku_user_service_t       *user;
@@ -25,6 +27,9 @@ typedef struct {
     miku_stats_t              stats;
     miku_ratelimit_t          *ratelimit;
     miku_webhook_t            *webhook;
+    /* Optional: wired by miku-dev to kick WS sessions on force_logout */
+    miku_api_kick_fn           on_kick;
+    void                      *on_kick_ctx;
 } miku_api_ctx_t;
 
 MIKU_API miku_api_ctx_t *miku_api_ctx_create(void);

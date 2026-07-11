@@ -101,6 +101,7 @@ void test_webhook_fire(void) {
     mk_assert_int_eq(0, miku_webhook_remove_url(wh, "http://localhost:8080/callback"));
     mk_assert_int_eq(-1, miku_webhook_remove_url(wh, "http://nope"));
 
+    miku_webhook_wait_idle(wh);
     miku_webhook_destroy(wh);
 }
 
