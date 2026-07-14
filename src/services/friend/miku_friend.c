@@ -10,13 +10,19 @@
 struct miku_friend_service_s {
     miku_friend_t friends[MK_MAX_FRIENDS];
     int count;
-    int16_t pair_hash[MK_FRIEND_HASH]; /* -1 empty, else friends[] index */
+    int16_t pair_hash[MK_FRIEND_HASH];  /* -1 empty, else friends[] index */
+    int16_t owner_hash[MK_FRIEND_HASH]; /* owner → first friend index */
+    int16_t owner_next[MK_MAX_FRIENDS]; /* intrusive list per owner */
 };
 
 static uint32_t pair_hash_slot(const char *owner, const char *fuid) {
     uint64_t a = miku_fnv1a_64(owner, strlen(owner));
     uint64_t b = miku_fnv1a_64(fuid, strlen(fuid));
     return (uint32_t)((a ^ (b * 0x9e3779b97f4a7c15ULL)) & (MK_FRIEND_HASH - 1));
+}
+
+static uint32_t owner_slot(const char *owner) {
+    return (uint32_t)(miku_fnv1a_64(owner, strlen(owner)) & (MK_FRIEND_HASH - 1));
 }
 
 static void pair_hash_insert(miku_friend_service_t *svc, int fi) {
@@ -31,9 +37,46 @@ static void pair_hash_insert(miku_friend_service_t *svc, int fi) {
     }
 }
 
-static void pair_hash_rebuild(miku_friend_service_t *svc) {
-    for (int i = 0; i < MK_FRIEND_HASH; i++) svc->pair_hash[i] = -1;
-    for (int i = 0; i < svc->count; i++) pair_hash_insert(svc, i);
+static void owner_link(miku_friend_service_t *svc, int fi) {
+    const char *owner = svc->friends[fi].owner_user_id;
+    uint32_t idx = owner_slot(owner);
+    for (int n = 0; n < MK_FRIEND_HASH; n++) {
+        int head = svc->owner_hash[idx];
+        if (head < 0) {
+            svc->owner_hash[idx] = (int16_t)fi;
+            svc->owner_next[fi] = -1;
+            return;
+        }
+        if (strcmp(svc->friends[head].owner_user_id, owner) == 0) {
+            svc->owner_next[fi] = (int16_t)head;
+            svc->owner_hash[idx] = (int16_t)fi;
+            return;
+        }
+        idx = (idx + 1) & (MK_FRIEND_HASH - 1);
+    }
+}
+
+static int owner_head(miku_friend_service_t *svc, const char *owner) {
+    uint32_t idx = owner_slot(owner);
+    for (int n = 0; n < MK_FRIEND_HASH; n++) {
+        int head = svc->owner_hash[idx];
+        if (head < 0) return -1;
+        if (strcmp(svc->friends[head].owner_user_id, owner) == 0) return head;
+        idx = (idx + 1) & (MK_FRIEND_HASH - 1);
+    }
+    return -1;
+}
+
+static void indexes_rebuild(miku_friend_service_t *svc) {
+    for (int i = 0; i < MK_FRIEND_HASH; i++) {
+        svc->pair_hash[i] = -1;
+        svc->owner_hash[i] = -1;
+    }
+    for (int i = 0; i < MK_MAX_FRIENDS; i++) svc->owner_next[i] = -1;
+    for (int i = 0; i < svc->count; i++) {
+        pair_hash_insert(svc, i);
+        owner_link(svc, i);
+    }
 }
 
 static int pair_hash_find(miku_friend_service_t *svc, const char *owner, const char *fuid) {
@@ -52,7 +95,11 @@ static int pair_hash_find(miku_friend_service_t *svc, const char *owner, const c
 miku_friend_service_t *miku_friend_service_create(void) {
     miku_friend_service_t *svc = (miku_friend_service_t *)calloc(1, sizeof(*svc));
     if (svc) {
-        for (int i = 0; i < MK_FRIEND_HASH; i++) svc->pair_hash[i] = -1;
+        for (int i = 0; i < MK_FRIEND_HASH; i++) {
+            svc->pair_hash[i] = -1;
+            svc->owner_hash[i] = -1;
+        }
+        for (int i = 0; i < MK_MAX_FRIENDS; i++) svc->owner_next[i] = -1;
     }
     return svc;
 }
@@ -70,6 +117,7 @@ int miku_friend_add(miku_friend_service_t *svc, const char *owner, const char *f
     if (remark) strncpy(f->remark, remark, sizeof(f->remark) - 1);
     f->create_time = miku_timestamp_ms();
     pair_hash_insert(svc, fi);
+    owner_link(svc, fi);
     return 0;
 }
 
@@ -80,17 +128,15 @@ int miku_friend_delete(miku_friend_service_t *svc, const char *owner, const char
     memmove(&svc->friends[fi], &svc->friends[fi + 1],
             (size_t)(svc->count - fi - 1) * sizeof(miku_friend_t));
     svc->count--;
-    pair_hash_rebuild(svc); /* delete is rare; keep is_friend O(1) */
+    indexes_rebuild(svc); /* delete is rare; keep lookups O(1)/O(list) */
     return 0;
 }
 
 int miku_friend_get_list(miku_friend_service_t *svc, const char *owner, miku_friend_t *out, int max) {
     if (!svc || !owner || !out) return 0;
     int n = 0;
-    for (int i = 0; i < svc->count && n < max; i++) {
-        if (strcmp(svc->friends[i].owner_user_id, owner) == 0)
-            out[n++] = svc->friends[i];
-    }
+    for (int fi = owner_head(svc, owner); fi >= 0 && n < max; fi = svc->owner_next[fi])
+        out[n++] = svc->friends[fi];
     return n;
 }
 
@@ -206,15 +252,23 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         }
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "getFriendIDs") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_json_val_t *arr = miku_json_create_array();
-        for (int i = 0; i < svc->count; i++)
-            miku_json_array_push(arr, miku_json_create_str(svc->friends[i].friend_user_id));
+        if (owner) {
+            for (int fi = owner_head(svc, owner); fi >= 0; fi = svc->owner_next[fi])
+                miku_json_array_push(arr, miku_json_create_str(svc->friends[fi].friend_user_id));
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "getFullFriendUserIDs") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_json_val_t *arr = miku_json_create_array();
-        for (int i = 0; i < svc->count; i++)
-            miku_json_array_push(arr, miku_json_create_str(svc->friends[i].friend_user_id));
+        if (owner) {
+            for (int fi = owner_head(svc, owner); fi >= 0; fi = svc->owner_next[fi])
+                miku_json_array_push(arr, miku_json_create_str(svc->friends[fi].friend_user_id));
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "getIncrementalFriends") == 0) {

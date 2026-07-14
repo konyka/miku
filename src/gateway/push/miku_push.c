@@ -13,6 +13,7 @@ struct miku_push_s {
     miku_push_sub_t subs[MK_PUSH_MAX_SUBS];
     int             sub_count;
     int16_t         user_hash[MK_PUSH_HASH]; /* -1 empty, else subs[] index */
+    int             online_count;
     int             running;
     int64_t         push_count;
 };
@@ -69,8 +70,11 @@ int miku_push_subscribe(miku_push_t *p, const char *user_id, int platform) {
     if (!p || !user_id) return -1;
     int si = push_hash_find(p, user_id);
     if (si >= 0) {
+        if (!p->subs[si].active) {
+            p->subs[si].active = true;
+            p->online_count++;
+        }
         p->subs[si].platform = platform;
-        p->subs[si].active = true;
         return 0;
     }
     if (p->sub_count >= MK_PUSH_MAX_SUBS) return -1;
@@ -80,6 +84,7 @@ int miku_push_subscribe(miku_push_t *p, const char *user_id, int platform) {
     strncpy(s->user_id, user_id, sizeof(s->user_id) - 1);
     s->platform = platform;
     s->active = true;
+    p->online_count++;
     push_hash_insert(p, si);
     return 0;
 }
@@ -88,7 +93,10 @@ int miku_push_unsubscribe(miku_push_t *p, const char *user_id) {
     if (!p || !user_id) return -1;
     int si = push_hash_find(p, user_id);
     if (si < 0) return -1;
-    p->subs[si].active = false;
+    if (p->subs[si].active) {
+        p->subs[si].active = false;
+        if (p->online_count > 0) p->online_count--;
+    }
     return 0;
 }
 
@@ -109,9 +117,5 @@ int miku_push_to_user(miku_push_t *p, const char *user_id,
 }
 
 int miku_push_online_count(miku_push_t *p) {
-    if (!p) return 0;
-    int n = 0;
-    for (int i = 0; i < p->sub_count; i++)
-        if (p->subs[i].active) n++;
-    return n;
+    return p ? p->online_count : 0;
 }
