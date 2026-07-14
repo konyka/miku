@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 171 tests, 67 modules — msg RPC method hash + incremental physical delete + unread via owner chain; API path/JSON indexed; S3 cron still stub.
+> **Status**: 203 API routes, 171 tests, 67 modules — group/user/friend RPC method hash (msg already); incremental deletes/unread/API path/JSON indexed; S3 cron still stub.
 
 ## 1. Overview
 
@@ -946,7 +946,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete for the HTTP/WS API surface. **166 tests + 5 benchmarks** passing. **67 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse, O(1) fd map and user-id hash chains for push/kick, and requires handshake token. Rate limit and in-memory user lookup use FNV open-addressing (same pattern as `miku_seq`). Inbound opcode frames unwrap `data` before `on_op`; `SEND_MSG` persists and fans out `PUSH_MSG` to online `recvID`; `SUB_USER_STATUS` subscriptions receive online/offline presence via `miku_ws_sub_user_online/offline` hooked to connection lifecycle. Seq is per-conversation via `miku_seq`. Split deploy kick via localhost `/internal/kick`. In-mem `deleteMsg` co-located with writers. Offline push POSTs JSON to an optional `http://` endpoint when configured.
+All phases complete for the HTTP/WS API surface. **171 tests + 5 benchmarks** passing. **67 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse, O(1) fd map and user-id hash chains for push/kick, and requires handshake token. Rate limit and in-memory user lookup use FNV open-addressing (same pattern as `miku_seq`). Inbound opcode frames unwrap `data` before `on_op`; `SEND_MSG` persists and fans out `PUSH_MSG` to online `recvID`; `SUB_USER_STATUS` subscriptions receive online/offline presence via `miku_ws_sub_user_online/offline` hooked to connection lifecycle. Seq is per-conversation via `miku_seq`. Split deploy kick via localhost `/internal/kick`. In-mem `deleteMsg` co-located with writers. Offline push POSTs JSON to an optional `http://` endpoint when configured.
 
 | Phase | Description | Status |
 |-------|-------------|--------|

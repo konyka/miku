@@ -146,21 +146,115 @@ bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1, const c
 }
 
 
+enum {
+    MK_FRIEND_RPC_addFriend = 0,
+    MK_FRIEND_RPC_deleteFriend = 1,
+    MK_FRIEND_RPC_getFriendList = 2,
+    MK_FRIEND_RPC_isFriend = 3,
+    MK_FRIEND_RPC_addBlack = 4,
+    MK_FRIEND_RPC_removeBlack = 5,
+    MK_FRIEND_RPC_getBlackList = 6,
+    MK_FRIEND_RPC_getFriendApplyList = 7,
+    MK_FRIEND_RPC_getSelfApplyList = 8,
+    MK_FRIEND_RPC_getDesignatedFriendApply = 9,
+    MK_FRIEND_RPC_acceptFriendApply = 10,
+    MK_FRIEND_RPC_refuseFriendApply = 11,
+    MK_FRIEND_RPC_importFriend = 12,
+    MK_FRIEND_RPC_syncFriend = 13,
+    MK_FRIEND_RPC_getDesignatedFriends = 14,
+    MK_FRIEND_RPC_getFriendIDs = 15,
+    MK_FRIEND_RPC_getFullFriendUserIDs = 16,
+    MK_FRIEND_RPC_getIncrementalFriends = 17,
+    MK_FRIEND_RPC_getIncrementalBlacks = 18,
+    MK_FRIEND_RPC_getSelfUnhandledApplyCount = 19,
+    MK_FRIEND_RPC_getSpecifiedBlacks = 20,
+    MK_FRIEND_RPC_getSpecifiedFriendsInfo = 21,
+    MK_FRIEND_RPC_respondFriendApply = 22,
+    MK_FRIEND_RPC_setFriendRemark = 23,
+    MK_FRIEND_RPC_updateFriends = 24,
+    MK_FRIEND_RPC_COUNT = 25
+};
+
+#define MK_FRIEND_RPC_HASH 64
+static const char *const g_friend_rpc_names[MK_FRIEND_RPC_COUNT] = {
+    "addFriend",
+    "deleteFriend",
+    "getFriendList",
+    "isFriend",
+    "addBlack",
+    "removeBlack",
+    "getBlackList",
+    "getFriendApplyList",
+    "getSelfApplyList",
+    "getDesignatedFriendApply",
+    "acceptFriendApply",
+    "refuseFriendApply",
+    "importFriend",
+    "syncFriend",
+    "getDesignatedFriends",
+    "getFriendIDs",
+    "getFullFriendUserIDs",
+    "getIncrementalFriends",
+    "getIncrementalBlacks",
+    "getSelfUnhandledApplyCount",
+    "getSpecifiedBlacks",
+    "getSpecifiedFriendsInfo",
+    "respondFriendApply",
+    "setFriendRemark",
+    "updateFriends"
+};
+
+static int16_t g_friend_rpc_hash[MK_FRIEND_RPC_HASH];
+static int g_friend_rpc_ready;
+
+static void friend_rpc_init(void) {
+    if (g_friend_rpc_ready) return;
+    for (int i = 0; i < MK_FRIEND_RPC_HASH; i++) g_friend_rpc_hash[i] = -1;
+    for (int i = 0; i < MK_FRIEND_RPC_COUNT; i++) {
+        const char *m = g_friend_rpc_names[i];
+        uint32_t idx = (uint32_t)(miku_fnv1a_64(m, strlen(m)) & (MK_FRIEND_RPC_HASH - 1));
+        for (int n = 0; n < MK_FRIEND_RPC_HASH; n++) {
+            if (g_friend_rpc_hash[idx] < 0) { g_friend_rpc_hash[idx] = (int16_t)i; break; }
+            idx = (idx + 1) & (MK_FRIEND_RPC_HASH - 1);
+        }
+    }
+    g_friend_rpc_ready = 1;
+}
+
+static int friend_rpc_id(const char *method) {
+    if (!method) return -1;
+    friend_rpc_init();
+    uint32_t idx = (uint32_t)(miku_fnv1a_64(method, strlen(method)) & (MK_FRIEND_RPC_HASH - 1));
+    for (int n = 0; n < MK_FRIEND_RPC_HASH; n++) {
+        int id = g_friend_rpc_hash[idx];
+        if (id < 0) return -1;
+        if (strcmp(g_friend_rpc_names[id], method) == 0) return id;
+        idx = (idx + 1) & (MK_FRIEND_RPC_HASH - 1);
+    }
+    return -1;
+}
+
 void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                              const miku_json_val_t *req, miku_json_val_t *resp) {
     if (!svc || !method || !resp) return;
-    if (strcmp(method, "addFriend") == 0) {
+    switch (friend_rpc_id(method)) {
+    case MK_FRIEND_RPC_addFriend:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *fuid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
         const char *rem = req ? miku_json_str(miku_json_get(req, "remark")) : NULL;
         int rc = miku_friend_add(svc, owner, fuid, rem);
         miku_ji(resp, "errCode", rc == 0 ? 0 : (rc == -2 ? 2001 : 500));
-    } else if (strcmp(method, "deleteFriend") == 0) {
+    } break;
+    case MK_FRIEND_RPC_deleteFriend:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *fuid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
         int rc = miku_friend_delete(svc, owner, fuid);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 2002);
-    } else if (strcmp(method, "getFriendList") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getFriendList:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_friend_t list[16];
         int n = miku_friend_get_list(svc, owner, list, 16);
@@ -175,36 +269,50 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
             miku_json_array_push(arr, fj);
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "isFriend") == 0) {
+    } break;
+    case MK_FRIEND_RPC_isFriend:
+    {
         const char *u1 = req ? miku_json_str(miku_json_get(req, "userID1")) : NULL;
         const char *u2 = req ? miku_json_str(miku_json_get(req, "userID2")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "isFriend", miku_friend_is_friend(svc, u1, u2) ? 1 : 0);
-    } else if (strcmp(method, "addBlack") == 0) {
+    } break;
+    case MK_FRIEND_RPC_addBlack:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", (owner && uid) ? 0 : 400);
-    } else if (strcmp(method, "removeBlack") == 0) {
+    } break;
+    case MK_FRIEND_RPC_removeBlack:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", (owner && uid) ? 0 : 400);
-    } else if (strcmp(method, "getBlackList") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getBlackList:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", miku_json_create_array());
-    } else if (strcmp(method, "getFriendApplyList") == 0 ||
-               strcmp(method, "getSelfApplyList") == 0 ||
-               strcmp(method, "getDesignatedFriendApply") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getFriendApplyList:
+    case MK_FRIEND_RPC_getSelfApplyList:
+    case MK_FRIEND_RPC_getDesignatedFriendApply:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", miku_json_create_array());
-    } else if (strcmp(method, "acceptFriendApply") == 0 ||
-               strcmp(method, "refuseFriendApply") == 0) {
+    } break;
+    case MK_FRIEND_RPC_acceptFriendApply:
+    case MK_FRIEND_RPC_refuseFriendApply:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *fuid = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (strcmp(method, "acceptFriendApply") == 0 && owner && fuid) {
             miku_friend_add(svc, owner, fuid, NULL);
         }
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "importFriend") == 0) {
+    } break;
+    case MK_FRIEND_RPC_importFriend:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_json_val_t *fl = req ? miku_json_get(req, "friendList") : NULL;
         int imported = 0;
@@ -217,7 +325,9 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         }
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "imported", imported);
-    } else if (strcmp(method, "syncFriend") == 0) {
+    } break;
+    case MK_FRIEND_RPC_syncFriend:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_friend_t list[16];
         int n = miku_friend_get_list(svc, owner, list, 16);
@@ -229,7 +339,9 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
             miku_json_array_push(arr, fj);
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getDesignatedFriends") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getDesignatedFriends:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_json_val_t *ids = req ? miku_json_get(req, "friendUserIDs") : NULL;
         miku_ji(resp, "errCode", 0);
@@ -251,7 +363,9 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
             }
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getFriendIDs") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getFriendIDs:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_json_val_t *arr = miku_json_create_array();
@@ -261,7 +375,9 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         }
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getFullFriendUserIDs") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getFullFriendUserIDs:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_json_val_t *arr = miku_json_create_array();
@@ -271,22 +387,32 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         }
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getIncrementalFriends") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getIncrementalFriends:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getIncrementalBlacks") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getIncrementalBlacks:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getSelfUnhandledApplyCount") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getSelfUnhandledApplyCount:
+    {
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "count", 0);
-    } else if (strcmp(method, "getSpecifiedBlacks") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getSpecifiedBlacks:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getSpecifiedFriendsInfo") == 0) {
+    } break;
+    case MK_FRIEND_RPC_getSpecifiedFriendsInfo:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_json_val_t *ids = req ? miku_json_get(req, "friendUserIDs") : NULL;
         miku_ji(resp, "errCode", 0);
@@ -308,14 +434,18 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
             }
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "respondFriendApply") == 0) {
+    } break;
+    case MK_FRIEND_RPC_respondFriendApply:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *fuid = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         const char *handle = req ? miku_json_str(miku_json_get(req, "handleMsg")) : NULL;
         (void)handle;
         if (owner && fuid) miku_friend_add(svc, owner, fuid, NULL);
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "setFriendRemark") == 0) {
+    } break;
+    case MK_FRIEND_RPC_setFriendRemark:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *fuid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
         const char *remark = req ? miku_json_str(miku_json_get(req, "remark")) : NULL;
@@ -328,7 +458,9 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
             }
         }
         miku_ji(resp, "errCode", found ? 0 : 2002);
-    } else if (strcmp(method, "updateFriends") == 0) {
+    } break;
+    case MK_FRIEND_RPC_updateFriends:
+    {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_json_val_t *fl = req ? miku_json_get(req, "friendList") : NULL;
         int updated = 0;
@@ -349,7 +481,10 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         }
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "updated", updated);
-    } else {
+    } break;
+    default:
         miku_ji(resp, "errCode", 404);
+        break;
     }
 }
+

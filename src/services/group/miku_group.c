@@ -196,10 +196,120 @@ int miku_group_foreach_member(miku_group_service_t *svc, const char *group_id,
 }
 
 
+enum {
+    MK_GROUP_RPC_createGroup = 0,
+    MK_GROUP_RPC_getGroupInfo = 1,
+    MK_GROUP_RPC_inviteToGroup = 2,
+    MK_GROUP_RPC_getGroupMemberList = 3,
+    MK_GROUP_RPC_getGroupsInfo = 4,
+    MK_GROUP_RPC_setGroupInfo = 5,
+    MK_GROUP_RPC_setGroupMemberInfo = 6,
+    MK_GROUP_RPC_joinGroup = 7,
+    MK_GROUP_RPC_quitGroup = 8,
+    MK_GROUP_RPC_dismissGroup = 9,
+    MK_GROUP_RPC_muteGroup = 10,
+    MK_GROUP_RPC_cancelMuteGroup = 11,
+    MK_GROUP_RPC_kickGroupMember = 12,
+    MK_GROUP_RPC_transferGroupOwner = 13,
+    MK_GROUP_RPC_getJoinedGroupList = 14,
+    MK_GROUP_RPC_getGroupApplicationList = 15,
+    MK_GROUP_RPC_getGroupApplicantList = 16,
+    MK_GROUP_RPC_acceptGroupApplication = 17,
+    MK_GROUP_RPC_refuseGroupApplication = 18,
+    MK_GROUP_RPC_getGroupMemberUserID = 19,
+    MK_GROUP_RPC_muteGroupMember = 20,
+    MK_GROUP_RPC_cancelMuteGroupMember = 21,
+    MK_GROUP_RPC_getFullGroupMemberUserIDs = 22,
+    MK_GROUP_RPC_getFullJoinGroupIDs = 23,
+    MK_GROUP_RPC_getGroupAbstractInfo = 24,
+    MK_GROUP_RPC_getGroupApplicationUnhandledCount = 25,
+    MK_GROUP_RPC_getGroupUsersReqApplicationList = 26,
+    MK_GROUP_RPC_getGroups = 27,
+    MK_GROUP_RPC_getIncrementalGroupMemberBatch = 28,
+    MK_GROUP_RPC_getIncrementalGroupMembers = 29,
+    MK_GROUP_RPC_getIncrementalJoinGroups = 30,
+    MK_GROUP_RPC_getRecvGroupApplicationList = 31,
+    MK_GROUP_RPC_getSpecifiedUserGroupRequestInfo = 32,
+    MK_GROUP_RPC_getUserReqGroupApplicationList = 33,
+    MK_GROUP_RPC_setGroupInfoEx = 34,
+    MK_GROUP_RPC_COUNT = 35
+};
+
+#define MK_GROUP_RPC_HASH 64
+static const char *const g_group_rpc_names[MK_GROUP_RPC_COUNT] = {
+    "createGroup",
+    "getGroupInfo",
+    "inviteToGroup",
+    "getGroupMemberList",
+    "getGroupsInfo",
+    "setGroupInfo",
+    "setGroupMemberInfo",
+    "joinGroup",
+    "quitGroup",
+    "dismissGroup",
+    "muteGroup",
+    "cancelMuteGroup",
+    "kickGroupMember",
+    "transferGroupOwner",
+    "getJoinedGroupList",
+    "getGroupApplicationList",
+    "getGroupApplicantList",
+    "acceptGroupApplication",
+    "refuseGroupApplication",
+    "getGroupMemberUserID",
+    "muteGroupMember",
+    "cancelMuteGroupMember",
+    "getFullGroupMemberUserIDs",
+    "getFullJoinGroupIDs",
+    "getGroupAbstractInfo",
+    "getGroupApplicationUnhandledCount",
+    "getGroupUsersReqApplicationList",
+    "getGroups",
+    "getIncrementalGroupMemberBatch",
+    "getIncrementalGroupMembers",
+    "getIncrementalJoinGroups",
+    "getRecvGroupApplicationList",
+    "getSpecifiedUserGroupRequestInfo",
+    "getUserReqGroupApplicationList",
+    "setGroupInfoEx"
+};
+
+static int16_t g_group_rpc_hash[MK_GROUP_RPC_HASH];
+static int g_group_rpc_ready;
+
+static void group_rpc_init(void) {
+    if (g_group_rpc_ready) return;
+    for (int i = 0; i < MK_GROUP_RPC_HASH; i++) g_group_rpc_hash[i] = -1;
+    for (int i = 0; i < MK_GROUP_RPC_COUNT; i++) {
+        const char *m = g_group_rpc_names[i];
+        uint32_t idx = (uint32_t)(miku_fnv1a_64(m, strlen(m)) & (MK_GROUP_RPC_HASH - 1));
+        for (int n = 0; n < MK_GROUP_RPC_HASH; n++) {
+            if (g_group_rpc_hash[idx] < 0) { g_group_rpc_hash[idx] = (int16_t)i; break; }
+            idx = (idx + 1) & (MK_GROUP_RPC_HASH - 1);
+        }
+    }
+    g_group_rpc_ready = 1;
+}
+
+static int group_rpc_id(const char *method) {
+    if (!method) return -1;
+    group_rpc_init();
+    uint32_t idx = (uint32_t)(miku_fnv1a_64(method, strlen(method)) & (MK_GROUP_RPC_HASH - 1));
+    for (int n = 0; n < MK_GROUP_RPC_HASH; n++) {
+        int id = g_group_rpc_hash[idx];
+        if (id < 0) return -1;
+        if (strcmp(g_group_rpc_names[id], method) == 0) return id;
+        idx = (idx + 1) & (MK_GROUP_RPC_HASH - 1);
+    }
+    return -1;
+}
+
 void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
                             const miku_json_val_t *req, miku_json_val_t *resp) {
     if (!svc || !method || !resp) return;
-    if (strcmp(method, "createGroup") == 0) {
+    switch (group_rpc_id(method)) {
+    case MK_GROUP_RPC_createGroup:
+    {
         miku_group_t g;
         memset(&g, 0, sizeof(g));
         const char *name = req ? miku_json_str(miku_json_get(req, "groupName")) : NULL;
@@ -208,12 +318,16 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         int rc = miku_group_create(svc, &g, owner);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
         if (rc == 0) miku_jss(resp, "data", g.group_id);
-    } else if (strcmp(method, "getGroupInfo") == 0) {
+    } break;
+    case MK_GROUP_RPC_getGroupInfo:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         miku_group_t *g = miku_group_find(svc, gid);
         miku_ji(resp, "errCode", g ? 0 : 3001);
         if (g) miku_json_object_set(resp, "data", miku_group_to_json(g));
-    } else if (strcmp(method, "inviteToGroup") == 0) {
+    } break;
+    case MK_GROUP_RPC_inviteToGroup:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         int rc = -1;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
@@ -229,7 +343,9 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             }
         }
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
-    } else if (strcmp(method, "getGroupMemberList") == 0) {
+    } break;
+    case MK_GROUP_RPC_getGroupMemberList:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         miku_group_member_t list[16];
         int n = miku_group_get_members(svc, gid, list, 16);
@@ -237,7 +353,9 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_group_member_to_json(&list[i]));
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getGroupsInfo") == 0) {
+    } break;
+    case MK_GROUP_RPC_getGroupsInfo:
+    {
         miku_json_val_t *ids = req ? miku_json_get(req, "groupIDList") : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
@@ -250,7 +368,9 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             }
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "setGroupInfo") == 0) {
+    } break;
+    case MK_GROUP_RPC_setGroupInfo:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         miku_group_t *g = miku_group_find(svc, gid);
         if (g) {
@@ -258,23 +378,36 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             if (name) strncpy(g->group_name, name, sizeof(g->group_name) - 1);
         }
         miku_ji(resp, "errCode", g ? 0 : 3001);
-    } else if (strcmp(method, "setGroupMemberInfo") == 0) {
+    } break;
+    case MK_GROUP_RPC_setGroupMemberInfo:
+    {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "joinGroup") == 0) {
+    } break;
+    case MK_GROUP_RPC_joinGroup:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         int rc = miku_group_add_member(svc, gid, uid, 20);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
-    } else if (strcmp(method, "quitGroup") == 0) {
+    } break;
+    case MK_GROUP_RPC_quitGroup:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         int rc = miku_group_remove_member(svc, gid, uid);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
-    } else if (strcmp(method, "dismissGroup") == 0) {
+    } break;
+    case MK_GROUP_RPC_dismissGroup:
+    {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "muteGroup") == 0 || strcmp(method, "cancelMuteGroup") == 0) {
+    } break;
+    case MK_GROUP_RPC_muteGroup:
+    case MK_GROUP_RPC_cancelMuteGroup:
+    {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "kickGroupMember") == 0) {
+    } break;
+    case MK_GROUP_RPC_kickGroupMember:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         int rc = -1;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
@@ -291,19 +424,29 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             }
         }
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
-    } else if (strcmp(method, "transferGroupOwner") == 0) {
+    } break;
+    case MK_GROUP_RPC_transferGroupOwner:
+    {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "getJoinedGroupList") == 0) {
+    } break;
+    case MK_GROUP_RPC_getJoinedGroupList:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", miku_json_create_array());
-    } else if (strcmp(method, "getGroupApplicationList") == 0 ||
-               strcmp(method, "getGroupApplicantList") == 0) {
+    } break;
+    case MK_GROUP_RPC_getGroupApplicationList:
+    case MK_GROUP_RPC_getGroupApplicantList:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", miku_json_create_array());
-    } else if (strcmp(method, "acceptGroupApplication") == 0 ||
-               strcmp(method, "refuseGroupApplication") == 0) {
+    } break;
+    case MK_GROUP_RPC_acceptGroupApplication:
+    case MK_GROUP_RPC_refuseGroupApplication:
+    {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "getGroupMemberUserID") == 0) {
+    } break;
+    case MK_GROUP_RPC_getGroupMemberUserID:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         miku_group_member_t list[16];
         int n = miku_group_get_members(svc, gid, list, 16);
@@ -311,55 +454,83 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_json_create_str(list[i].user_id));
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "muteGroupMember") == 0 ||
-               strcmp(method, "cancelMuteGroupMember") == 0) {
+    } break;
+    case MK_GROUP_RPC_muteGroupMember:
+    case MK_GROUP_RPC_cancelMuteGroupMember:
+    {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "getFullGroupMemberUserIDs") == 0) {
-        miku_ji(resp, "errCode", 0);
-        miku_json_val_t *arr = miku_json_create_array();
-        miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getFullJoinGroupIDs") == 0) {
-        miku_ji(resp, "errCode", 0);
-        miku_json_val_t *arr = miku_json_create_array();
-        miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getGroupAbstractInfo") == 0) {
+    } break;
+    case MK_GROUP_RPC_getFullGroupMemberUserIDs:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getGroupApplicationUnhandledCount") == 0) {
+    } break;
+    case MK_GROUP_RPC_getFullJoinGroupIDs:
+    {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } break;
+    case MK_GROUP_RPC_getGroupAbstractInfo:
+    {
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp, "data", arr);
+    } break;
+    case MK_GROUP_RPC_getGroupApplicationUnhandledCount:
+    {
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "count", 0);
-    } else if (strcmp(method, "getGroupUsersReqApplicationList") == 0) {
+    } break;
+    case MK_GROUP_RPC_getGroupUsersReqApplicationList:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getGroups") == 0) {
+    } break;
+    case MK_GROUP_RPC_getGroups:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getIncrementalGroupMemberBatch") == 0) {
+    } break;
+    case MK_GROUP_RPC_getIncrementalGroupMemberBatch:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getIncrementalGroupMembers") == 0) {
+    } break;
+    case MK_GROUP_RPC_getIncrementalGroupMembers:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getIncrementalJoinGroups") == 0) {
+    } break;
+    case MK_GROUP_RPC_getIncrementalJoinGroups:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getRecvGroupApplicationList") == 0) {
+    } break;
+    case MK_GROUP_RPC_getRecvGroupApplicationList:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getSpecifiedUserGroupRequestInfo") == 0) {
+    } break;
+    case MK_GROUP_RPC_getSpecifiedUserGroupRequestInfo:
+    {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "getUserReqGroupApplicationList") == 0) {
+    } break;
+    case MK_GROUP_RPC_getUserReqGroupApplicationList:
+    {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "setGroupInfoEx") == 0) {
+    } break;
+    case MK_GROUP_RPC_setGroupInfoEx:
+    {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         miku_group_t *g = miku_group_find(svc, gid);
         if (g) {
@@ -369,7 +540,10 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             if (ex) strncpy(g->ex, ex, sizeof(g->ex) - 1);
         }
         miku_ji(resp, "errCode", g ? 0 : 3001);
-    } else {
+    } break;
+    default:
         miku_ji(resp, "errCode", 404);
+        break;
     }
 }
+

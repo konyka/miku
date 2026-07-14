@@ -88,20 +88,124 @@ int miku_user_count(miku_user_service_t *svc) {
     return svc ? svc->count : 0;
 }
 
+enum {
+    MK_USER_RPC_registerUser = 0,
+    MK_USER_RPC_getUserInfo = 1,
+    MK_USER_RPC_updateUserInfo = 2,
+    MK_USER_RPC_getUsersInfo = 3,
+    MK_USER_RPC_accountCheck = 4,
+    MK_USER_RPC_getAllUsers = 5,
+    MK_USER_RPC_getUserCount = 6,
+    MK_USER_RPC_searchUser = 7,
+    MK_USER_RPC_getUsersOnlineStatus = 8,
+    MK_USER_RPC_setGlobalRecvMessageOpt = 9,
+    MK_USER_RPC_getGlobalRecvMessageOpt = 10,
+    MK_USER_RPC_updateUserStatus = 11,
+    MK_USER_RPC_getUserStatus = 12,
+    MK_USER_RPC_setUserStatus = 13,
+    MK_USER_RPC_getSubscribeUsersStatus = 14,
+    MK_USER_RPC_subscribeOrCancelUserStatus = 15,
+    MK_USER_RPC_updateUserInfoEx = 16,
+    MK_USER_RPC_getAllUsersUID = 17,
+    MK_USER_RPC_getUsersOnlineTokenDetail = 18,
+    MK_USER_RPC_addNotificationAccount = 19,
+    MK_USER_RPC_updateNotificationAccount = 20,
+    MK_USER_RPC_searchNotificationAccount = 21,
+    MK_USER_RPC_setUserClientConfig = 22,
+    MK_USER_RPC_getUserClientConfig = 23,
+    MK_USER_RPC_delUserClientConfig = 24,
+    MK_USER_RPC_pageUserClientConfig = 25,
+    MK_USER_RPC_processUserCommand = 26,
+    MK_USER_RPC_processUserCommandAdd = 27,
+    MK_USER_RPC_processUserCommandDelete = 28,
+    MK_USER_RPC_processUserCommandUpdate = 29,
+    MK_USER_RPC_processUserCommandGet = 30,
+    MK_USER_RPC_processUserCommandGetAll = 31,
+    MK_USER_RPC_COUNT = 32
+};
+
+#define MK_USER_RPC_HASH 64
+static const char *const g_user_rpc_names[MK_USER_RPC_COUNT] = {
+    "registerUser",
+    "getUserInfo",
+    "updateUserInfo",
+    "getUsersInfo",
+    "accountCheck",
+    "getAllUsers",
+    "getUserCount",
+    "searchUser",
+    "getUsersOnlineStatus",
+    "setGlobalRecvMessageOpt",
+    "getGlobalRecvMessageOpt",
+    "updateUserStatus",
+    "getUserStatus",
+    "setUserStatus",
+    "getSubscribeUsersStatus",
+    "subscribeOrCancelUserStatus",
+    "updateUserInfoEx",
+    "getAllUsersUID",
+    "getUsersOnlineTokenDetail",
+    "addNotificationAccount",
+    "updateNotificationAccount",
+    "searchNotificationAccount",
+    "setUserClientConfig",
+    "getUserClientConfig",
+    "delUserClientConfig",
+    "pageUserClientConfig",
+    "processUserCommand",
+    "processUserCommandAdd",
+    "processUserCommandDelete",
+    "processUserCommandUpdate",
+    "processUserCommandGet",
+    "processUserCommandGetAll"
+};
+
+static int16_t g_user_rpc_hash[MK_USER_RPC_HASH];
+static int g_user_rpc_ready;
+
+static void user_rpc_init(void) {
+    if (g_user_rpc_ready) return;
+    for (int i = 0; i < MK_USER_RPC_HASH; i++) g_user_rpc_hash[i] = -1;
+    for (int i = 0; i < MK_USER_RPC_COUNT; i++) {
+        const char *m = g_user_rpc_names[i];
+        uint32_t idx = (uint32_t)(miku_fnv1a_64(m, strlen(m)) & (MK_USER_RPC_HASH - 1));
+        for (int n = 0; n < MK_USER_RPC_HASH; n++) {
+            if (g_user_rpc_hash[idx] < 0) { g_user_rpc_hash[idx] = (int16_t)i; break; }
+            idx = (idx + 1) & (MK_USER_RPC_HASH - 1);
+        }
+    }
+    g_user_rpc_ready = 1;
+}
+
+static int user_rpc_id(const char *method) {
+    if (!method) return -1;
+    user_rpc_init();
+    uint32_t idx = (uint32_t)(miku_fnv1a_64(method, strlen(method)) & (MK_USER_RPC_HASH - 1));
+    for (int n = 0; n < MK_USER_RPC_HASH; n++) {
+        int id = g_user_rpc_hash[idx];
+        if (id < 0) return -1;
+        if (strcmp(g_user_rpc_names[id], method) == 0) return id;
+        idx = (idx + 1) & (MK_USER_RPC_HASH - 1);
+    }
+    return -1;
+}
+
 void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
                            const miku_json_val_t *req_json,
                            miku_json_val_t *resp_json) {
     if (!svc || !method || !resp_json) return;
-
-    if (strcmp(method, "registerUser") == 0) {
+    switch (user_rpc_id(method)) {
+    case MK_USER_RPC_registerUser:
+    {
         miku_user_t u;
         memset(&u, 0, sizeof(u));
         miku_user_from_json(req_json, &u);
         int rc = miku_user_register(svc, &u);
         miku_ji(resp_json, "errCode", rc == 0 ? 0 : (rc == -2 ? 1002 : 500));
         miku_jss(resp_json, "errMsg", rc == 0 ? "" : (rc == -2 ? "user exists" : "register failed"));
-
-    } else if (strcmp(method, "getUserInfo") == 0) {
+    } break;
+    case MK_USER_RPC_getUserInfo:
+    {
         miku_json_val_t *uid_v = req_json ? miku_json_get(req_json, "userID") : NULL;
         const char *uid = uid_v ? miku_json_str(uid_v) : NULL;
         miku_user_t *u = uid ? miku_user_find(svc, uid) : NULL;
@@ -110,15 +214,17 @@ void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
             miku_json_val_t *uj = miku_user_to_json(u);
             miku_json_object_set(resp_json, "data", uj);
         }
-
-    } else if (strcmp(method, "updateUserInfo") == 0) {
+    } break;
+    case MK_USER_RPC_updateUserInfo:
+    {
         miku_user_t u;
         memset(&u, 0, sizeof(u));
         miku_user_from_json(req_json, &u);
         int rc = miku_user_update(svc, &u);
         miku_ji(resp_json, "errCode", rc == 0 ? 0 : 1001);
-
-    } else if (strcmp(method, "getUsersInfo") == 0) {
+    } break;
+    case MK_USER_RPC_getUsersInfo:
+    {
         miku_json_val_t *arr = req_json ? miku_json_get(req_json, "userIDList") : NULL;
         miku_ji(resp_json, "errCode", 0);
         miku_json_val_t *result = miku_json_create_array();
@@ -132,23 +238,27 @@ void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
             }
         }
         miku_json_object_set(resp_json, "data", result);
-
-    } else if (strcmp(method, "accountCheck") == 0) {
+    } break;
+    case MK_USER_RPC_accountCheck:
+    {
         miku_ji(resp_json, "errCode", 0);
         miku_json_object_set(resp_json, "data", miku_json_create_array());
-
-    } else if (strcmp(method, "getAllUsers") == 0) {
+    } break;
+    case MK_USER_RPC_getAllUsers:
+    {
         miku_ji(resp_json, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < svc->count; i++)
             miku_json_array_push(arr, miku_user_to_json(&svc->users[i]));
         miku_json_object_set(resp_json, "data", arr);
-
-    } else if (strcmp(method, "getUserCount") == 0) {
+    } break;
+    case MK_USER_RPC_getUserCount:
+    {
         miku_ji(resp_json, "errCode", 0);
         miku_ji(resp_json, "count", svc->count);
-
-    } else if (strcmp(method, "searchUser") == 0) {
+    } break;
+    case MK_USER_RPC_searchUser:
+    {
         const char *kw = req_json ? miku_json_str(miku_json_get(req_json, "keyword")) : NULL;
         miku_ji(resp_json, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
@@ -160,71 +270,108 @@ void miku_user_handle_rpc(miku_user_service_t *svc, const char *method,
             }
         }
         miku_json_object_set(resp_json, "data", arr);
-
-    } else if (strcmp(method, "getUsersOnlineStatus") == 0) {
+    } break;
+    case MK_USER_RPC_getUsersOnlineStatus:
+    {
         miku_ji(resp_json, "errCode", 0);
         miku_json_object_set(resp_json, "data", miku_json_create_array());
-
-    } else if (strcmp(method, "setGlobalRecvMessageOpt") == 0 ||
-               strcmp(method, "getGlobalRecvMessageOpt") == 0) {
+    } break;
+    case MK_USER_RPC_setGlobalRecvMessageOpt:
+    case MK_USER_RPC_getGlobalRecvMessageOpt:
+    {
         miku_ji(resp_json, "errCode", 0);
-
-    } else if (strcmp(method, "updateUserStatus") == 0 ||
-               strcmp(method, "getUserStatus") == 0 ||
-               strcmp(method, "setUserStatus") == 0 ||
-               strcmp(method, "getSubscribeUsersStatus") == 0 ||
-               strcmp(method, "subscribeOrCancelUserStatus") == 0) {
+    } break;
+    case MK_USER_RPC_updateUserStatus:
+    case MK_USER_RPC_getUserStatus:
+    case MK_USER_RPC_setUserStatus:
+    case MK_USER_RPC_getSubscribeUsersStatus:
+    case MK_USER_RPC_subscribeOrCancelUserStatus:
+    {
         miku_ji(resp_json, "errCode", 0);
-
-    } else if (strcmp(method, "updateUserInfoEx") == 0) {
+    } break;
+    case MK_USER_RPC_updateUserInfoEx:
+    {
         miku_user_t u;
         memset(&u, 0, sizeof(u));
         miku_user_from_json(req_json, &u);
         miku_user_t *existing = miku_user_find(svc, u.user_id);
         if (existing) { *existing = u; existing->update_time = miku_timestamp_ms(); }
         miku_ji(resp_json, "errCode", existing ? 0 : 1001);
-    } else if (strcmp(method, "getAllUsersUID") == 0) {
+    } break;
+    case MK_USER_RPC_getAllUsersUID:
+    {
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < svc->count; i++)
             miku_json_array_push(arr, miku_json_create_str(svc->users[i].user_id));
         miku_ji(resp_json, "errCode", 0);
         miku_json_object_set(resp_json, "data", arr);
-    } else if (strcmp(method, "getUsersOnlineTokenDetail") == 0) {
+    } break;
+    case MK_USER_RPC_getUsersOnlineTokenDetail:
+    {
         miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "addNotificationAccount") == 0) {
+    } break;
+    case MK_USER_RPC_addNotificationAccount:
+    {
         miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "updateNotificationAccount") == 0) {
+    } break;
+    case MK_USER_RPC_updateNotificationAccount:
+    {
         miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "searchNotificationAccount") == 0) {
-        miku_ji(resp_json, "errCode", 0);
-        miku_json_val_t *arr = miku_json_create_array();
-        miku_json_object_set(resp_json, "data", arr);
-    } else if (strcmp(method, "setUserClientConfig") == 0) {
-        miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "getUserClientConfig") == 0) {
-        miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "delUserClientConfig") == 0) {
-        miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "pageUserClientConfig") == 0) {
+    } break;
+    case MK_USER_RPC_searchNotificationAccount:
+    {
         miku_ji(resp_json, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp_json, "data", arr);
-    } else if (strcmp(method, "processUserCommand") == 0) {
+    } break;
+    case MK_USER_RPC_setUserClientConfig:
+    {
         miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "processUserCommandAdd") == 0) {
+    } break;
+    case MK_USER_RPC_getUserClientConfig:
+    {
         miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "processUserCommandDelete") == 0) {
+    } break;
+    case MK_USER_RPC_delUserClientConfig:
+    {
         miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "processUserCommandUpdate") == 0) {
-        miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "processUserCommandGet") == 0) {
-        miku_ji(resp_json, "errCode", 0);
-    } else if (strcmp(method, "processUserCommandGetAll") == 0) {
+    } break;
+    case MK_USER_RPC_pageUserClientConfig:
+    {
         miku_ji(resp_json, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp_json, "data", arr);
-    } else {
+    } break;
+    case MK_USER_RPC_processUserCommand:
+    {
+        miku_ji(resp_json, "errCode", 0);
+    } break;
+    case MK_USER_RPC_processUserCommandAdd:
+    {
+        miku_ji(resp_json, "errCode", 0);
+    } break;
+    case MK_USER_RPC_processUserCommandDelete:
+    {
+        miku_ji(resp_json, "errCode", 0);
+    } break;
+    case MK_USER_RPC_processUserCommandUpdate:
+    {
+        miku_ji(resp_json, "errCode", 0);
+    } break;
+    case MK_USER_RPC_processUserCommandGet:
+    {
+        miku_ji(resp_json, "errCode", 0);
+    } break;
+    case MK_USER_RPC_processUserCommandGetAll:
+    {
+        miku_ji(resp_json, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        miku_json_object_set(resp_json, "data", arr);
+    } break;
+    default:
         miku_ji(resp_json, "errCode", 404);
         miku_jss(resp_json, "errMsg", "method not found");
+        break;
     }
 }
+
