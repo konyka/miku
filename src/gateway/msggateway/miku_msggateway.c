@@ -33,6 +33,7 @@ struct miku_msggw_s {
     int16_t              user_next[MK_GW_MAX_CLIENTS]; /* sibling chain */
     int16_t              free_stack[MK_GW_MAX_CLIENTS]; /* offline slots for reuse */
     int                  free_top;
+    int                  online_count;
     miku_msggw_on_msg_fn on_msg;
     void                *on_msg_ctx;
     miku_msggw_on_op_fn  on_op;
@@ -102,7 +103,8 @@ static void user_index_del(miku_msggw_t *gw, int idx) {
 static void client_offline(miku_msggw_t *gw, int idx) {
     if (idx < 0 || idx >= gw->client_count) return;
     miku_msggw_client_t *c = &gw->clients[idx];
-    if (c->online && c->user_id[0] && gw->on_presence)
+    if (!c->online) return;
+    if (c->user_id[0] && gw->on_presence)
         gw->on_presence(c->user_id, c->platform, 0, gw->on_presence_ctx);
     user_index_del(gw, idx);
     if (c->fd >= 0) {
@@ -112,6 +114,7 @@ static void client_offline(miku_msggw_t *gw, int idx) {
         c->fd = -1;
     }
     c->online = false;
+    if (gw->online_count > 0) gw->online_count--;
     c->upgraded = false;
     c->user_id[0] = '\0';
     if (gw->free_top < MK_GW_MAX_CLIENTS)
@@ -171,6 +174,7 @@ int miku_msggw_stop(miku_msggw_t *gw) {
     }
     gw->client_count = 0;
     gw->free_top = 0;
+    gw->online_count = 0;
     for (int i = 0; i < MK_GW_FD_MAP; i++) gw->fd_map[i] = -1;
     for (int i = 0; i < MK_GW_USER_HASH; i++) gw->user_head[i] = -1;
     for (int i = 0; i < MK_GW_MAX_CLIENTS; i++) gw->user_next[i] = -1;
@@ -190,11 +194,7 @@ int miku_msggw_stop(miku_msggw_t *gw) {
 }
 
 int miku_msggw_client_count(miku_msggw_t *gw) {
-    if (!gw) return 0;
-    int n = 0;
-    for (int i = 0; i < gw->client_count; i++)
-        if (gw->clients[i].online) n++;
-    return n;
+    return gw ? gw->online_count : 0;
 }
 
 int miku_msggw_broadcast(miku_msggw_t *gw, const char *msg, size_t len) {
@@ -521,6 +521,7 @@ static int find_or_add_client(miku_msggw_t *gw, int fd) {
     }
     gw->clients[idx].fd = fd;
     gw->clients[idx].online = true;
+    gw->online_count++;
     gw->clients[idx].connect_time = miku_timestamp_ms();
     fd_map_set(gw, fd, idx);
     return idx;

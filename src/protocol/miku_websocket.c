@@ -11,6 +11,8 @@
 #include <fcntl.h>
 #include <stdio.h>
 
+#define MK_WS_FD_MAP 65536
+
 static const char WS_MAGIC[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 int miku_ws_handshake(const char *sec_ws_key, char *accept_out, size_t accept_cap) {
@@ -233,6 +235,7 @@ struct miku_ws_server_s {
     bool                 running;
     miku_ws_conn_t       clients[MAX_WS_CLIENTS];
     int                  client_count;
+    int16_t              fd_map[MK_WS_FD_MAP]; /* fd → client idx, -1 empty */
     miku_ws_on_connect_fn on_connect;
     void                *on_connect_ctx;
     miku_ws_on_message_fn on_message;
@@ -241,19 +244,29 @@ struct miku_ws_server_s {
     void                *on_close_ctx;
 };
 
+static miku_ws_conn_t *ws_find_conn(miku_ws_server_t *srv, int fd) {
+    if (fd >= 0 && fd < MK_WS_FD_MAP) {
+        int idx = srv->fd_map[fd];
+        if (idx >= 0 && idx < srv->client_count && srv->clients[idx].fd == fd)
+            return &srv->clients[idx];
+    }
+    for (int i = 0; i < srv->client_count; i++) {
+        if (srv->clients[i].fd == fd) return &srv->clients[i];
+    }
+    return NULL;
+}
+
 static void ws_handle_client(int fd, int events, void *data) {
     (void)events;
     miku_ws_server_t *srv = (miku_ws_server_t *)data;
-    miku_ws_conn_t *conn = NULL;
-    for (int i = 0; i < srv->client_count; i++) {
-        if (srv->clients[i].fd == fd) { conn = &srv->clients[i]; break; }
-    }
+    miku_ws_conn_t *conn = ws_find_conn(srv, fd);
     if (!conn) return;
 
     miku_ws_frame_t *f = miku_ws_frame_create();
     int rc = miku_ws_frame_read(fd, f);
     if (rc < 0) {
         if (srv->on_close) srv->on_close(conn, srv->on_close_ctx);
+        if (fd >= 0 && fd < MK_WS_FD_MAP) srv->fd_map[fd] = -1;
         close(fd);
         miku_io_del(srv->io, fd);
         conn->fd = -1;
@@ -266,6 +279,7 @@ static void ws_handle_client(int fd, int events, void *data) {
     } else if (f->opcode == MK_WS_CLOSE) {
         miku_ws_send_close(fd, 1000, "bye");
         if (srv->on_close) srv->on_close(conn, srv->on_close_ctx);
+        if (fd >= 0 && fd < MK_WS_FD_MAP) srv->fd_map[fd] = -1;
         close(fd);
         miku_io_del(srv->io, fd);
         conn->fd = -1;
@@ -317,10 +331,13 @@ static void ws_accept_conn(int fd, int events, void *data) {
     miku_set_nonblocking(client_fd);
 
     if (srv->client_count < MAX_WS_CLIENTS) {
-        miku_ws_conn_t *conn = &srv->clients[srv->client_count++];
+        int idx = srv->client_count++;
+        miku_ws_conn_t *conn = &srv->clients[idx];
         conn->fd = client_fd;
         conn->server = srv;
         inet_ntop(AF_INET, &addr.sin_addr, conn->addr, sizeof(conn->addr));
+        if (client_fd >= 0 && client_fd < MK_WS_FD_MAP)
+            srv->fd_map[client_fd] = (int16_t)idx;
         miku_io_add(srv->io, client_fd, MK_IO_READ, ws_handle_client, srv);
         if (srv->on_connect) srv->on_connect(conn, srv->on_connect_ctx);
     } else {
@@ -335,6 +352,7 @@ miku_ws_server_t *miku_ws_server_create(const char *host, int port) {
     srv->port = port;
     srv->io = miku_io_create();
     for (int i = 0; i < MAX_WS_CLIENTS; i++) srv->clients[i].fd = -1;
+    for (int i = 0; i < MK_WS_FD_MAP; i++) srv->fd_map[i] = -1;
     return srv;
 }
 

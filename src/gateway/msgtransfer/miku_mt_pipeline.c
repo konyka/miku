@@ -1,8 +1,12 @@
 #include "miku_mt_pipeline.h"
 #include "miku_log.h"
 #include "miku_seq.h"
+#include "miku_hash.h"
 #include <stdlib.h>
 #include <string.h>
+
+#define MK_READ_SEQ_MAX  4096
+#define MK_READ_SEQ_HASH 8192
 
 struct miku_mt_pipeline_s {
     miku_msg_t           batch[MK_PIPELINE_BATCH_SIZE];
@@ -15,15 +19,47 @@ struct miku_mt_pipeline_s {
     miku_mt_to_push_fn   to_push;
     void                *to_push_ctx;
 
-    struct { char user_id[64]; char conv_id[128]; int64_t seq; } read_seqs[4096];
+    struct { char user_id[64]; char conv_id[128]; int64_t seq; } read_seqs[MK_READ_SEQ_MAX];
     int                  read_seq_count;
+    int16_t              read_hash[MK_READ_SEQ_HASH]; /* -1 empty, else read_seqs[] index */
 };
+
+static uint32_t read_pair_slot(const char *user_id, const char *conv_id) {
+    uint64_t a = miku_fnv1a_64(user_id, strlen(user_id));
+    uint64_t b = miku_fnv1a_64(conv_id, strlen(conv_id));
+    return (uint32_t)((a ^ (b * 0x9e3779b97f4a7c15ULL)) & (MK_READ_SEQ_HASH - 1));
+}
+
+static void read_hash_insert(miku_mt_pipeline_t *p, int ri) {
+    uint32_t idx = read_pair_slot(p->read_seqs[ri].user_id, p->read_seqs[ri].conv_id);
+    for (int n = 0; n < MK_READ_SEQ_HASH; n++) {
+        if (p->read_hash[idx] < 0) {
+            p->read_hash[idx] = (int16_t)ri;
+            return;
+        }
+        idx = (idx + 1) & (MK_READ_SEQ_HASH - 1);
+    }
+}
+
+static int read_hash_find(miku_mt_pipeline_t *p, const char *user_id, const char *conv_id) {
+    uint32_t idx = read_pair_slot(user_id, conv_id);
+    for (int n = 0; n < MK_READ_SEQ_HASH; n++) {
+        int ri = p->read_hash[idx];
+        if (ri < 0) return -1;
+        if (strcmp(p->read_seqs[ri].user_id, user_id) == 0 &&
+            strcmp(p->read_seqs[ri].conv_id, conv_id) == 0)
+            return ri;
+        idx = (idx + 1) & (MK_READ_SEQ_HASH - 1);
+    }
+    return -1;
+}
 
 miku_mt_pipeline_t *miku_mt_pipeline_create(void) {
     miku_mt_pipeline_t *p = (miku_mt_pipeline_t *)calloc(1, sizeof(miku_mt_pipeline_t));
     if (!p) return NULL;
     p->seq = miku_seq_create();
     if (!p->seq) { free(p); return NULL; }
+    for (int i = 0; i < MK_READ_SEQ_HASH; i++) p->read_hash[i] = -1;
     return p;
 }
 
@@ -85,21 +121,23 @@ void miku_mt_pipeline_on_push(miku_mt_pipeline_t *p, miku_mt_to_push_fn fn, void
 int miku_mt_pipeline_process_read_seq(miku_mt_pipeline_t *p, const char *user_id,
                                         const char *conv_id, int64_t has_read_seq) {
     if (!p || !user_id || !conv_id) return -1;
-    if (p->read_seq_count >= 4096) return -1;
-    strncpy(p->read_seqs[p->read_seq_count].user_id, user_id, 63);
-    strncpy(p->read_seqs[p->read_seq_count].conv_id, conv_id, 127);
-    p->read_seqs[p->read_seq_count].seq = has_read_seq;
-    p->read_seq_count++;
+    int ri = read_hash_find(p, user_id, conv_id);
+    if (ri >= 0) {
+        p->read_seqs[ri].seq = has_read_seq;
+        return 0;
+    }
+    if (p->read_seq_count >= MK_READ_SEQ_MAX) return -1;
+    ri = p->read_seq_count++;
+    strncpy(p->read_seqs[ri].user_id, user_id, sizeof(p->read_seqs[ri].user_id) - 1);
+    strncpy(p->read_seqs[ri].conv_id, conv_id, sizeof(p->read_seqs[ri].conv_id) - 1);
+    p->read_seqs[ri].seq = has_read_seq;
+    read_hash_insert(p, ri);
     return 0;
 }
 
 int64_t miku_mt_pipeline_get_read_seq(miku_mt_pipeline_t *p, const char *user_id,
                                         const char *conv_id) {
     if (!p || !user_id || !conv_id) return 0;
-    for (int i = p->read_seq_count - 1; i >= 0; i--) {
-        if (strcmp(p->read_seqs[i].user_id, user_id) == 0 &&
-            strcmp(p->read_seqs[i].conv_id, conv_id) == 0)
-            return p->read_seqs[i].seq;
-    }
-    return 0;
+    int ri = read_hash_find(p, user_id, conv_id);
+    return ri >= 0 ? p->read_seqs[ri].seq : 0;
 }
