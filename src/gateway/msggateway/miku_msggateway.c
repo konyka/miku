@@ -31,6 +31,8 @@ struct miku_msggw_s {
     int16_t              fd_map[MK_GW_FD_MAP];   /* fd → client idx, -1 empty */
     int16_t              user_head[MK_GW_USER_HASH]; /* user hash → first idx */
     int16_t              user_next[MK_GW_MAX_CLIENTS]; /* sibling chain */
+    int16_t              free_stack[MK_GW_MAX_CLIENTS]; /* offline slots for reuse */
+    int                  free_top;
     miku_msggw_on_msg_fn on_msg;
     void                *on_msg_ctx;
     miku_msggw_on_op_fn  on_op;
@@ -112,6 +114,8 @@ static void client_offline(miku_msggw_t *gw, int idx) {
     c->online = false;
     c->upgraded = false;
     c->user_id[0] = '\0';
+    if (gw->free_top < MK_GW_MAX_CLIENTS)
+        gw->free_stack[gw->free_top++] = (int16_t)idx;
 }
 
 static int find_client_by_fd(miku_msggw_t *gw, int fd) {
@@ -166,6 +170,7 @@ int miku_msggw_stop(miku_msggw_t *gw) {
         if (gw->clients[i].online) client_offline(gw, i);
     }
     gw->client_count = 0;
+    gw->free_top = 0;
     for (int i = 0; i < MK_GW_FD_MAP; i++) gw->fd_map[i] = -1;
     for (int i = 0; i < MK_GW_USER_HASH; i++) gw->user_head[i] = -1;
     for (int i = 0; i < MK_GW_MAX_CLIENTS; i++) gw->user_next[i] = -1;
@@ -503,14 +508,9 @@ static int find_or_add_client(miku_msggw_t *gw, int fd) {
     int existing = find_client_by_fd(gw, fd);
     if (existing >= 0) return existing;
 
-    /* Prefer reusing an offline slot so client_count does not grow forever. */
-    int free_idx = -1;
-    for (int i = 0; i < gw->client_count; i++) {
-        if (free_idx < 0 && !gw->clients[i].online) free_idx = i;
-    }
     int idx;
-    if (free_idx >= 0) {
-        idx = free_idx;
+    if (gw->free_top > 0) {
+        idx = gw->free_stack[--gw->free_top];
         memset(&gw->clients[idx], 0, sizeof(gw->clients[idx]));
         gw->user_next[idx] = -1;
     } else {

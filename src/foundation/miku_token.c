@@ -7,6 +7,7 @@
 #include <stdlib.h>
 
 #define MK_TOKEN_MAX_REVOKES 4096
+#define MK_TOKEN_REVOKE_HASH 8192
 
 typedef struct {
     char    key[96];   /* "uid:plat" or "uid:*" */
@@ -15,12 +16,45 @@ typedef struct {
 
 static revoke_entry_t g_revokes[MK_TOKEN_MAX_REVOKES];
 static int            g_revoke_count;
+static int16_t        g_revoke_hash[MK_TOKEN_REVOKE_HASH]; /* -1 empty */
 static miku_mutex_t   g_revoke_lock;
 static int            g_revoke_inited;
+
+static uint32_t revoke_slot(const char *key) {
+    return (uint32_t)(miku_fnv1a_64(key, strlen(key)) & (MK_TOKEN_REVOKE_HASH - 1));
+}
+
+static void revoke_hash_insert(int ei) {
+    uint32_t idx = revoke_slot(g_revokes[ei].key);
+    for (int n = 0; n < MK_TOKEN_REVOKE_HASH; n++) {
+        if (g_revoke_hash[idx] < 0) {
+            g_revoke_hash[idx] = (int16_t)ei;
+            return;
+        }
+        idx = (idx + 1) & (MK_TOKEN_REVOKE_HASH - 1);
+    }
+}
+
+static void revoke_hash_rebuild(void) {
+    for (int i = 0; i < MK_TOKEN_REVOKE_HASH; i++) g_revoke_hash[i] = -1;
+    for (int i = 0; i < g_revoke_count; i++) revoke_hash_insert(i);
+}
+
+static int revoke_hash_find(const char *key) {
+    uint32_t idx = revoke_slot(key);
+    for (int n = 0; n < MK_TOKEN_REVOKE_HASH; n++) {
+        int ei = g_revoke_hash[idx];
+        if (ei < 0) return -1;
+        if (strcmp(g_revokes[ei].key, key) == 0) return ei;
+        idx = (idx + 1) & (MK_TOKEN_REVOKE_HASH - 1);
+    }
+    return -1;
+}
 
 static void revoke_ensure_init(void) {
     if (!g_revoke_inited) {
         miku_mutex_init(&g_revoke_lock);
+        for (int i = 0; i < MK_TOKEN_REVOKE_HASH; i++) g_revoke_hash[i] = -1;
         g_revoke_inited = 1;
     }
 }
@@ -41,13 +75,11 @@ static int is_revoked(const char *user_id, int platform, int64_t ts) {
 
     miku_mutex_lock(&g_revoke_lock);
     int revoked = 0;
-    for (int i = 0; i < g_revoke_count; i++) {
-        if ((strcmp(g_revokes[i].key, key_plat) == 0 ||
-             strcmp(g_revokes[i].key, key_all) == 0) &&
-            ts <= g_revokes[i].since) {
-            revoked = 1;
-            break;
-        }
+    int ei = revoke_hash_find(key_plat);
+    if (ei >= 0 && ts <= g_revokes[ei].since) revoked = 1;
+    if (!revoked) {
+        ei = revoke_hash_find(key_all);
+        if (ei >= 0 && ts <= g_revokes[ei].since) revoked = 1;
     }
     miku_mutex_unlock(&g_revoke_lock);
     return revoked;
@@ -135,15 +167,14 @@ int miku_token_revoke(const char *user_id, int platform) {
 
     int64_t now = miku_timestamp_ms();
     miku_mutex_lock(&g_revoke_lock);
-    for (int i = 0; i < g_revoke_count; i++) {
-        if (strcmp(g_revokes[i].key, key) == 0) {
-            g_revokes[i].since = now;
-            miku_mutex_unlock(&g_revoke_lock);
-            return 0;
-        }
+    int ei = revoke_hash_find(key);
+    if (ei >= 0) {
+        g_revokes[ei].since = now;
+        miku_mutex_unlock(&g_revoke_lock);
+        return 0;
     }
     if (g_revoke_count >= MK_TOKEN_MAX_REVOKES) {
-        /* Evict oldest entry */
+        /* Evict oldest entry and rebuild hash (rare). */
         int oldest = 0;
         for (int i = 1; i < g_revoke_count; i++) {
             if (g_revokes[i].since < g_revokes[oldest].since) oldest = i;
@@ -151,11 +182,13 @@ int miku_token_revoke(const char *user_id, int platform) {
         strncpy(g_revokes[oldest].key, key, sizeof(g_revokes[oldest].key) - 1);
         g_revokes[oldest].key[sizeof(g_revokes[oldest].key) - 1] = '\0';
         g_revokes[oldest].since = now;
+        revoke_hash_rebuild();
     } else {
-        strncpy(g_revokes[g_revoke_count].key, key, sizeof(g_revokes[0].key) - 1);
-        g_revokes[g_revoke_count].key[sizeof(g_revokes[0].key) - 1] = '\0';
-        g_revokes[g_revoke_count].since = now;
-        g_revoke_count++;
+        ei = g_revoke_count++;
+        strncpy(g_revokes[ei].key, key, sizeof(g_revokes[0].key) - 1);
+        g_revokes[ei].key[sizeof(g_revokes[0].key) - 1] = '\0';
+        g_revokes[ei].since = now;
+        revoke_hash_insert(ei);
     }
     miku_mutex_unlock(&g_revoke_lock);
     return 0;
@@ -165,5 +198,6 @@ void miku_token_revoke_clear(void) {
     revoke_ensure_init();
     miku_mutex_lock(&g_revoke_lock);
     g_revoke_count = 0;
+    for (int i = 0; i < MK_TOKEN_REVOKE_HASH; i++) g_revoke_hash[i] = -1;
     miku_mutex_unlock(&g_revoke_lock);
 }
