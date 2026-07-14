@@ -24,6 +24,7 @@
 #define MAX_MIDDLEWARE 16
 #define READ_BUF   65536
 #define READ_CHUNK 8192
+#define MIKU_HTTP_FD_MAP 65536
 
 typedef struct {
     miku_http_middleware_fn fn;
@@ -47,6 +48,7 @@ struct miku_http_server_s {
     int                idle_timeout_sec;
     int               *conn_fds;
     int64_t           *conn_last_active;
+    int16_t            conn_fd_map[MIKU_HTTP_FD_MAP]; /* fd → conn slot, -1 empty */
     int                conn_count;
     int                conn_cap;
     bool               tls_enabled;
@@ -58,35 +60,64 @@ struct miku_http_server_s {
 #define MIKU_DEFAULT_MAX_BODY (1 << 20)
 #define MIKU_INITIAL_CONN_CAP 64
 
+static void conn_fd_map_set(miku_http_server_t *srv, int fd, int idx) {
+    if (fd >= 0 && fd < MIKU_HTTP_FD_MAP) srv->conn_fd_map[fd] = (int16_t)idx;
+}
+
+static void conn_fd_map_clear(miku_http_server_t *srv, int fd) {
+    if (fd >= 0 && fd < MIKU_HTTP_FD_MAP) srv->conn_fd_map[fd] = -1;
+}
+
+static int conn_fd_map_get(miku_http_server_t *srv, int fd) {
+    if (fd < 0 || fd >= MIKU_HTTP_FD_MAP) return -1;
+    int idx = srv->conn_fd_map[fd];
+    if (idx < 0 || idx >= srv->conn_count || srv->conn_fds[idx] != fd) return -1;
+    return idx;
+}
+
 static void conn_track_add(miku_http_server_t *srv, int fd) {
+    int existing = conn_fd_map_get(srv, fd);
+    if (existing >= 0) {
+        srv->conn_last_active[existing] = miku_timestamp_ms();
+        return;
+    }
     if (srv->conn_count >= srv->conn_cap) {
         int newcap = srv->conn_cap * 2;
         srv->conn_fds = realloc(srv->conn_fds, (size_t)newcap * sizeof(int));
         srv->conn_last_active = realloc(srv->conn_last_active, (size_t)newcap * sizeof(int64_t));
         srv->conn_cap = newcap;
     }
-    srv->conn_fds[srv->conn_count] = fd;
-    srv->conn_last_active[srv->conn_count] = miku_timestamp_ms();
-    srv->conn_count++;
+    int idx = srv->conn_count++;
+    srv->conn_fds[idx] = fd;
+    srv->conn_last_active[idx] = miku_timestamp_ms();
+    conn_fd_map_set(srv, fd, idx);
 }
 
 static void conn_track_remove(miku_http_server_t *srv, int fd) {
-    for (int i = 0; i < srv->conn_count; i++) {
-        if (srv->conn_fds[i] == fd) {
-            srv->conn_fds[i] = srv->conn_fds[srv->conn_count - 1];
-            srv->conn_last_active[i] = srv->conn_last_active[srv->conn_count - 1];
-            srv->conn_count--;
-            return;
+    int i = conn_fd_map_get(srv, fd);
+    if (i < 0) {
+        /* Fallback for fds outside map range */
+        for (i = 0; i < srv->conn_count; i++) {
+            if (srv->conn_fds[i] == fd) break;
         }
+        if (i >= srv->conn_count) return;
     }
+    conn_fd_map_clear(srv, fd);
+    int last = srv->conn_count - 1;
+    if (i != last) {
+        int moved = srv->conn_fds[last];
+        srv->conn_fds[i] = moved;
+        srv->conn_last_active[i] = srv->conn_last_active[last];
+        conn_fd_map_set(srv, moved, i);
+    }
+    srv->conn_count--;
 }
 
 static void conn_track_touch(miku_http_server_t *srv, int fd) {
-    for (int i = 0; i < srv->conn_count; i++) {
-        if (srv->conn_fds[i] == fd) {
-            srv->conn_last_active[i] = miku_timestamp_ms();
-            return;
-        }
+    int i = conn_fd_map_get(srv, fd);
+    if (i >= 0) {
+        srv->conn_last_active[i] = miku_timestamp_ms();
+        return;
     }
     conn_track_add(srv, fd);
 }
@@ -101,9 +132,7 @@ static void conn_sweep_idle(miku_http_server_t *srv) {
             close(fd);
             miku_io_del(srv->io, fd);
             if (srv->stats) miku_stats_conn_close(srv->stats);
-            srv->conn_fds[i] = srv->conn_fds[srv->conn_count - 1];
-            srv->conn_last_active[i] = srv->conn_last_active[srv->conn_count - 1];
-            srv->conn_count--;
+            conn_track_remove(srv, fd);
         }
     }
 }
@@ -376,6 +405,7 @@ miku_http_server_t *miku_http_server_create(const char *host, int port) {
     srv->conn_fds = malloc(MIKU_INITIAL_CONN_CAP * sizeof(int));
     srv->conn_last_active = malloc(MIKU_INITIAL_CONN_CAP * sizeof(int64_t));
     srv->conn_count = 0;
+    for (int i = 0; i < MIKU_HTTP_FD_MAP; i++) srv->conn_fd_map[i] = -1;
     return srv;
 }
 
