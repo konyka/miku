@@ -38,11 +38,11 @@
 |------|------|
 | HTTP 路由 | 203 |
 | WS 协议操作码 | 12 |
-| C 模块数 | 64 |
-| C 头文件数 | 71 |
+| C 模块数 | 67 |
+| C 头文件数 | 74 |
 | 可执行文件 | 13 |
-| 测试数 | 157 |
-| C 代码行数 | ~9K |
+| 测试数 | 171 |
+| C 代码行数 | ~14K |
 | 构建警告 | 0 |
 
 Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。消息存储在无 Mongo 时使用 8k 内存环，cron `deleteMsg` 与写入同进程；离线推送可配置 `http://` 网关 POST；拆分部署时 `miku-api` 的 `force_logout` 通过 `ws_port+1` 的 `/internal/kick` 踢掉 WS 并在网关进程内 `miku_token_revoke`（body 含 `userID` + `platformID`，`platformID<0` 或 `force_logout_all` 踢/吊销全部端），防止旧 token 重连；建群/入群/邀请成功后经 `/internal/group_member` 同步成员，退群/踢人经 `action=remove` 同步删除，群聊 `PUSH_MSG` 经 foreach 全员扇出（无 512 拷贝上限）；拆分部署下 HTTP `send_msg` 支持 `groupID` 群发并采用网关返回的会话 seq。S3 清理仍待对象存储绑定。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
@@ -957,12 +957,12 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 |------|--------|------|
 | Foundation | 20 | 内存池、Arena、Slab、日志、配置、HashMap、字符串、UUID 等 |
 | Runtime | 9 | 协程、线程池、调度器、通道、定时器 |
-| Protocol | 40 | HTTP 解析、JSON、SHA1、WebSocket、RPC、PB、中间件、路由 |
+| Protocol | 38 | HTTP 解析、JSON、WebSocket、RPC、PB、中间件、203 路由校验 |
 | Storage | 9 | LRU 缓存、服务发现 |
-| Services | 22 | 模型、7 个 RPC 服务、集成测试、认证中间件 |
-| New Modules | 23 | IM 消息、消息管道、消息存储、会话缓存等 |
+| Services | 29 | 模型、7 个 RPC 服务、集成测试、认证中间件 |
+| New Modules | 61 | IM 消息、消息管道、限流、Webhook、WS ops、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **128+** | + 5 基准测试 |
+| **总计** | **171** | 166 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
@@ -1060,7 +1060,7 @@ miku/
 │   └── gateway/        # 网关服务（5 服务）
 ├── cmd/                # 13 个可执行入口
 ├── config/             # YAML 配置文件
-├── tests/              # 测试套件（128+ 测试）
+├── tests/              # 测试套件（171 测试）
 ├── deploy/             # 部署配置
 │   ├── docker/         # Docker Compose
 │   ├── k8s/            # Kubernetes 清单

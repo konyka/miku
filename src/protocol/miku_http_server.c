@@ -397,6 +397,10 @@ int miku_http_server_route(miku_http_server_t *srv, const char *method,
     return 0;
 }
 
+int miku_http_server_route_count(const miku_http_server_t *srv) {
+    return srv ? srv->route_count : 0;
+}
+
 int miku_http_server_use(miku_http_server_t *srv, miku_http_middleware_fn mw, void *ctx) {
     if (!srv || !mw || srv->mw_count >= MAX_MIDDLEWARE) return -1;
     srv->middleware[srv->mw_count].fn = mw;

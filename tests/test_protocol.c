@@ -661,7 +661,7 @@ void test_api_route_handler_responds(void);
 void test_api_auth_login(void);
 void test_api_version(void);
 void test_api_health(void);
-void test_api_all_100_routes(void);
+void test_api_all_203_routes(void);
 
 void run_protocol_tests(void) {
     printf("── Miku Protocol Tests ───────────────────\n\n");
@@ -709,7 +709,7 @@ void run_protocol_tests(void) {
     mk_run_test(test_api_auth_login);
     mk_run_test(test_api_version);
     mk_run_test(test_api_health);
-    mk_run_test(test_api_all_100_routes);
+    mk_run_test(test_api_all_203_routes);
 }
 
 static miku_http_request_t *make_req(const char *method, const char *path, const char *body) {
@@ -884,124 +884,14 @@ void test_api_health(void) {
      miku_api_ctx_destroy(ctx);
 }
 
-void test_api_all_100_routes(void) {
+void test_api_all_203_routes(void) {
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     mk_assert_not_null(ctx);
     miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 0);
     mk_assert_not_null(srv);
     int rc = miku_api_register_routes(srv, ctx);
     mk_assert_int_eq(0, rc);
-
-    static const char *routes[] = {
-        "POST /auth/user_token",
-        "POST /auth/parse_token",
-        "POST /auth/admin_token",
-        "POST /auth/force_logout",
-        "POST /auth/force_logout_all",
-        "POST /user/register",
-        "POST /user/get_users_info",
-        "POST /user/update_user_info",
-        "POST /user/account_check",
-        "POST /user/get_all_users",
-        "POST /user/count",
-        "POST /user/search",
-        "POST /user/get_users_online_status",
-        "POST /user/set_global_recv_opt",
-        "POST /user/get_global_recv_opt",
-        "POST /user/update_user_status",
-        "POST /user/process_user_command",
-        "POST /user/get_user_status",
-        "POST /user/get_subscribe_users_status",
-        "POST /user/subscribe_or_cancel_user_status",
-        "POST /user/set_user_status",
-        "POST /friend/add",
-        "POST /friend/delete",
-        "POST /friend/get_friend_list",
-        "POST /friend/is_friend",
-        "POST /friend/add_black",
-        "POST /friend/remove_black",
-        "POST /friend/get_black_list",
-        "POST /friend/delete_friend",
-        "POST /friend/get_friend_apply_list",
-        "POST /friend/get_self_apply_list",
-        "POST /friend/get_designated_apply",
-        "POST /friend/accept_apply",
-        "POST /friend/refuse_apply",
-        "POST /friend/import_friend",
-        "POST /friend/sync_friend",
-        "POST /group/create",
-        "POST /group/get_group_info",
-        "POST /group/get_groups_info",
-        "POST /group/set_group_info",
-        "POST /group/get_group_member_list",
-        "POST /group/get_group_member_user_id",
-        "POST /group/set_group_member_info",
-        "POST /group/invite",
-        "POST /group/join",
-        "POST /group/quit",
-        "POST /group/dismiss",
-        "POST /group/mute",
-        "POST /group/cancel_mute",
-        "POST /group/kick",
-        "POST /group/transfer",
-        "POST /group/get_joined_group_list",
-        "POST /group/get_group_applicant_list",
-        "POST /group/get_group_application_list",
-        "POST /group/accept_group_application",
-        "POST /group/refuse_group_application",
-        "POST /group/mute_member",
-        "POST /group/cancel_mute_member",
-        "POST /conversation/get_all",
-        "POST /conversation/get_conv",
-        "POST /conversation/set",
-        "POST /conversation/get_all_conversations",
-        "POST /conversation/set_conversations",
-        "POST /conversation/delete_conversation",
-        "POST /conversation/get_conversation_list",
-        "POST /conversation/get_conversations",
-        "POST /conversation/get_total_unread",
-        "POST /conversation/set_conversation_min_seq",
-        "POST /conversation/mark_as_read",
-        "POST /conversation/clear_conv_msg",
-        "POST /conversation/pin_conversation",
-        "POST /msg/send",
-        "POST /msg/get",
-        "POST /msg/revoke",
-        "POST /msg/send_msg",
-        "POST /msg/get_msg",
-        "POST /msg/get_server_time",
-        "POST /msg/get_send_status",
-        "POST /msg/clean_up",
-        "POST /msg/delete_msg",
-        "POST /msg/batch_send",
-        "POST /msg/mark_as_read",
-        "POST /msg/get_by_seq",
-        "POST /msg/set_message_reaction_extensions",
-        "POST /msg/get_message_list_reaction_extensions",
-        "POST /msg/add_message_reaction_extensions",
-        "POST /msg/delete_message_reaction_extensions",
-        "POST /third/upload_token",
-        "POST /third/download_url",
-        "POST /third/access_url",
-        "POST /third/delete_object",
-        "POST /third/initiate_multipart",
-        "POST /third/complete_multipart",
-        "POST /third/get_upload_info",
-        "POST /third/get_object_info",
-        "POST /third/get_signal_invitation_info",
-        "POST /batch/get_users_info",
-        "POST /batch/delete_friend",
-        "POST /admin/stats",
-        "POST /admin/shutdown",
-        "GET  /admin/health",
-        "GET  /admin/metrics",
-        "GET  /version",
-        NULL
-    };
-
-    int expected = 0;
-    for (int i = 0; routes[i]; i++) expected++;
-    mk_assert_int_eq(103, expected);
+    mk_assert_int_eq(203, miku_http_server_route_count(srv));
 
     miku_http_server_destroy(srv);
     miku_api_ctx_destroy(ctx);

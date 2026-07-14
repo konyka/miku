@@ -83,6 +83,6 @@ count:
 	@echo "=== Modules ==="
 	@find src -name '*.c' | wc -l
 	@echo "=== Tests ==="
-	@grep -c "void test_" tests/*.c 2>/dev/null || true
+	@grep -h 'mk_run_test(' tests/*.c | wc -l
 	@echo "=== Routes ==="
-	@grep -c 'miku_http_server_route' src/gateway/api/miku_api.c
+	@grep -c 'miku_http_server_route(' src/gateway/api/miku_api.c

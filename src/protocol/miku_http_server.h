@@ -27,6 +27,7 @@ typedef struct miku_http_server_s miku_http_server_t;
 MIKU_API miku_http_server_t *miku_http_server_create(const char *host, int port);
 MIKU_API int  miku_http_server_route(miku_http_server_t *srv, const char *method,
                                       const char *path, miku_http_handler_fn fn, void *ctx);
+MIKU_API int  miku_http_server_route_count(const miku_http_server_t *srv);
 MIKU_API int  miku_http_server_use(miku_http_server_t *srv, miku_http_middleware_fn mw, void *ctx);
 MIKU_API int  miku_http_server_start(miku_http_server_t *srv);
 MIKU_API void miku_http_server_stop(miku_http_server_t *srv);

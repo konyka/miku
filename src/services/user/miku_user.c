@@ -1,16 +1,39 @@
 #include "miku_user.h"
+#include "miku_hash.h"
 #include "miku_log.h"
 #include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 
+/* 2x max users for open-addressing load factor ~0.5 */
+#define MK_USER_HASH 8192
+
 struct miku_user_service_s {
     miku_user_t  users[MK_MAX_USERS];
     int          count;
+    int16_t      id_hash[MK_USER_HASH]; /* -1 empty, else users[] index */
 };
+
+static uint32_t user_hash_slot(const char *user_id) {
+    return (uint32_t)(miku_fnv1a_64(user_id, strlen(user_id)) & (MK_USER_HASH - 1));
+}
+
+static void user_hash_insert(miku_user_service_t *svc, int ui) {
+    uint32_t idx = user_hash_slot(svc->users[ui].user_id);
+    for (int n = 0; n < MK_USER_HASH; n++) {
+        if (svc->id_hash[idx] < 0) {
+            svc->id_hash[idx] = (int16_t)ui;
+            return;
+        }
+        idx = (idx + 1) & (MK_USER_HASH - 1);
+    }
+}
 
 miku_user_service_t *miku_user_service_create(void) {
     miku_user_service_t *svc = (miku_user_service_t *)calloc(1, sizeof(*svc));
+    if (svc) {
+        for (int i = 0; i < MK_USER_HASH; i++) svc->id_hash[i] = -1;
+    }
     return svc;
 }
 
@@ -21,17 +44,22 @@ void miku_user_service_destroy(miku_user_service_t *svc) {
 int miku_user_register(miku_user_service_t *svc, const miku_user_t *user) {
     if (!svc || !user || svc->count >= MK_MAX_USERS) return -1;
     if (miku_user_find(svc, user->user_id)) return -2;
-    svc->users[svc->count] = *user;
-    svc->users[svc->count].create_time = miku_timestamp_ms();
-    svc->count++;
+    int ui = svc->count++;
+    svc->users[ui] = *user;
+    svc->users[ui].create_time = miku_timestamp_ms();
+    user_hash_insert(svc, ui);
     return 0;
 }
 
 miku_user_t *miku_user_find(miku_user_service_t *svc, const char *user_id) {
     if (!svc || !user_id) return NULL;
-    for (int i = 0; i < svc->count; i++) {
-        if (strcmp(svc->users[i].user_id, user_id) == 0)
-            return &svc->users[i];
+    uint32_t idx = user_hash_slot(user_id);
+    for (int n = 0; n < MK_USER_HASH; n++) {
+        int ui = svc->id_hash[idx];
+        if (ui < 0) return NULL;
+        if (strcmp(svc->users[ui].user_id, user_id) == 0)
+            return &svc->users[ui];
+        idx = (idx + 1) & (MK_USER_HASH - 1);
     }
     return NULL;
 }
