@@ -10,13 +10,19 @@
 struct miku_conv_service_s {
     miku_conversation_t convs[MK_MAX_CONVS];
     int count;
-    int16_t pair_hash[MK_CONV_HASH]; /* -1 empty, else convs[] index */
+    int16_t pair_hash[MK_CONV_HASH];  /* -1 empty, else convs[] index */
+    int16_t owner_hash[MK_CONV_HASH]; /* owner → first conv index */
+    int16_t owner_next[MK_MAX_CONVS]; /* intrusive list per owner */
 };
 
 static uint32_t conv_pair_slot(const char *owner, const char *conv_id) {
     uint64_t a = miku_fnv1a_64(owner, strlen(owner));
     uint64_t b = miku_fnv1a_64(conv_id, strlen(conv_id));
     return (uint32_t)((a ^ (b * 0x9e3779b97f4a7c15ULL)) & (MK_CONV_HASH - 1));
+}
+
+static uint32_t owner_slot(const char *owner) {
+    return (uint32_t)(miku_fnv1a_64(owner, strlen(owner)) & (MK_CONV_HASH - 1));
 }
 
 static void conv_hash_insert(miku_conv_service_t *svc, int ci) {
@@ -29,6 +35,36 @@ static void conv_hash_insert(miku_conv_service_t *svc, int ci) {
         }
         idx = (idx + 1) & (MK_CONV_HASH - 1);
     }
+}
+
+static void owner_link(miku_conv_service_t *svc, int ci) {
+    const char *owner = svc->convs[ci].owner_user_id;
+    uint32_t idx = owner_slot(owner);
+    for (int n = 0; n < MK_CONV_HASH; n++) {
+        int head = svc->owner_hash[idx];
+        if (head < 0) {
+            svc->owner_hash[idx] = (int16_t)ci;
+            svc->owner_next[ci] = -1;
+            return;
+        }
+        if (strcmp(svc->convs[head].owner_user_id, owner) == 0) {
+            svc->owner_next[ci] = (int16_t)head;
+            svc->owner_hash[idx] = (int16_t)ci;
+            return;
+        }
+        idx = (idx + 1) & (MK_CONV_HASH - 1);
+    }
+}
+
+static int owner_head(miku_conv_service_t *svc, const char *owner) {
+    uint32_t idx = owner_slot(owner);
+    for (int n = 0; n < MK_CONV_HASH; n++) {
+        int head = svc->owner_hash[idx];
+        if (head < 0) return -1;
+        if (strcmp(svc->convs[head].owner_user_id, owner) == 0) return head;
+        idx = (idx + 1) & (MK_CONV_HASH - 1);
+    }
+    return -1;
 }
 
 static int conv_hash_find(miku_conv_service_t *svc, const char *owner, const char *conv_id) {
@@ -47,7 +83,11 @@ static int conv_hash_find(miku_conv_service_t *svc, const char *owner, const cha
 miku_conv_service_t *miku_conv_service_create(void) {
     miku_conv_service_t *svc = (miku_conv_service_t *)calloc(1, sizeof(*svc));
     if (svc) {
-        for (int i = 0; i < MK_CONV_HASH; i++) svc->pair_hash[i] = -1;
+        for (int i = 0; i < MK_CONV_HASH; i++) {
+            svc->pair_hash[i] = -1;
+            svc->owner_hash[i] = -1;
+        }
+        for (int i = 0; i < MK_MAX_CONVS; i++) svc->owner_next[i] = -1;
     }
     return svc;
 }
@@ -59,6 +99,7 @@ int miku_conv_create(miku_conv_service_t *svc, const miku_conversation_t *c) {
     int ci = svc->count++;
     svc->convs[ci] = *c;
     conv_hash_insert(svc, ci);
+    owner_link(svc, ci);
     return 0;
 }
 
@@ -73,8 +114,8 @@ int miku_conv_get(miku_conv_service_t *svc, const char *owner, const char *conv_
 int miku_conv_get_all(miku_conv_service_t *svc, const char *owner, miku_conversation_t *out, int max) {
     if (!svc || !owner || !out) return 0;
     int n = 0;
-    for (int i = 0; i < svc->count && n < max; i++)
-        if (strcmp(svc->convs[i].owner_user_id, owner) == 0) out[n++] = svc->convs[i];
+    for (int ci = owner_head(svc, owner); ci >= 0 && n < max; ci = svc->owner_next[ci])
+        out[n++] = svc->convs[ci];
     return n;
 }
 
