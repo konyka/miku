@@ -1,34 +1,73 @@
 #include "miku_conversation.h"
+#include "miku_hash.h"
 #include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 
+/* 2x max conversations for open-addressing load factor ~0.5 */
+#define MK_CONV_HASH 16384
+
 struct miku_conv_service_s {
     miku_conversation_t convs[MK_MAX_CONVS];
     int count;
+    int16_t pair_hash[MK_CONV_HASH]; /* -1 empty, else convs[] index */
 };
 
+static uint32_t conv_pair_slot(const char *owner, const char *conv_id) {
+    uint64_t a = miku_fnv1a_64(owner, strlen(owner));
+    uint64_t b = miku_fnv1a_64(conv_id, strlen(conv_id));
+    return (uint32_t)((a ^ (b * 0x9e3779b97f4a7c15ULL)) & (MK_CONV_HASH - 1));
+}
+
+static void conv_hash_insert(miku_conv_service_t *svc, int ci) {
+    uint32_t idx = conv_pair_slot(svc->convs[ci].owner_user_id,
+                                  svc->convs[ci].conversation_id);
+    for (int n = 0; n < MK_CONV_HASH; n++) {
+        if (svc->pair_hash[idx] < 0) {
+            svc->pair_hash[idx] = (int16_t)ci;
+            return;
+        }
+        idx = (idx + 1) & (MK_CONV_HASH - 1);
+    }
+}
+
+static int conv_hash_find(miku_conv_service_t *svc, const char *owner, const char *conv_id) {
+    uint32_t idx = conv_pair_slot(owner, conv_id);
+    for (int n = 0; n < MK_CONV_HASH; n++) {
+        int ci = svc->pair_hash[idx];
+        if (ci < 0) return -1;
+        if (strcmp(svc->convs[ci].owner_user_id, owner) == 0 &&
+            strcmp(svc->convs[ci].conversation_id, conv_id) == 0)
+            return ci;
+        idx = (idx + 1) & (MK_CONV_HASH - 1);
+    }
+    return -1;
+}
+
 miku_conv_service_t *miku_conv_service_create(void) {
-    return (miku_conv_service_t *)calloc(1, sizeof(miku_conv_service_t));
+    miku_conv_service_t *svc = (miku_conv_service_t *)calloc(1, sizeof(*svc));
+    if (svc) {
+        for (int i = 0; i < MK_CONV_HASH; i++) svc->pair_hash[i] = -1;
+    }
+    return svc;
 }
 void miku_conv_service_destroy(miku_conv_service_t *svc) { free(svc); }
 
 int miku_conv_create(miku_conv_service_t *svc, const miku_conversation_t *c) {
     if (!svc || !c || svc->count >= MK_MAX_CONVS) return -1;
-    svc->convs[svc->count++] = *c;
+    if (conv_hash_find(svc, c->owner_user_id, c->conversation_id) >= 0) return -2;
+    int ci = svc->count++;
+    svc->convs[ci] = *c;
+    conv_hash_insert(svc, ci);
     return 0;
 }
 
 int miku_conv_get(miku_conv_service_t *svc, const char *owner, const char *conv_id, miku_conversation_t *out) {
     if (!svc || !owner || !conv_id || !out) return -1;
-    for (int i = 0; i < svc->count; i++) {
-        if (strcmp(svc->convs[i].owner_user_id, owner) == 0 &&
-            strcmp(svc->convs[i].conversation_id, conv_id) == 0) {
-            *out = svc->convs[i];
-            return 0;
-        }
-    }
-    return -2;
+    int ci = conv_hash_find(svc, owner, conv_id);
+    if (ci < 0) return -2;
+    *out = svc->convs[ci];
+    return 0;
 }
 
 int miku_conv_get_all(miku_conv_service_t *svc, const char *owner, miku_conversation_t *out, int max) {
@@ -41,14 +80,10 @@ int miku_conv_get_all(miku_conv_service_t *svc, const char *owner, miku_conversa
 
 int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c) {
     if (!svc || !c) return -1;
-    for (int i = 0; i < svc->count; i++) {
-        if (strcmp(svc->convs[i].owner_user_id, c->owner_user_id) == 0 &&
-            strcmp(svc->convs[i].conversation_id, c->conversation_id) == 0) {
-            svc->convs[i] = *c;
-            return 0;
-        }
-    }
-    return -2;
+    int ci = conv_hash_find(svc, c->owner_user_id, c->conversation_id);
+    if (ci < 0) return -2;
+    svc->convs[ci] = *c;
+    return 0;
 }
 
 
@@ -81,7 +116,8 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         miku_conversation_t c;
         memset(&c, 0, sizeof(c));
         miku_conversation_from_json(req, &c);
-        miku_conv_update(svc, &c);
+        if (miku_conv_update(svc, &c) == -2)
+            miku_conv_create(svc, &c);
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "deleteConversation") == 0) {
         miku_ji(resp, "errCode", 0);
@@ -136,14 +172,11 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         int updated = 0;
         if (owner && cid) {
-            for (int i = 0; i < svc->count; i++) {
-                if (strcmp(svc->convs[i].owner_user_id, owner) == 0 &&
-                    strcmp(svc->convs[i].conversation_id, cid) == 0) {
-                    const char *ex = req ? miku_json_str(miku_json_get(req, "ex")) : NULL;
-                    if (ex) strncpy(svc->convs[i].ex, ex, sizeof(svc->convs[i].ex) - 1);
-                    updated = 1;
-                    break;
-                }
+            int ci = conv_hash_find(svc, owner, cid);
+            if (ci >= 0) {
+                const char *ex = req ? miku_json_str(miku_json_get(req, "ex")) : NULL;
+                if (ex) strncpy(svc->convs[ci].ex, ex, sizeof(svc->convs[ci].ex) - 1);
+                updated = 1;
             }
         }
         miku_ji(resp, "errCode", updated ? 0 : 4001);
