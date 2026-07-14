@@ -103,6 +103,59 @@ static void conv_link(miku_msg_store_t *store, int slot) {
     }
 }
 
+static void conv_unlink(miku_msg_store_t *store, int slot) {
+    if (slot < 0 || slot >= store->mem_cap || !store->mem[slot].used) return;
+    const char *cid = store->mem[slot].conversation_id;
+    if (!cid[0]) {
+        store->conv_next[slot] = -1;
+        return;
+    }
+    uint32_t b = conv_bucket(cid);
+    for (uint32_t i = 0; i < MK_MSG_CONV_HASH; i++) {
+        uint32_t idx = (b + i) & (MK_MSG_CONV_HASH - 1);
+        int head = store->conv_hash[idx];
+        if (head < 0) return;
+        if (!(store->mem[head].used &&
+              strcmp(store->mem[head].conversation_id, cid) == 0))
+            continue;
+        if (head == slot) {
+            store->conv_hash[idx] = store->conv_next[slot];
+            store->conv_next[slot] = -1;
+            if (store->conv_hash[idx] < 0) {
+                uint32_t j = (idx + 1) & (MK_MSG_CONV_HASH - 1);
+                while (store->conv_hash[j] >= 0) {
+                    int rem = store->conv_hash[j];
+                    store->conv_hash[j] = -1;
+                    if (store->mem[rem].used) {
+                        /* reinsert head for that conversation */
+                        const char *rcid = store->mem[rem].conversation_id;
+                        uint32_t rb = conv_bucket(rcid);
+                        for (uint32_t k = 0; k < MK_MSG_CONV_HASH; k++) {
+                            uint32_t ridx = (rb + k) & (MK_MSG_CONV_HASH - 1);
+                            if (store->conv_hash[ridx] < 0) {
+                                store->conv_hash[ridx] = rem;
+                                break;
+                            }
+                        }
+                    }
+                    j = (j + 1) & (MK_MSG_CONV_HASH - 1);
+                }
+            }
+            return;
+        }
+        int prev = head;
+        for (int cur = store->conv_next[head]; cur >= 0;
+             prev = cur, cur = store->conv_next[cur]) {
+            if (cur == slot) {
+                store->conv_next[prev] = store->conv_next[slot];
+                store->conv_next[slot] = -1;
+                return;
+            }
+        }
+        return;
+    }
+}
+
 static void rebuild_conv_chains(miku_msg_store_t *store) {
     for (int i = 0; i < MK_MSG_CONV_HASH; i++) store->conv_hash[i] = -1;
     for (int i = 0; i < store->mem_cap; i++) store->conv_next[i] = -1;
@@ -181,8 +234,9 @@ static void mem_free_slot_raw(miku_msg_store_t *store, int slot) {
 }
 
 static void mem_free_slot(miku_msg_store_t *store, int slot) {
+    if (slot < 0 || slot >= store->mem_cap || !store->mem[slot].used) return;
+    conv_unlink(store, slot);
     mem_free_slot_raw(store, slot);
-    rebuild_conv_chains(store);
 }
 
 static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
