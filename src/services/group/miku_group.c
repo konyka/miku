@@ -431,8 +431,18 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     } break;
     case MK_GROUP_RPC_getJoinedGroupList:
     {
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!uid) uid = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_ji(resp, "errCode", 0);
-        miku_json_object_set(resp, "data", miku_json_create_array());
+        miku_json_val_t *arr = miku_json_create_array();
+        if (uid) {
+            for (int i = 0; i < svc->member_count; i++) {
+                if (strcmp(svc->members[i].user_id, uid) != 0) continue;
+                miku_group_t *g = miku_group_find(svc, svc->members[i].group_id);
+                if (g) miku_json_array_push(arr, miku_group_to_json(g));
+            }
+        }
+        miku_json_object_set(resp, "data", arr);
     } break;
     case MK_GROUP_RPC_getGroupApplicationList:
     case MK_GROUP_RPC_getGroupApplicantList:
@@ -468,8 +478,17 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     } break;
     case MK_GROUP_RPC_getFullJoinGroupIDs:
     {
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!uid) uid = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        if (uid) {
+            for (int i = 0; i < svc->member_count; i++) {
+                if (strcmp(svc->members[i].user_id, uid) != 0) continue;
+                miku_json_array_push(arr,
+                    miku_json_create_str(svc->members[i].group_id));
+            }
+        }
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_GROUP_RPC_getGroupAbstractInfo:

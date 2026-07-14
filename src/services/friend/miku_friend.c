@@ -272,8 +272,10 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
     } break;
     case MK_FRIEND_RPC_isFriend:
     {
-        const char *u1 = req ? miku_json_str(miku_json_get(req, "userID1")) : NULL;
-        const char *u2 = req ? miku_json_str(miku_json_get(req, "userID2")) : NULL;
+        const char *u1 = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        const char *u2 = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
+        if (!u1) u1 = req ? miku_json_str(miku_json_get(req, "userID1")) : NULL;
+        if (!u2) u2 = req ? miku_json_str(miku_json_get(req, "userID2")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "isFriend", miku_friend_is_friend(svc, u1, u2) ? 1 : 0);
     } break;

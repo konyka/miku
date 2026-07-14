@@ -308,7 +308,18 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } break;
     case MK_CONV_RPC_markConversationMessageAsRead:
     {
-        miku_ji(resp, "errCode", 0);
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        int rc = -1;
+        if (owner && cid) {
+            miku_conversation_t c;
+            if (miku_conv_get(svc, owner, cid, &c) == 0) {
+                c.unread_count = 0;
+                rc = miku_conv_update(svc, &c);
+            }
+        }
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 4001);
     } break;
     case MK_CONV_RPC_clearConversationMsg:
     {

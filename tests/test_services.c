@@ -146,6 +146,17 @@ static void test_friend_add_and_check(void) {
     mk_assert_int_eq(1, n);
     mk_assert_str_eq("u2", list[0].friend_user_id);
 
+    /* API path uses userID + friendUserID (not userID1/userID2) */
+    miku_json_val_t *req = miku_json_create_object();
+    miku_json_object_set(req, "userID", miku_json_create_str("u1"));
+    miku_json_object_set(req, "friendUserID", miku_json_create_str("u2"));
+    miku_json_val_t *resp = miku_json_create_object();
+    miku_friend_handle_rpc(svc, "isFriend", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(resp, "isFriend")));
+    miku_json_destroy(req);
+    miku_json_destroy(resp);
+
     miku_friend_service_destroy(svc);
 }
 
@@ -173,6 +184,17 @@ static void test_group_create_and_members(void) {
     int n = miku_group_get_members(svc, g.group_id, members, 16);
     mk_assert_int_eq(2, n);
 
+    miku_json_val_t *req = miku_json_create_object();
+    miku_json_object_set(req, "userID", miku_json_create_str("member1"));
+    miku_json_val_t *resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "getJoinedGroupList", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_val_t *data = miku_json_get(resp, "data");
+    mk_assert_not_null(data);
+    mk_assert_int_eq(1, (int)miku_json_size(data));
+    miku_json_destroy(req);
+    miku_json_destroy(resp);
+
     miku_group_service_destroy(svc);
 }
 
@@ -196,6 +218,19 @@ static void test_conv_create_and_get(void) {
     miku_conversation_t all[16];
     int n = miku_conv_get_all(svc, "u1", all, 16);
     mk_assert_int_eq(1, n);
+
+    out.unread_count = 5;
+    mk_assert_int_eq(0, miku_conv_update(svc, &out));
+    miku_json_val_t *req = miku_json_create_object();
+    miku_json_object_set(req, "ownerUserID", miku_json_create_str("u1"));
+    miku_json_object_set(req, "conversationID", miku_json_create_str("conv_1"));
+    miku_json_val_t *resp = miku_json_create_object();
+    miku_conv_handle_rpc(svc, "markConversationMessageAsRead", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_int_eq(0, miku_conv_get(svc, "u1", "conv_1", &out));
+    mk_assert_int_eq(0, out.unread_count);
+    miku_json_destroy(req);
+    miku_json_destroy(resp);
 
     miku_conv_service_destroy(svc);
 }
