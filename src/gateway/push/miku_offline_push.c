@@ -1,4 +1,5 @@
 #include "miku_offline_push.h"
+#include "miku_hash.h"
 #include "miku_log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,7 @@
 #include <poll.h>
 
 #define MK_MAX_PUSH_TOKENS 4096
+#define MK_PUSH_TOKEN_HASH 8192
 
 typedef struct {
     char user_id[64];
@@ -26,15 +28,49 @@ struct miku_offline_push_s {
     miku_push_provider_t provider;
     push_token_t         tokens[MK_MAX_PUSH_TOKENS];
     int                  token_count;
+    int16_t              pair_hash[MK_PUSH_TOKEN_HASH];
     int64_t              total_sent;
     int64_t              total_http_ok;
     int64_t              total_http_fail;
     char                 endpoint[512];
 };
 
+static uint32_t token_pair_slot(const char *user_id, int platform) {
+    uint64_t a = miku_fnv1a_64(user_id, strlen(user_id));
+    uint64_t b = (uint64_t)(unsigned)platform * 0x9e3779b97f4a7c15ULL;
+    return (uint32_t)((a ^ b) & (MK_PUSH_TOKEN_HASH - 1));
+}
+
+static void token_hash_insert(miku_offline_push_t *op, int ti) {
+    uint32_t idx = token_pair_slot(op->tokens[ti].user_id, op->tokens[ti].platform);
+    for (int n = 0; n < MK_PUSH_TOKEN_HASH; n++) {
+        if (op->pair_hash[idx] < 0) {
+            op->pair_hash[idx] = (int16_t)ti;
+            return;
+        }
+        idx = (idx + 1) & (MK_PUSH_TOKEN_HASH - 1);
+    }
+}
+
+static int token_hash_find(miku_offline_push_t *op, const char *user_id, int platform) {
+    uint32_t idx = token_pair_slot(user_id, platform);
+    for (int n = 0; n < MK_PUSH_TOKEN_HASH; n++) {
+        int ti = op->pair_hash[idx];
+        if (ti < 0) return -1;
+        if (strcmp(op->tokens[ti].user_id, user_id) == 0 &&
+            op->tokens[ti].platform == platform)
+            return ti;
+        idx = (idx + 1) & (MK_PUSH_TOKEN_HASH - 1);
+    }
+    return -1;
+}
+
 miku_offline_push_t *miku_offline_push_create(miku_push_provider_t provider) {
     miku_offline_push_t *op = (miku_offline_push_t *)calloc(1, sizeof(*op));
-    if (op) op->provider = provider;
+    if (op) {
+        op->provider = provider;
+        for (int i = 0; i < MK_PUSH_TOKEN_HASH; i++) op->pair_hash[i] = -1;
+    }
     return op;
 }
 
@@ -177,14 +213,8 @@ int miku_offline_push_send(miku_offline_push_t *op, const char *user_id,
     }
 
     const char *token = NULL;
-    for (int i = 0; i < op->token_count; i++) {
-        if (op->tokens[i].active &&
-            strcmp(op->tokens[i].user_id, user_id) == 0 &&
-            op->tokens[i].platform == platform) {
-            token = op->tokens[i].token;
-            break;
-        }
-    }
+    int ti = token_hash_find(op, user_id, platform);
+    if (ti >= 0 && op->tokens[ti].active) token = op->tokens[ti].token;
     if (!token) {
         MK_LOG_DEBUG("offline_push: no token for user=%s platform=%d", user_id, platform);
         return -1;
@@ -223,31 +253,30 @@ int miku_offline_push_send(miku_offline_push_t *op, const char *user_id,
 int miku_offline_push_set_token(miku_offline_push_t *op, const char *user_id,
                                   int platform, const char *fcm_token) {
     if (!op || !user_id || !fcm_token) return -1;
-    for (int i = 0; i < op->token_count; i++) {
-        if (strcmp(op->tokens[i].user_id, user_id) == 0 && op->tokens[i].platform == platform) {
-            strncpy(op->tokens[i].token, fcm_token, sizeof(op->tokens[i].token) - 1);
-            op->tokens[i].active = true;
-            return 0;
-        }
+    int ti = token_hash_find(op, user_id, platform);
+    if (ti >= 0) {
+        strncpy(op->tokens[ti].token, fcm_token, sizeof(op->tokens[ti].token) - 1);
+        op->tokens[ti].active = true;
+        return 0;
     }
     if (op->token_count >= MK_MAX_PUSH_TOKENS) return -1;
-    push_token_t *t = &op->tokens[op->token_count++];
+    ti = op->token_count++;
+    push_token_t *t = &op->tokens[ti];
+    memset(t, 0, sizeof(*t));
     strncpy(t->user_id, user_id, sizeof(t->user_id) - 1);
     t->platform = platform;
     strncpy(t->token, fcm_token, sizeof(t->token) - 1);
     t->active = true;
+    token_hash_insert(op, ti);
     return 0;
 }
 
 int miku_offline_push_del_token(miku_offline_push_t *op, const char *user_id, int platform) {
     if (!op || !user_id) return -1;
-    for (int i = 0; i < op->token_count; i++) {
-        if (strcmp(op->tokens[i].user_id, user_id) == 0 && op->tokens[i].platform == platform) {
-            op->tokens[i].active = false;
-            return 0;
-        }
-    }
-    return -1;
+    int ti = token_hash_find(op, user_id, platform);
+    if (ti < 0) return -1;
+    op->tokens[ti].active = false;
+    return 0;
 }
 
 const char *miku_offline_push_provider_name(miku_push_provider_t p) {

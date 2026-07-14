@@ -9,6 +9,7 @@
 
 #define MK_MSG_MEM_CAP 8192
 #define MK_MSG_ID_HASH 16384  /* power of 2 */
+#define MK_MSG_CONV_HASH 16384
 
 typedef struct {
     char    msg_id[64];
@@ -31,6 +32,8 @@ struct miku_msg_store_s {
     int          *free_stack;   /* unused slot indices */
     int           free_top;
     int          *id_hash;      /* msg_id hash → slot, -1 empty */
+    int          *conv_hash;    /* conversation_id → head slot */
+    int          *conv_next;    /* intrusive list within a conversation */
 };
 
 miku_msg_store_t *miku_msg_store_create(miku_mongo_t *mongo) {
@@ -42,14 +45,20 @@ miku_msg_store_t *miku_msg_store_create(miku_mongo_t *mongo) {
     s->mem = (mem_msg_t *)calloc((size_t)s->mem_cap, sizeof(mem_msg_t));
     s->free_stack = (int *)malloc((size_t)s->mem_cap * sizeof(int));
     s->id_hash = (int *)malloc(MK_MSG_ID_HASH * sizeof(int));
-    if (!s->mem || !s->free_stack || !s->id_hash) {
+    s->conv_hash = (int *)malloc(MK_MSG_CONV_HASH * sizeof(int));
+    s->conv_next = (int *)malloc((size_t)s->mem_cap * sizeof(int));
+    if (!s->mem || !s->free_stack || !s->id_hash || !s->conv_hash || !s->conv_next) {
         free(s->mem);
         free(s->free_stack);
         free(s->id_hash);
+        free(s->conv_hash);
+        free(s->conv_next);
         free(s);
         return NULL;
     }
     for (int i = 0; i < MK_MSG_ID_HASH; i++) s->id_hash[i] = -1;
+    for (int i = 0; i < MK_MSG_CONV_HASH; i++) s->conv_hash[i] = -1;
+    for (int i = 0; i < s->mem_cap; i++) s->conv_next[i] = -1;
     s->free_top = 0;
     for (int i = s->mem_cap - 1; i >= 0; i--)
         s->free_stack[s->free_top++] = i;
@@ -61,11 +70,58 @@ void miku_msg_store_destroy(miku_msg_store_t *store) {
     free(store->mem);
     free(store->free_stack);
     free(store->id_hash);
+    free(store->conv_hash);
+    free(store->conv_next);
     free(store);
 }
 
 static uint32_t id_bucket(const char *msg_id) {
     return (uint32_t)(miku_fnv1a_64(msg_id, strlen(msg_id)) & (MK_MSG_ID_HASH - 1));
+}
+
+static uint32_t conv_bucket(const char *conversation_id) {
+    return (uint32_t)(miku_fnv1a_64(conversation_id, strlen(conversation_id)) & (MK_MSG_CONV_HASH - 1));
+}
+
+static void conv_link(miku_msg_store_t *store, int slot) {
+    const char *cid = store->mem[slot].conversation_id;
+    uint32_t b = conv_bucket(cid);
+    for (uint32_t i = 0; i < MK_MSG_CONV_HASH; i++) {
+        uint32_t idx = (b + i) & (MK_MSG_CONV_HASH - 1);
+        int head = store->conv_hash[idx];
+        if (head < 0) {
+            store->conv_hash[idx] = slot;
+            store->conv_next[slot] = -1;
+            return;
+        }
+        if (store->mem[head].used &&
+            strcmp(store->mem[head].conversation_id, cid) == 0) {
+            store->conv_next[slot] = head;
+            store->conv_hash[idx] = slot;
+            return;
+        }
+    }
+}
+
+static void rebuild_conv_chains(miku_msg_store_t *store) {
+    for (int i = 0; i < MK_MSG_CONV_HASH; i++) store->conv_hash[i] = -1;
+    for (int i = 0; i < store->mem_cap; i++) store->conv_next[i] = -1;
+    for (int slot = 0; slot < store->mem_cap; slot++) {
+        if (store->mem[slot].used) conv_link(store, slot);
+    }
+}
+
+static int conv_head(miku_msg_store_t *store, const char *conversation_id) {
+    uint32_t b = conv_bucket(conversation_id);
+    for (uint32_t i = 0; i < MK_MSG_CONV_HASH; i++) {
+        uint32_t idx = (b + i) & (MK_MSG_CONV_HASH - 1);
+        int head = store->conv_hash[idx];
+        if (head < 0) return -1;
+        if (store->mem[head].used &&
+            strcmp(store->mem[head].conversation_id, conversation_id) == 0)
+            return head;
+    }
+    return -1;
 }
 
 static void id_hash_put(miku_msg_store_t *store, const char *msg_id, int slot) {
@@ -114,7 +170,7 @@ static mem_msg_t *mem_find(miku_msg_store_t *store, const char *msg_id) {
     return NULL;
 }
 
-static void mem_free_slot(miku_msg_store_t *store, int slot) {
+static void mem_free_slot_raw(miku_msg_store_t *store, int slot) {
     if (slot < 0 || slot >= store->mem_cap || !store->mem[slot].used) return;
     id_hash_del(store, store->mem[slot].msg_id);
     store->mem[slot].used = 0;
@@ -122,6 +178,11 @@ static void mem_free_slot(miku_msg_store_t *store, int slot) {
     if (store->mem_count < 0) store->mem_count = 0;
     if (store->free_top < store->mem_cap)
         store->free_stack[store->free_top++] = slot;
+}
+
+static void mem_free_slot(miku_msg_store_t *store, int slot) {
+    mem_free_slot_raw(store, slot);
+    rebuild_conv_chains(store);
 }
 
 static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
@@ -171,6 +232,7 @@ int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
     m->seq = seq;
     m->status = 1;
     id_hash_put(store, m->msg_id, mem_slot_of(store, m));
+    conv_link(store, mem_slot_of(store, m));
 
     if (out_msg_id && msg_id_cap > 0)
         strncpy(out_msg_id, msg_id, msg_id_cap - 1);
@@ -211,9 +273,9 @@ int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversatio
     size_t pos = 0;
     buf[pos++] = '[';
     int first = 1;
-    for (int i = 0; i < store->mem_cap; i++) {
-        mem_msg_t *m = &store->mem[i];
-        if (!m->used || strcmp(m->conversation_id, conversation_id) != 0) continue;
+    for (int slot = conv_head(store, conversation_id); slot >= 0; slot = store->conv_next[slot]) {
+        mem_msg_t *m = &store->mem[slot];
+        if (!m->used) continue;
         if (m->seq < start_seq) continue;
         if (end_seq > 0 && m->seq > end_seq) continue;
         char item[1536];
@@ -301,10 +363,11 @@ int miku_msg_store_purge_older_than(miku_msg_store_t *store, int64_t cutoff_ms) 
     int removed = 0;
     for (int i = 0; i < store->mem_cap; i++) {
         if (store->mem[i].used && store->mem[i].send_time < cutoff_ms) {
-            mem_free_slot(store, i);
+            mem_free_slot_raw(store, i);
             removed++;
         }
     }
+    if (removed) rebuild_conv_chains(store);
     MK_LOG_DEBUG("msg_store: purged %d msgs older than %lld", removed, (long long)cutoff_ms);
     return removed;
 }
@@ -314,9 +377,10 @@ int miku_msg_store_clear_user(miku_msg_store_t *store, const char *user_id) {
     int removed = 0;
     for (int i = 0; i < store->mem_cap; i++) {
         if (store->mem[i].used && strcmp(store->mem[i].sender_id, user_id) == 0) {
-            mem_free_slot(store, i);
+            mem_free_slot_raw(store, i);
             removed++;
         }
     }
+    if (removed) rebuild_conv_chains(store);
     return removed;
 }
