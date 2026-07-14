@@ -172,8 +172,15 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_conversation_to_json(&list[i]));
         miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "getTotalUnreadMsgCount") == 0) {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        int64_t total = 0;
+        if (owner) {
+            for (int ci = owner_head(svc, owner); ci >= 0; ci = svc->owner_next[ci])
+                total += svc->convs[ci].unread_count;
+        }
         miku_ji(resp, "errCode", 0);
-        miku_ji(resp, "count", 0);
+        miku_ji(resp, "count", total);
     } else if (strcmp(method, "setConversationMinSeq") == 0) {
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "markConversationMessageAsRead") == 0) {

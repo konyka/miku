@@ -134,6 +134,101 @@ static int lower_bound_seq(miku_msg_service_t *svc, int64_t begin) {
     return lo;
 }
 
+
+static void hash_del_cid(miku_msg_service_t *svc, const char *cid) {
+    if (!cid || !cid[0]) return;
+    uint32_t idx = str_slot(cid);
+    for (int n = 0; n < MK_MSG_HASH; n++) {
+        int mi = svc->cid_hash[idx];
+        if (mi < 0) return;
+        if (strcmp(svc->msgs[mi].client_msg_id, cid) == 0) {
+            svc->cid_hash[idx] = -1;
+            uint32_t j = (idx + 1) & (MK_MSG_HASH - 1);
+            while (svc->cid_hash[j] >= 0) {
+                int rem = svc->cid_hash[j];
+                svc->cid_hash[j] = -1;
+                if (svc->msgs[rem].client_msg_id[0])
+                    hash_insert_key(svc->cid_hash, svc->msgs[rem].client_msg_id,
+                                    rem, svc->msgs, 1);
+                j = (j + 1) & (MK_MSG_HASH - 1);
+            }
+            return;
+        }
+        idx = (idx + 1) & (MK_MSG_HASH - 1);
+    }
+}
+
+static void conv_unlink(miku_msg_service_t *svc, int mi) {
+    if (mi < 0 || mi >= svc->count) return;
+    const char *cid = svc->msgs[mi].conversation_id;
+    if (!cid[0]) { svc->conv_next[mi] = -1; return; }
+    uint32_t idx = str_slot(cid);
+    for (int n = 0; n < MK_MSG_HASH; n++) {
+        int head = svc->conv_hash[idx];
+        if (head < 0) return;
+        if (strcmp(svc->msgs[head].conversation_id, cid) != 0) {
+            idx = (idx + 1) & (MK_MSG_HASH - 1);
+            continue;
+        }
+        if (head == mi) {
+            svc->conv_hash[idx] = svc->conv_next[mi];
+            svc->conv_next[mi] = -1;
+            if (svc->conv_hash[idx] < 0) {
+                uint32_t j = (idx + 1) & (MK_MSG_HASH - 1);
+                while (svc->conv_hash[j] >= 0) {
+                    int rem = svc->conv_hash[j];
+                    svc->conv_hash[j] = -1;
+                    const char *rcid = svc->msgs[rem].conversation_id;
+                    if (rcid[0]) {
+                        uint32_t ridx = str_slot(rcid);
+                        for (int k = 0; k < MK_MSG_HASH; k++) {
+                            if (svc->conv_hash[ridx] < 0) {
+                                svc->conv_hash[ridx] = rem;
+                                break;
+                            }
+                            ridx = (ridx + 1) & (MK_MSG_HASH - 1);
+                        }
+                    }
+                    j = (j + 1) & (MK_MSG_HASH - 1);
+                }
+            }
+            return;
+        }
+        int prev = head;
+        for (int cur = svc->conv_next[head]; cur >= 0; prev = cur, cur = svc->conv_next[cur]) {
+            if (cur == mi) {
+                svc->conv_next[prev] = svc->conv_next[mi];
+                svc->conv_next[mi] = -1;
+                return;
+            }
+        }
+        return;
+    }
+}
+
+static void msg_remove_at(miku_msg_service_t *svc, int mi) {
+    if (!svc || mi < 0 || mi >= svc->count) return;
+    if (svc->msgs[mi].server_msg_id[0])
+        hash_del_sid(svc, svc->msgs[mi].server_msg_id);
+    if (svc->msgs[mi].client_msg_id[0])
+        hash_del_cid(svc, svc->msgs[mi].client_msg_id);
+    conv_unlink(svc, mi);
+    memmove(&svc->msgs[mi], &svc->msgs[mi + 1],
+            (size_t)(svc->count - mi - 1) * sizeof(miku_msg_t));
+    memmove(&svc->conv_next[mi], &svc->conv_next[mi + 1],
+            (size_t)(svc->count - mi - 1) * sizeof(int32_t));
+    svc->count--;
+    if (svc->count >= 0) svc->conv_next[svc->count] = -1;
+    for (int i = 0; i < MK_MSG_HASH; i++) {
+        if (svc->sid_hash[i] > mi) svc->sid_hash[i]--;
+        if (svc->cid_hash[i] > mi) svc->cid_hash[i]--;
+        if (svc->conv_hash[i] > mi) svc->conv_hash[i]--;
+    }
+    for (int i = 0; i < svc->count; i++) {
+        if (svc->conv_next[i] > mi) svc->conv_next[i]--;
+    }
+}
+
 static void rebuild_indexes(miku_msg_service_t *svc) {
     for (int i = 0; i < MK_MSG_HASH; i++) {
         svc->sid_hash[i] = -1;
@@ -251,10 +346,109 @@ int miku_msg_update_delivery(miku_msg_service_t *svc, const char *client_msg_id,
 }
 
 
+enum {
+    MK_MSG_RPC_sendMsg = 0,
+    MK_MSG_RPC_getMsgByConv = 1,
+    MK_MSG_RPC_revokeMsg = 2,
+    MK_MSG_RPC_getServerTime = 3,
+    MK_MSG_RPC_getSendMsgStatus = 4,
+    MK_MSG_RPC_cleanUpMsg = 5,
+    MK_MSG_RPC_deleteMsg = 6,
+    MK_MSG_RPC_batchSendMsg = 7,
+    MK_MSG_RPC_markMsgAsRead = 8,
+    MK_MSG_RPC_getMsgBySeq = 9,
+    MK_MSG_RPC_send = 10,
+    MK_MSG_RPC_sendSimpleMsg = 11,
+    MK_MSG_RPC_sendBusinessNotification = 12,
+    MK_MSG_RPC_getMsg = 13,
+    MK_MSG_RPC_getNewestSeq = 14,
+    MK_MSG_RPC_pullMsgBySeq = 15,
+    MK_MSG_RPC_searchMsg = 16,
+    MK_MSG_RPC_markMsgsAsRead = 17,
+    MK_MSG_RPC_markConversationAsRead = 18,
+    MK_MSG_RPC_setConversationHasReadSeq = 19,
+    MK_MSG_RPC_getConversationsHasReadAndMaxSeq = 20,
+    MK_MSG_RPC_checkMsgIsSendSuccess = 21,
+    MK_MSG_RPC_clearConversationMsg = 22,
+    MK_MSG_RPC_userClearAllMsg = 23,
+    MK_MSG_RPC_deleteMsgPhysical = 24,
+    MK_MSG_RPC_deleteMsgPhysicalBySeq = 25,
+    MK_MSG_RPC_setMessageReactionExtensions = 26,
+    MK_MSG_RPC_getMessageListReactionExtensions = 27,
+    MK_MSG_RPC_addMessageReactionExtensions = 28,
+    MK_MSG_RPC_deleteMessageReactionExtensions = 29,
+    MK_MSG_RPC_COUNT = 30
+};
+
+#define MK_MSG_RPC_HASH 64
+static const char *const g_msg_rpc_names[MK_MSG_RPC_COUNT] = {
+    "sendMsg",
+    "getMsgByConv",
+    "revokeMsg",
+    "getServerTime",
+    "getSendMsgStatus",
+    "cleanUpMsg",
+    "deleteMsg",
+    "batchSendMsg",
+    "markMsgAsRead",
+    "getMsgBySeq",
+    "send",
+    "sendSimpleMsg",
+    "sendBusinessNotification",
+    "getMsg",
+    "getNewestSeq",
+    "pullMsgBySeq",
+    "searchMsg",
+    "markMsgsAsRead",
+    "markConversationAsRead",
+    "setConversationHasReadSeq",
+    "getConversationsHasReadAndMaxSeq",
+    "checkMsgIsSendSuccess",
+    "clearConversationMsg",
+    "userClearAllMsg",
+    "deleteMsgPhysical",
+    "deleteMsgPhysicalBySeq",
+    "setMessageReactionExtensions",
+    "getMessageListReactionExtensions",
+    "addMessageReactionExtensions",
+    "deleteMessageReactionExtensions"
+};
+
+static int16_t g_msg_rpc_hash[MK_MSG_RPC_HASH];
+static int g_msg_rpc_ready;
+
+static void msg_rpc_init(void) {
+    if (g_msg_rpc_ready) return;
+    for (int i = 0; i < MK_MSG_RPC_HASH; i++) g_msg_rpc_hash[i] = -1;
+    for (int i = 0; i < MK_MSG_RPC_COUNT; i++) {
+        const char *m = g_msg_rpc_names[i];
+        uint32_t idx = (uint32_t)(miku_fnv1a_64(m, strlen(m)) & (MK_MSG_RPC_HASH - 1));
+        for (int n = 0; n < MK_MSG_RPC_HASH; n++) {
+            if (g_msg_rpc_hash[idx] < 0) { g_msg_rpc_hash[idx] = (int16_t)i; break; }
+            idx = (idx + 1) & (MK_MSG_RPC_HASH - 1);
+        }
+    }
+    g_msg_rpc_ready = 1;
+}
+
+static int msg_rpc_id(const char *method) {
+    if (!method) return -1;
+    msg_rpc_init();
+    uint32_t idx = (uint32_t)(miku_fnv1a_64(method, strlen(method)) & (MK_MSG_RPC_HASH - 1));
+    for (int n = 0; n < MK_MSG_RPC_HASH; n++) {
+        int id = g_msg_rpc_hash[idx];
+        if (id < 0) return -1;
+        if (strcmp(g_msg_rpc_names[id], method) == 0) return id;
+        idx = (idx + 1) & (MK_MSG_RPC_HASH - 1);
+    }
+    return -1;
+}
+
 void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                           const miku_json_val_t *req, miku_json_val_t *resp) {
     if (!svc || !method || !resp) return;
-    if (strcmp(method, "sendMsg") == 0) {
+    switch (msg_rpc_id(method)) {
+    case MK_MSG_RPC_sendMsg: {
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
@@ -265,7 +459,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "seq", m.seq);
             miku_ji(resp, "sendTime", m.send_time);
         }
-    } else if (strcmp(method, "getMsgByConv") == 0) {
+    } break;
+    case MK_MSG_RPC_getMsgByConv: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         int64_t start = req ? miku_json_int(miku_json_get(req, "startTime")) : 0;
         int64_t end = req ? miku_json_int(miku_json_get(req, "endTime")) : 0;
@@ -276,28 +471,36 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_msg_to_json(&list[i]));
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "revokeMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_revokeMsg: {
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         int rc = miku_msg_revoke(svc, uid, cmid);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 5001);
-    } else if (strcmp(method, "getServerTime") == 0) {
+    } break;
+    case MK_MSG_RPC_getServerTime: {
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "serverTime", miku_timestamp_ms());
-    } else if (strcmp(method, "getSendMsgStatus") == 0) {
+    } break;
+    case MK_MSG_RPC_getSendMsgStatus: {
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "status", 1);
-    } else if (strcmp(method, "cleanUpMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_cleanUpMsg: {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "deleteMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_deleteMsg: {
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         miku_ji(resp, "errCode", cmid ? 0 : 400);
-    } else if (strcmp(method, "batchSendMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_batchSendMsg: {
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", miku_json_create_array());
-    } else if (strcmp(method, "markMsgAsRead") == 0) {
+    } break;
+    case MK_MSG_RPC_markMsgAsRead: {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "getMsgBySeq") == 0) {
+    } break;
+    case MK_MSG_RPC_getMsgBySeq: {
         int64_t seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
@@ -307,7 +510,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                 miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[i]));
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "send") == 0) {
+    } break;
+    case MK_MSG_RPC_send: {
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
@@ -318,7 +522,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "seq", (int)m.seq);
             miku_ji(resp, "sendTime", (int)m.send_time);
         }
-    } else if (strcmp(method, "sendSimpleMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_sendSimpleMsg: {
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
@@ -328,13 +533,15 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_jss(resp, "serverMsgID", m.server_msg_id);
             miku_ji(resp, "seq", (int)m.seq);
         }
-    } else if (strcmp(method, "sendBusinessNotification") == 0) {
+    } break;
+    case MK_MSG_RPC_sendBusinessNotification: {
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
         int rc = miku_msg_send(svc, &m);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
-    } else if (strcmp(method, "getMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_getMsg: {
         const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
@@ -344,10 +551,12 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                 miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "getNewestSeq") == 0) {
+    } break;
+    case MK_MSG_RPC_getNewestSeq: {
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "seq", (int)svc->seq);
-    } else if (strcmp(method, "pullMsgBySeq") == 0) {
+    } break;
+    case MK_MSG_RPC_pullMsgBySeq: {
         int64_t begin = req ? miku_json_int(miku_json_get(req, "beginSeq")) : 0;
         int64_t end_seq = req ? miku_json_int(miku_json_get(req, "endSeq")) : 0;
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
@@ -368,7 +577,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             }
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "searchMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_searchMsg: {
         const char *keyword = req ? miku_json_str(miku_json_get(req, "keyword")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
@@ -379,32 +589,40 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             }
         }
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "markMsgsAsRead") == 0) {
+    } break;
+    case MK_MSG_RPC_markMsgsAsRead: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         (void)cid;
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "markConversationAsRead") == 0) {
+    } break;
+    case MK_MSG_RPC_markConversationAsRead: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         (void)cid;
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "setConversationHasReadSeq") == 0) {
+    } break;
+    case MK_MSG_RPC_setConversationHasReadSeq: {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "getConversationsHasReadAndMaxSeq") == 0) {
+    } break;
+    case MK_MSG_RPC_getConversationsHasReadAndMaxSeq: {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "checkMsgIsSendSuccess") == 0) {
+    } break;
+    case MK_MSG_RPC_checkMsgIsSendSuccess: {
         const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;
         int found = (smid && hash_find_sid(svc, smid) >= 0) ? 1 : 0;
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "status", found ? 1 : 0);
-    } else if (strcmp(method, "clearConversationMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_clearConversationMsg: {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "userClearAllMsg") == 0) {
+    } break;
+    case MK_MSG_RPC_userClearAllMsg: {
         svc->count = 0;
         rebuild_indexes(svc);
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "deleteMsgPhysical") == 0) {
+    } break;
+    case MK_MSG_RPC_deleteMsgPhysical: {
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         int deleted = 0;
         if (cmid) {
@@ -415,44 +633,47 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                 }
             }
             if (mi >= 0) {
-                memmove(&svc->msgs[mi], &svc->msgs[mi + 1],
-                        (size_t)(svc->count - mi - 1) * sizeof(miku_msg_t));
-                svc->count--;
-                rebuild_indexes(svc);
+                msg_remove_at(svc, mi);
                 deleted = 1;
             }
         }
         miku_ji(resp, "errCode", deleted ? 0 : 5001);
-    } else if (strcmp(method, "deleteMsgPhysicalBySeq") == 0) {
+    } break;
+    case MK_MSG_RPC_deleteMsgPhysicalBySeq: {
         int64_t del_seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
         int deleted = 0;
         if (del_seq > 0) {
             int i = lower_bound_seq(svc, del_seq);
             if (i < svc->count && svc->msgs[i].seq == del_seq) {
-                memmove(&svc->msgs[i], &svc->msgs[i + 1],
-                        (size_t)(svc->count - i - 1) * sizeof(miku_msg_t));
-                svc->count--;
-                rebuild_indexes(svc);
+                msg_remove_at(svc, i);
                 deleted = 1;
             }
         }
         miku_ji(resp, "errCode", deleted ? 0 : 5001);
-    } else if (strcmp(method, "setMessageReactionExtensions") == 0) {
+    } break;
+    case MK_MSG_RPC_setMessageReactionExtensions: {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "getMessageListReactionExtensions") == 0) {
+    } break;
+    case MK_MSG_RPC_getMessageListReactionExtensions: {
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-    } else if (strcmp(method, "addMessageReactionExtensions") == 0) {
+    } break;
+    case MK_MSG_RPC_addMessageReactionExtensions: {
         miku_ji(resp, "errCode", 0);
-    } else if (strcmp(method, "deleteMessageReactionExtensions") == 0) {
+    } break;
+    case MK_MSG_RPC_deleteMessageReactionExtensions: {
         miku_ji(resp, "errCode", 0);
-    } else if (strncmp(method, "setMessage", 10) == 0 ||
-               strncmp(method, "getMessage", 10) == 0 ||
-               strncmp(method, "addMessage", 10) == 0 ||
-               strncmp(method, "deleteMessage", 13) == 0) {
-        miku_ji(resp, "errCode", 0);
-    } else {
-        miku_ji(resp, "errCode", 404);
+    } break;
+    default:
+        if (strncmp(method, "setMessage", 10) == 0 ||
+            strncmp(method, "getMessage", 10) == 0 ||
+            strncmp(method, "addMessage", 10) == 0 ||
+            strncmp(method, "deleteMessage", 13) == 0) {
+            miku_ji(resp, "errCode", 0);
+        } else {
+            miku_ji(resp, "errCode", 404);
+        }
+        break;
     }
 }
