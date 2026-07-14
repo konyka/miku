@@ -1,44 +1,87 @@
 #include "miku_friend.h"
+#include "miku_hash.h"
 #include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 
+/* 2x max friends for open-addressing load factor ~0.5 */
+#define MK_FRIEND_HASH 16384
+
 struct miku_friend_service_s {
     miku_friend_t friends[MK_MAX_FRIENDS];
     int count;
+    int16_t pair_hash[MK_FRIEND_HASH]; /* -1 empty, else friends[] index */
 };
 
+static uint32_t pair_hash_slot(const char *owner, const char *fuid) {
+    uint64_t a = miku_fnv1a_64(owner, strlen(owner));
+    uint64_t b = miku_fnv1a_64(fuid, strlen(fuid));
+    return (uint32_t)((a ^ (b * 0x9e3779b97f4a7c15ULL)) & (MK_FRIEND_HASH - 1));
+}
+
+static void pair_hash_insert(miku_friend_service_t *svc, int fi) {
+    uint32_t idx = pair_hash_slot(svc->friends[fi].owner_user_id,
+                                  svc->friends[fi].friend_user_id);
+    for (int n = 0; n < MK_FRIEND_HASH; n++) {
+        if (svc->pair_hash[idx] < 0) {
+            svc->pair_hash[idx] = (int16_t)fi;
+            return;
+        }
+        idx = (idx + 1) & (MK_FRIEND_HASH - 1);
+    }
+}
+
+static void pair_hash_rebuild(miku_friend_service_t *svc) {
+    for (int i = 0; i < MK_FRIEND_HASH; i++) svc->pair_hash[i] = -1;
+    for (int i = 0; i < svc->count; i++) pair_hash_insert(svc, i);
+}
+
+static int pair_hash_find(miku_friend_service_t *svc, const char *owner, const char *fuid) {
+    uint32_t idx = pair_hash_slot(owner, fuid);
+    for (int n = 0; n < MK_FRIEND_HASH; n++) {
+        int fi = svc->pair_hash[idx];
+        if (fi < 0) return -1;
+        if (strcmp(svc->friends[fi].owner_user_id, owner) == 0 &&
+            strcmp(svc->friends[fi].friend_user_id, fuid) == 0)
+            return fi;
+        idx = (idx + 1) & (MK_FRIEND_HASH - 1);
+    }
+    return -1;
+}
+
 miku_friend_service_t *miku_friend_service_create(void) {
-    return (miku_friend_service_t *)calloc(1, sizeof(miku_friend_service_t));
+    miku_friend_service_t *svc = (miku_friend_service_t *)calloc(1, sizeof(*svc));
+    if (svc) {
+        for (int i = 0; i < MK_FRIEND_HASH; i++) svc->pair_hash[i] = -1;
+    }
+    return svc;
 }
 
 void miku_friend_service_destroy(miku_friend_service_t *svc) { free(svc); }
 
 int miku_friend_add(miku_friend_service_t *svc, const char *owner, const char *fuid, const char *remark) {
     if (!svc || !owner || !fuid || svc->count >= MK_MAX_FRIENDS) return -1;
-    for (int i = 0; i < svc->count; i++) {
-        if (strcmp(svc->friends[i].owner_user_id, owner) == 0 &&
-            strcmp(svc->friends[i].friend_user_id, fuid) == 0) return -2;
-    }
-    miku_friend_t *f = &svc->friends[svc->count++];
+    if (pair_hash_find(svc, owner, fuid) >= 0) return -2;
+    int fi = svc->count++;
+    miku_friend_t *f = &svc->friends[fi];
+    memset(f, 0, sizeof(*f));
     strncpy(f->owner_user_id, owner, sizeof(f->owner_user_id) - 1);
     strncpy(f->friend_user_id, fuid, sizeof(f->friend_user_id) - 1);
     if (remark) strncpy(f->remark, remark, sizeof(f->remark) - 1);
     f->create_time = miku_timestamp_ms();
+    pair_hash_insert(svc, fi);
     return 0;
 }
 
 int miku_friend_delete(miku_friend_service_t *svc, const char *owner, const char *fuid) {
     if (!svc || !owner || !fuid) return -1;
-    for (int i = 0; i < svc->count; i++) {
-        if (strcmp(svc->friends[i].owner_user_id, owner) == 0 &&
-            strcmp(svc->friends[i].friend_user_id, fuid) == 0) {
-            memmove(&svc->friends[i], &svc->friends[i+1], (size_t)(svc->count-i-1) * sizeof(miku_friend_t));
-            svc->count--;
-            return 0;
-        }
-    }
-    return -2;
+    int fi = pair_hash_find(svc, owner, fuid);
+    if (fi < 0) return -2;
+    memmove(&svc->friends[fi], &svc->friends[fi + 1],
+            (size_t)(svc->count - fi - 1) * sizeof(miku_friend_t));
+    svc->count--;
+    pair_hash_rebuild(svc); /* delete is rare; keep is_friend O(1) */
+    return 0;
 }
 
 int miku_friend_get_list(miku_friend_service_t *svc, const char *owner, miku_friend_t *out, int max) {
@@ -53,12 +96,7 @@ int miku_friend_get_list(miku_friend_service_t *svc, const char *owner, miku_fri
 
 bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1, const char *uid2) {
     if (!svc || !uid1 || !uid2) return false;
-    for (int i = 0; i < svc->count; i++) {
-        if ((strcmp(svc->friends[i].owner_user_id, uid1) == 0 && strcmp(svc->friends[i].friend_user_id, uid2) == 0) ||
-            (strcmp(svc->friends[i].owner_user_id, uid2) == 0 && strcmp(svc->friends[i].friend_user_id, uid1) == 0))
-            return true;
-    }
-    return false;
+    return pair_hash_find(svc, uid1, uid2) >= 0 || pair_hash_find(svc, uid2, uid1) >= 0;
 }
 
 
@@ -155,16 +193,13 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
             for (size_t i = 0; i < n; i++) {
                 const char *fuid = miku_json_str(miku_json_at(ids, i));
                 if (fuid) {
-                    for (int j = 0; j < svc->count; j++) {
-                        if (strcmp(svc->friends[j].owner_user_id, owner) == 0 &&
-                            strcmp(svc->friends[j].friend_user_id, fuid) == 0) {
-                            miku_json_val_t *fj = miku_json_create_object();
-                            miku_jss(fj, "ownerUserID", svc->friends[j].owner_user_id);
-                            miku_jss(fj, "friendUserID", svc->friends[j].friend_user_id);
-                            miku_jss(fj, "remark", svc->friends[j].remark);
-                            miku_json_array_push(arr, fj);
-                            break;
-                        }
+                    int fi = pair_hash_find(svc, owner, fuid);
+                    if (fi >= 0) {
+                        miku_json_val_t *fj = miku_json_create_object();
+                        miku_jss(fj, "ownerUserID", svc->friends[fi].owner_user_id);
+                        miku_jss(fj, "friendUserID", svc->friends[fi].friend_user_id);
+                        miku_jss(fj, "remark", svc->friends[fi].remark);
+                        miku_json_array_push(arr, fj);
                     }
                 }
             }
@@ -207,16 +242,13 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
             for (size_t i = 0; i < n; i++) {
                 const char *fuid = miku_json_str(miku_json_at(ids, i));
                 if (fuid) {
-                    for (int j = 0; j < svc->count; j++) {
-                        if (strcmp(svc->friends[j].owner_user_id, owner) == 0 &&
-                            strcmp(svc->friends[j].friend_user_id, fuid) == 0) {
-                            miku_json_val_t *fj = miku_json_create_object();
-                            miku_jss(fj, "friendUserID", svc->friends[j].friend_user_id);
-                            miku_jss(fj, "remark", svc->friends[j].remark);
-                            miku_ji(fj, "createTime", (int)svc->friends[j].create_time);
-                            miku_json_array_push(arr, fj);
-                            break;
-                        }
+                    int fi = pair_hash_find(svc, owner, fuid);
+                    if (fi >= 0) {
+                        miku_json_val_t *fj = miku_json_create_object();
+                        miku_jss(fj, "friendUserID", svc->friends[fi].friend_user_id);
+                        miku_jss(fj, "remark", svc->friends[fi].remark);
+                        miku_ji(fj, "createTime", (int)svc->friends[fi].create_time);
+                        miku_json_array_push(arr, fj);
                     }
                 }
             }
@@ -235,13 +267,10 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         const char *remark = req ? miku_json_str(miku_json_get(req, "remark")) : NULL;
         int found = 0;
         if (owner && fuid) {
-            for (int i = 0; i < svc->count; i++) {
-                if (strcmp(svc->friends[i].owner_user_id, owner) == 0 &&
-                    strcmp(svc->friends[i].friend_user_id, fuid) == 0) {
-                    if (remark) strncpy(svc->friends[i].remark, remark, sizeof(svc->friends[i].remark) - 1);
-                    found = 1;
-                    break;
-                }
+            int fi = pair_hash_find(svc, owner, fuid);
+            if (fi >= 0) {
+                if (remark) strncpy(svc->friends[fi].remark, remark, sizeof(svc->friends[fi].remark) - 1);
+                found = 1;
             }
         }
         miku_ji(resp, "errCode", found ? 0 : 2002);
@@ -256,13 +285,10 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                 const char *fuid = item ? miku_json_str(miku_json_get(item, "friendUserID")) : NULL;
                 const char *rem = item ? miku_json_str(miku_json_get(item, "remark")) : NULL;
                 if (fuid) {
-                    for (int j = 0; j < svc->count; j++) {
-                        if (strcmp(svc->friends[j].owner_user_id, owner) == 0 &&
-                            strcmp(svc->friends[j].friend_user_id, fuid) == 0) {
-                            if (rem) strncpy(svc->friends[j].remark, rem, sizeof(svc->friends[j].remark) - 1);
-                            updated++;
-                            break;
-                        }
+                    int fi = pair_hash_find(svc, owner, fuid);
+                    if (fi >= 0) {
+                        if (rem) strncpy(svc->friends[fi].remark, rem, sizeof(svc->friends[fi].remark) - 1);
+                        updated++;
                     }
                 }
             }

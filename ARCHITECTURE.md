@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 171 tests, 67 modules, 13 binaries, 7 RPC services — ratelimit/user O(1) hash lookup; READ receipt PUSH fanout + hasReadSeq max; sendMsg peer conv upsert; get_by_conv si_/sg_; miku_seq hash; group foreach fanout; S3 cron still stub.
+> **Status**: 203 API routes, 171 tests, 67 modules, 13 binaries, 7 RPC services — friend/group O(1) hash + per-group member chains; ratelimit/user/seq hash; READ receipt fanout; S3 cron still stub.
 
 ## 1. Overview
 
