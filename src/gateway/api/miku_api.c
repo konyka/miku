@@ -9,6 +9,222 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#include "miku_hash.h"
+#include <stdint.h>
+
+typedef struct { const char *path; const char *method; } api_path_method_t;
+
+static const api_path_method_t g_path_methods[] = {
+    {"/user/register", "registerUser"},
+    {"/user/get_users_info", "getUsersInfo"},
+    {"/user/update_user_info", "updateUserInfo"},
+    {"/user/account_check", "accountCheck"},
+    {"/user/get_all_users", "getAllUsers"},
+    {"/user/count", "getUserCount"},
+    {"/user/search", "searchUser"},
+    {"/user/get_users_online_status", "getUsersOnlineStatus"},
+    {"/user/set_global_recv_opt", "setGlobalRecvMessageOpt"},
+    {"/user/get_global_recv_opt", "getGlobalRecvMessageOpt"},
+    {"/user/update_user_status", "updateUserStatus"},
+    {"/user/process_user_command", "processUserCommand"},
+    {"/user/get_user_status", "getUserStatus"},
+    {"/user/get_subscribe_users_status", "getSubscribeUsersStatus"},
+    {"/user/subscribe_or_cancel_user_status", "subscribeOrCancelUserStatus"},
+    {"/user/set_user_status", "setUserStatus"},
+    {"/user/update_user_info_ex", "updateUserInfoEx"},
+    {"/user/get_all_users_uid", "getAllUsersUID"},
+    {"/user/get_users", "getUsersInfo"},
+    {"/user/get_users_online_token_detail", "getUsersOnlineTokenDetail"},
+    {"/user/process_user_command_add", "processUserCommandAdd"},
+    {"/user/process_user_command_delete", "processUserCommandDelete"},
+    {"/user/process_user_command_update", "processUserCommandUpdate"},
+    {"/user/process_user_command_get", "processUserCommandGet"},
+    {"/user/process_user_command_get_all", "processUserCommandGetAll"},
+    {"/user/add_notification_account", "addNotificationAccount"},
+    {"/user/update_notification_account", "updateNotificationAccount"},
+    {"/user/search_notification_account", "searchNotificationAccount"},
+    {"/user/get_user_client_config", "getUserClientConfig"},
+    {"/user/set_user_client_config", "setUserClientConfig"},
+    {"/user/del_user_client_config", "delUserClientConfig"},
+    {"/user/page_user_client_config", "pageUserClientConfig"},
+    {"/friend/add", "addFriend"},
+    {"/friend/delete", "deleteFriend"},
+    {"/friend/get_friend_list", "getFriendList"},
+    {"/friend/is_friend", "isFriend"},
+    {"/friend/add_black", "addBlack"},
+    {"/friend/remove_black", "removeBlack"},
+    {"/friend/get_black_list", "getBlackList"},
+    {"/friend/delete_friend", "deleteFriend"},
+    {"/friend/get_friend_apply_list", "getFriendApplyList"},
+    {"/friend/get_self_apply_list", "getSelfApplyList"},
+    {"/friend/get_designated_apply", "getDesignatedFriendApply"},
+    {"/friend/accept_apply", "acceptFriendApply"},
+    {"/friend/refuse_apply", "refuseFriendApply"},
+    {"/friend/import_friend", "importFriend"},
+    {"/friend/sync_friend", "syncFriend"},
+    {"/friend/add_friend_response", "respondFriendApply"},
+    {"/friend/set_friend_remark", "setFriendRemark"},
+    {"/friend/get_designated_friends", "getDesignatedFriends"},
+    {"/friend/get_specified_blacks", "getSpecifiedBlacks"},
+    {"/friend/get_incremental_blacks", "getIncrementalBlacks"},
+    {"/friend/get_incremental_friends", "getIncrementalFriends"},
+    {"/friend/get_friend_id", "getFriendIDs"},
+    {"/friend/get_specified_friends_info", "getSpecifiedFriendsInfo"},
+    {"/friend/update_friends", "updateFriends"},
+    {"/friend/get_full_friend_user_ids", "getFullFriendUserIDs"},
+    {"/friend/get_self_unhandled_apply_count", "getSelfUnhandledApplyCount"},
+    {"/group/create", "createGroup"},
+    {"/group/get_group_info", "getGroupInfo"},
+    {"/group/get_groups_info", "getGroupsInfo"},
+    {"/group/set_group_info", "setGroupInfo"},
+    {"/group/get_group_member_list", "getGroupMemberList"},
+    {"/group/get_group_member_user_id", "getGroupMemberUserID"},
+    {"/group/set_group_member_info", "setGroupMemberInfo"},
+    {"/group/invite", "inviteToGroup"},
+    {"/group/join", "joinGroup"},
+    {"/group/quit", "quitGroup"},
+    {"/group/dismiss", "dismissGroup"},
+    {"/group/mute", "muteGroup"},
+    {"/group/cancel_mute", "cancelMuteGroup"},
+    {"/group/kick", "kickGroupMember"},
+    {"/group/transfer", "transferGroupOwner"},
+    {"/group/get_joined_group_list", "getJoinedGroupList"},
+    {"/group/get_group_applicant_list", "getGroupApplicationList"},
+    {"/group/get_group_application_list", "getGroupApplicationList"},
+    {"/group/accept_group_application", "acceptGroupApplication"},
+    {"/group/refuse_group_application", "refuseGroupApplication"},
+    {"/group/mute_member", "muteGroupMember"},
+    {"/group/cancel_mute_member", "cancelMuteGroupMember"},
+    {"/group/set_group_info_ex", "setGroupInfoEx"},
+    {"/group/get_recv_group_applicationList", "getRecvGroupApplicationList"},
+    {"/group/get_user_req_group_applicationList", "getUserReqGroupApplicationList"},
+    {"/group/get_group_users_req_application_list", "getGroupUsersReqApplicationList"},
+    {"/group/get_specified_user_group_request_info", "getSpecifiedUserGroupRequestInfo"},
+    {"/group/get_group_abstract_info", "getGroupAbstractInfo"},
+    {"/group/get_groups", "getGroups"},
+    {"/group/get_incremental_join_groups", "getIncrementalJoinGroups"},
+    {"/group/get_incremental_group_members", "getIncrementalGroupMembers"},
+    {"/group/get_incremental_group_members_batch", "getIncrementalGroupMemberBatch"},
+    {"/group/get_full_group_member_user_ids", "getFullGroupMemberUserIDs"},
+    {"/group/get_full_join_group_ids", "getFullJoinGroupIDs"},
+    {"/group/get_group_application_unhandled_count", "getGroupApplicationUnhandledCount"},
+    {"/conversation/get_all", "getAllConversations"},
+    {"/conversation/get_conv", "getConversation"},
+    {"/conversation/set", "setConversation"},
+    {"/conversation/get_all_conversations", "getAllConversations"},
+    {"/conversation/set_conversations", "setConversations"},
+    {"/conversation/delete_conversation", "deleteConversation"},
+    {"/conversation/get_conversation_list", "getConversationList"},
+    {"/conversation/get_conversations", "getConversations"},
+    {"/conversation/get_total_unread", "getTotalUnreadMsgCount"},
+    {"/conversation/set_conversation_min_seq", "setConversationMinSeq"},
+    {"/conversation/mark_as_read", "markConversationMessageAsRead"},
+    {"/conversation/clear_conv_msg", "clearConversationMsg"},
+    {"/conversation/pin_conversation", "pinConversation"},
+    {"/conversation/get_sorted_conversation_list", "getSortedConversationList"},
+    {"/conversation/get_full_conversation_ids", "getFullConversationIDs"},
+    {"/conversation/get_incremental_conversations", "getIncrementalConversation"},
+    {"/conversation/get_owner_conversation", "getOwnerConversation"},
+    {"/conversation/get_not_notify_conversation_ids", "getNotNotifyConversationIDs"},
+    {"/conversation/get_pinned_conversation_ids", "getPinnedConversationIDs"},
+    {"/conversation/delete_conversations", "deleteConversations"},
+    {"/conversation/update_conversations_by_user", "updateConversationsByUser"},
+    {"/msg/send", "send"},
+    {"/msg/get", "getMsgByConv"},
+    {"/msg/revoke", "revokeMsg"},
+    {"/msg/send_msg", "sendMsg"},
+    {"/msg/get_msg", "getMsg"},
+    {"/msg/get_server_time", "getServerTime"},
+    {"/msg/get_send_status", "getSendMsgStatus"},
+    {"/msg/clean_up", "cleanUpMsg"},
+    {"/msg/delete_msg", "deleteMsg"},
+    {"/msg/batch_send", "batchSendMsg"},
+    {"/msg/mark_as_read", "markMsgAsRead"},
+    {"/msg/get_by_seq", "getMsgBySeq"},
+    {"/msg/set_message_reaction_extensions", "setMessageReactionExtensions"},
+    {"/msg/get_message_list_reaction_extensions", "getMessageListReactionExtensions"},
+    {"/msg/add_message_reaction_extensions", "addMessageReactionExtensions"},
+    {"/msg/delete_message_reaction_extensions", "deleteMessageReactionExtensions"},
+    {"/msg/newest_seq", "getNewestSeq"},
+    {"/msg/search_msg", "searchMsg"},
+    {"/msg/send_business_notification", "sendBusinessNotification"},
+    {"/msg/pull_msg_by_seq", "pullMsgBySeq"},
+    {"/msg/mark_msgs_as_read", "markMsgsAsRead"},
+    {"/msg/mark_conversation_as_read", "markConversationAsRead"},
+    {"/msg/get_conversations_has_read_and_max_seq", "getConversationsHasReadAndMaxSeq"},
+    {"/msg/set_conversation_has_read_seq", "setConversationHasReadSeq"},
+    {"/msg/clear_conversation_msg", "clearConversationMsg"},
+    {"/msg/user_clear_all_msg", "userClearAllMsg"},
+    {"/msg/delete_msg_phsical_by_seq", "deleteMsgPhysicalBySeq"},
+    {"/msg/delete_msg_physical", "deleteMsgPhysical"},
+    {"/msg/send_simple_msg", "sendSimpleMsg"},
+    {"/msg/check_msg_is_send_success", "checkMsgIsSendSuccess"},
+    {"/third/upload_token", "getUploadToken"},
+    {"/third/download_url", "getDownloadURL"},
+    {"/third/access_url", "accessURL"},
+    {"/third/delete_object", "deleteObject"},
+    {"/third/initiate_multipart", "initiateMultipartUpload"},
+    {"/third/complete_multipart", "completeMultipartUpload"},
+    {"/third/get_upload_info", "getUploadInfo"},
+    {"/third/get_object_info", "getObjectInfo"},
+    {"/third/get_signal_invitation_info", "getSignalInvitationInfo"},
+    {"/third/fcm_update_token", "fcmUpdateToken"},
+    {"/third/set_app_badge", "setAppBadge"},
+    {"/third/logs/upload", "uploadLogs"},
+    {"/third/logs/delete", "deleteLogs"},
+    {"/third/logs/search", "searchLogs"},
+    {"/third/prometheus", "getPrometheus"},
+    {"/object/part_limit", "partLimit"},
+    {"/object/part_size", "partSize"},
+    {"/object/auth_sign", "authSign"},
+    {"/object/initiate_form_data", "initiateFormData"},
+    {"/object/complete_form_data", "completeFormData"},
+    {"/object/access_url", "accessURL"},
+    {"/object/initiate_multipart_upload", "initiateMultipartUpload"},
+    {"/object/complete_multipart_upload", "completeMultipartUpload"},
+};
+
+#define MK_API_PATH_HASH 512
+static int16_t g_path_hash[MK_API_PATH_HASH];
+static int g_path_hash_ready;
+
+static void api_path_hash_init(void) {
+    if (g_path_hash_ready) return;
+    for (int i = 0; i < MK_API_PATH_HASH; i++) g_path_hash[i] = -1;
+    for (int i = 0; i < (int)(sizeof(g_path_methods) / sizeof(g_path_methods[0])); i++) {
+        const char *p = g_path_methods[i].path;
+        uint32_t idx = (uint32_t)(miku_fnv1a_64(p, strlen(p)) & (MK_API_PATH_HASH - 1));
+        for (int n = 0; n < MK_API_PATH_HASH; n++) {
+            if (g_path_hash[idx] < 0) { g_path_hash[idx] = (int16_t)i; break; }
+            idx = (idx + 1) & (MK_API_PATH_HASH - 1);
+        }
+    }
+    g_path_hash_ready = 1;
+}
+
+static void api_req_path(const miku_http_request_t *req, char *out, size_t cap) {
+    size_t n = req && req->path.data ? req->path.len : 0;
+    if (n >= cap) n = cap - 1;
+    if (n && req->path.data) memcpy(out, req->path.data, n);
+    out[n] = '\0';
+}
+
+static const char *api_rpc_method(const miku_http_request_t *req, const char *fallback) {
+    char path[256];
+    api_req_path(req, path, sizeof(path));
+    api_path_hash_init();
+    uint32_t idx = (uint32_t)(miku_fnv1a_64(path, strlen(path)) & (MK_API_PATH_HASH - 1));
+    for (int n = 0; n < MK_API_PATH_HASH; n++) {
+        int pi = g_path_hash[idx];
+        if (pi < 0) break;
+        if (strcmp(g_path_methods[pi].path, path) == 0)
+            return g_path_methods[pi].method;
+        idx = (idx + 1) & (MK_API_PATH_HASH - 1);
+    }
+    return fallback;
+}
+
+
 miku_api_ctx_t *miku_api_ctx_create(void) {
     miku_api_ctx_t *ctx = (miku_api_ctx_t *)calloc(1, sizeof(*ctx));
     if (!ctx) return NULL;
@@ -214,9 +430,10 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    if (strstr(path, "user_token")) {
-        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    char path[128];
+    api_req_path(req, path, sizeof(path));
+    if (strcmp(path, "/auth/user_token") == 0) {
+        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { miku_json_destroy(j); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         const char *secret = miku_json_str(miku_json_get(j, "secret"));
         int64_t plat = miku_json_int(miku_json_get(j, "platformID"));
@@ -224,7 +441,7 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
         int rc = miku_auth_user_token(c->auth, uid, secret, (int)plat, token, sizeof(token));
         miku_ji(out, "errCode", rc == 0 ? 0 : 401);
         if (rc == 0) { miku_jss(out, "token", token); miku_ji(out, "expireTimeSeconds", 86400); }
-    } else if (strstr(path, "parse_token")) {
+    } else if (strcmp(path, "/auth/parse_token") == 0) {
         const char *token = miku_json_str(miku_json_get(j, "token"));
         char uid[128] = {0};
         int rc = (token && token[0]) ? miku_auth_parse_token(c->auth, token, uid, sizeof(uid)) : -1;
@@ -235,22 +452,22 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
         } else {
             miku_jss(out, "errMsg", "invalid token");
         }
-    } else if (strstr(path, "admin_token")) {
-        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(path, "/auth/admin_token") == 0) {
+        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { miku_json_destroy(j); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         const char *secret = miku_json_str(miku_json_get(j, "secret"));
         char token[512] = {0};
         int rc = miku_auth_user_token(c->auth, uid, secret, 5, token, sizeof(token));
         miku_ji(out, "errCode", rc == 0 ? 0 : 401);
         if (rc == 0) { miku_jss(out, "token", token); miku_ji(out, "expireTimeSeconds", 86400); }
-    } else if (strstr(path, "force_logout_all")) {
-        if (require_fields(j, resp, "userID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(path, "/auth/force_logout_all") == 0) {
+        if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         int rc = miku_auth_force_logout(c->auth, uid, -1);
         if (rc == 0 && c->on_kick) c->on_kick(uid, -1, c->on_kick_ctx);
         miku_ji(out, "errCode", rc == 0 ? 0 : 500);
-    } else if (strstr(path, "force_logout")) {
-        if (require_fields(j, resp, "userID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+    } else if (strcmp(path, "/auth/force_logout") == 0) {
+        if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         int plat = (int)miku_json_int(miku_json_get(j, "platformID"));
         int rc = miku_auth_force_logout(c->auth, uid, plat);
@@ -259,7 +476,6 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
     } else {
         miku_ji(out, "errCode", 404);
     }
-    free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
 }
@@ -270,43 +486,10 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    const char *method = "getUserInfo";
-    if (strstr(path, "register")) method = "registerUser";
-    else if (strstr(path, "update_user_info_ex")) method = "updateUserInfoEx";
-    else if (strstr(path, "update_notification_account")) method = "updateNotificationAccount";
-    else if (strstr(path, "update_user_status")) method = "updateUserStatus";
-    else if (strstr(path, "update_user_info")) method = "updateUserInfo";
-    else if (strstr(path, "get_users_online_token_detail")) method = "getUsersOnlineTokenDetail";
-    else if (strstr(path, "get_users_online_status")) method = "getUsersOnlineStatus";
-    else if (strstr(path, "get_users")) method = "getUsersInfo";
-    else if (strstr(path, "account_check")) method = "accountCheck";
-    else if (strstr(path, "get_all")) method = "getAllUsers";
-    else if (strstr(path, "count")) method = "getUserCount";
-    else if (strstr(path, "search_notification_account")) method = "searchNotificationAccount";
-    else if (strstr(path, "search")) method = "searchUser";
-    else if (strstr(path, "set_global_recv")) method = "setGlobalRecvMessageOpt";
-    else if (strstr(path, "get_global_recv")) method = "getGlobalRecvMessageOpt";
-    else if (strstr(path, "user_status")) method = "updateUserStatus";
-    else if (strstr(path, "process_user_command_add")) method = "processUserCommandAdd";
-    else if (strstr(path, "process_user_command_delete")) method = "processUserCommandDelete";
-    else if (strstr(path, "process_user_command_update")) method = "processUserCommandUpdate";
-    else if (strstr(path, "process_user_command_get_all")) method = "processUserCommandGetAll";
-    else if (strstr(path, "process_user_command_get")) method = "processUserCommandGet";
-    else if (strstr(path, "process_user_command")) method = "processUserCommand";
-    else if (strstr(path, "get_user_status")) method = "getUserStatus";
-    else if (strstr(path, "get_subscribe_users")) method = "getSubscribeUsersStatus";
-    else if (strstr(path, "subscribe_or_cancel")) method = "subscribeOrCancelUserStatus";
-    else if (strstr(path, "set_user_status")) method = "setUserStatus";
-    else if (strstr(path, "get_all_users_uid")) method = "getAllUsersUID";
-    else if (strstr(path, "add_notification_account")) method = "addNotificationAccount";
-    else if (strstr(path, "get_user_client_config")) method = "getUserClientConfig";
-    else if (strstr(path, "set_user_client_config")) method = "setUserClientConfig";
-    else if (strstr(path, "del_user_client_config")) method = "delUserClientConfig";
-    else if (strstr(path, "page_user_client_config")) method = "pageUserClientConfig";
+    const char *method = api_rpc_method(req, "getUserInfo");
     if (strcmp(method, "registerUser") == 0 || strcmp(method, "updateUserInfo") == 0
         || strcmp(method, "updateUserInfoEx") == 0 || strcmp(method, "setGlobalRecvMessageOpt") == 0) {
-        if (require_fields(j, resp, "userID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); return; }
     }
     miku_user_handle_rpc(c->user, method, j, out);
     if (c->webhook && strcmp(method, "registerUser") == 0) {
@@ -318,8 +501,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
             miku_webhook_fire(c->webhook, MK_WH_USER_ONLINE, payload);
         }
     }
-    free(path);
-    miku_json_destroy(j);
+        miku_json_destroy(j);
     json_resp(resp, out);
 }
 
@@ -329,40 +511,14 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    const char *method = "getFriendList";
-    if (strstr(path, "add_black")) method = "addBlack";
-    else if (strstr(path, "add_friend_response")) method = "respondFriendApply";
-    else if (strstr(path, "add") && !strstr(path, "black")) method = "addFriend";
-    else if (strstr(path, "remove_black")) method = "removeBlack";
-    else if (strstr(path, "get_black")) method = "getBlackList";
-    else if (strstr(path, "delete_friend")) method = "deleteFriend";
-    else if (strstr(path, "delete") && !strstr(path, "friend")) method = "deleteFriend";
-    else if (strstr(path, "is_friend")) method = "isFriend";
-    else if (strstr(path, "get_designated_friends")) method = "getDesignatedFriends";
-    else if (strstr(path, "get_designated")) method = "getDesignatedFriendApply";
-    else if (strstr(path, "get_friend_apply")) method = "getFriendApplyList";
-    else if (strstr(path, "get_self_unhandled_apply_count")) method = "getSelfUnhandledApplyCount";
-    else if (strstr(path, "get_self_apply")) method = "getSelfApplyList";
-    else if (strstr(path, "accept")) method = "acceptFriendApply";
-    else if (strstr(path, "refuse")) method = "refuseFriendApply";
-    else if (strstr(path, "import")) method = "importFriend";
-    else if (strstr(path, "sync")) method = "syncFriend";
-    else if (strstr(path, "set_friend_remark")) method = "setFriendRemark";
-    else if (strstr(path, "get_specified_blacks")) method = "getSpecifiedBlacks";
-    else if (strstr(path, "get_incremental_blacks")) method = "getIncrementalBlacks";
-    else if (strstr(path, "get_incremental_friends")) method = "getIncrementalFriends";
-    else if (strstr(path, "get_friend_id")) method = "getFriendIDs";
-    else if (strstr(path, "get_specified_friends_info")) method = "getSpecifiedFriendsInfo";
-    else if (strstr(path, "update_friends")) method = "updateFriends";
-    else if (strstr(path, "get_full_friend_user_ids")) method = "getFullFriendUserIDs";
+    const char *method = api_rpc_method(req, "getFriendList");
     if (strcmp(method, "addFriend") == 0 || strcmp(method, "addBlack") == 0
         || strcmp(method, "deleteFriend") == 0 || strcmp(method, "removeBlack") == 0) {
-        if (require_fields(j, resp, "ownerUserID", "friendUserID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "ownerUserID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "setFriendRemark") == 0) {
-        if (require_fields(j, resp, "ownerUserID", "friendUserID", "remark", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "ownerUserID", "friendUserID", "remark", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "isFriend") == 0) {
-        if (require_fields(j, resp, "userID", "friendUserID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); return; }
     }
     miku_friend_handle_rpc(c->friend_svc, method, j, out);
     if (c->webhook && strcmp(method, "addFriend") == 0) {
@@ -376,8 +532,7 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
             miku_webhook_fire(c->webhook, MK_WH_AFTER_ADD_FRIEND, payload);
         }
     }
-    free(path);
-    miku_json_destroy(j);
+        miku_json_destroy(j);
     json_resp(resp, out);
 }
 
@@ -387,51 +542,17 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    const char *method = "getGroupInfo";
-    if (strstr(path, "create")) method = "createGroup";
-    else if (strstr(path, "invite")) method = "inviteToGroup";
-    else if (strstr(path, "member_list")) method = "getGroupMemberList";
-    else if (strstr(path, "member") && strstr(path, "user_id")) method = "getGroupMemberUserID";
-    else if (strstr(path, "member")) method = "getGroupMemberList";
-    else if (strstr(path, "set_group_info_ex")) method = "setGroupInfoEx";
-    else if (strstr(path, "set_group_info")) method = "setGroupInfo";
-    else if (strstr(path, "set_group_member")) method = "setGroupMemberInfo";
-    else if (strstr(path, "get_groups_info")) method = "getGroupsInfo";
-    else if (strstr(path, "get_group_info")) method = "getGroupInfo";
-    else if (strstr(path, "joined")) method = "getJoinedGroupList";
-    else if (strstr(path, "join")) method = "joinGroup";
-    else if (strstr(path, "quit")) method = "quitGroup";
-    else if (strstr(path, "dismiss")) method = "dismissGroup";
-    else if (strstr(path, "mute") && strstr(path, "cancel")) method = "cancelMuteGroup";
-    else if (strstr(path, "mute")) method = "muteGroup";
-    else if (strstr(path, "kick")) method = "kickGroupMember";
-    else if (strstr(path, "transfer")) method = "transferGroupOwner";
-    else if (strstr(path, "applicant")) method = "getGroupApplicationList";
-    else if (strstr(path, "accept")) method = "acceptGroupApplication";
-    else if (strstr(path, "refuse")) method = "refuseGroupApplication";
-    else if (strstr(path, "get_recv_group_application")) method = "getRecvGroupApplicationList";
-    else if (strstr(path, "get_user_req_group_application")) method = "getUserReqGroupApplicationList";
-    else if (strstr(path, "get_group_users_req")) method = "getGroupUsersReqApplicationList";
-    else if (strstr(path, "get_specified_user_group_request")) method = "getSpecifiedUserGroupRequestInfo";
-    else if (strstr(path, "get_group_abstract")) method = "getGroupAbstractInfo";
-    else if (strstr(path, "get_groups") && !strstr(path, "info")) method = "getGroups";
-    else if (strstr(path, "get_incremental_join_groups")) method = "getIncrementalJoinGroups";
-    else if (strstr(path, "get_incremental_group_members_batch")) method = "getIncrementalGroupMemberBatch";
-    else if (strstr(path, "get_incremental_group_members")) method = "getIncrementalGroupMembers";
-    else if (strstr(path, "get_full_group_member")) method = "getFullGroupMemberUserIDs";
-    else if (strstr(path, "get_full_join_group")) method = "getFullJoinGroupIDs";
-    else if (strstr(path, "get_group_application_unhandled")) method = "getGroupApplicationUnhandledCount";
+    const char *method = api_rpc_method(req, "getGroupInfo");
     if (strcmp(method, "createGroup") == 0) {
-        if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "joinGroup") == 0 || strcmp(method, "quitGroup") == 0
                || strcmp(method, "dismissGroup") == 0) {
-        if (require_fields(j, resp, "userID", "groupID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "groupID", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "inviteToGroup") == 0 || strcmp(method, "kickGroupMember") == 0) {
-        if (require_fields(j, resp, "groupID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "groupID", (const char *)NULL)) { miku_json_destroy(j); return; }
         if (!miku_json_get(j, "userID") && !miku_json_get(j, "invitedUserIDs") &&
             !miku_json_get(j, "kickedUserIDs")) {
-            free(path); miku_json_destroy(j); miku_json_destroy(out);
+            miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":400,\"errMsg\":\"missing userID\"}");
             return;
         }
@@ -499,8 +620,7 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             miku_webhook_fire(c->webhook, MK_WH_AFTER_JOIN_GROUP, payload);
         }
     }
-    free(path);
-    miku_json_destroy(j);
+        miku_json_destroy(j);
     json_resp(resp, out);
 }
 
@@ -510,34 +630,12 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    const char *method = "getAllConversations";
-    if (strstr(path, "get_all_conv")) method = "getAllConversations";
-    else if (strstr(path, "get_conv")) method = "getConversation";
-    else if (strstr(path, "get_conversation_list")) method = "getConversationList";
-    else if (strstr(path, "get_conversations")) method = "getConversations";
-    else if (strstr(path, "set_conv") && strstr(path, "min_seq")) method = "setConversationMinSeq";
-    else if (strstr(path, "set_conv")) method = "setConversations";
-    else if (strstr(path, "set")) method = "setConversation";
-    else if (strstr(path, "total_unread")) method = "getTotalUnreadMsgCount";
-    else if (strstr(path, "delete")) method = "deleteConversation";
-    else if (strstr(path, "set_read")) method = "markConversationMessageAsRead";
-    else if (strstr(path, "clear")) method = "clearConversationMsg";
-    else if (strstr(path, "pin")) method = "pinConversation";
-    else if (strstr(path, "get_sorted_conversation")) method = "getSortedConversationList";
-    else if (strstr(path, "get_full_conversation_ids")) method = "getFullConversationIDs";
-    else if (strstr(path, "get_incremental_conversations")) method = "getIncrementalConversation";
-    else if (strstr(path, "get_owner_conversation")) method = "getOwnerConversation";
-    else if (strstr(path, "get_not_notify")) method = "getNotNotifyConversationIDs";
-    else if (strstr(path, "get_pinned")) method = "getPinnedConversationIDs";
-    else if (strstr(path, "delete_conversations")) method = "deleteConversations";
-    else if (strstr(path, "update_conversations_by_user")) method = "updateConversationsByUser";
+    const char *method = api_rpc_method(req, "getConversation");
     if (strcmp(method, "setConversation") == 0 || strcmp(method, "deleteConversation") == 0) {
-        if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { miku_json_destroy(j); return; }
     }
     miku_conv_handle_rpc(c->conv, method, j, out);
-    free(path);
-    miku_json_destroy(j);
+        miku_json_destroy(j);
     json_resp(resp, out);
 }
 
@@ -547,55 +645,24 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    const char *method = "sendMsg";
-    if (strstr(path, "get_server")) method = "getServerTime";
-    else if (strstr(path, "send_business_notification")) method = "sendBusinessNotification";
-    else if (strstr(path, "send_simple_msg")) method = "sendSimpleMsg";
-    else if (strstr(path, "send_msg")) method = "sendMsg";
-    else if (strstr(path, "batch_send")) method = "batchSendMsg";
-    else if (strstr(path, "send_status")) method = "getSendMsgStatus";
-    else if (strstr(path, "check_msg_is_send_success")) method = "checkMsgIsSendSuccess";
-    else if (strstr(path, "send")) method = "send";
-    else if (strstr(path, "delete_msg_phsical_by_seq")) method = "deleteMsgPhysicalBySeq";
-    else if (strstr(path, "delete_msg_physical")) method = "deleteMsgPhysical";
-    else if (strstr(path, "delete")) method = "deleteMsg";
-    else if (strstr(path, "get_conversations_has_read")) method = "getConversationsHasReadAndMaxSeq";
-    else if (strstr(path, "get_message_list_reaction")) method = "getMessageListReactionExtensions";
-    else if (strstr(path, "get_msg")) method = "getMsg";
-    else if (strstr(path, "get_by_seq")) method = "getMsgBySeq";
-    else if (strstr(path, "pull_msg_by_seq")) method = "pullMsgBySeq";
-    else if (strstr(path, "newest_seq")) method = "getNewestSeq";
-    else if (strstr(path, "get")) method = "getMsgByConv";
-    else if (strstr(path, "revoke")) method = "revokeMsg";
-    else if (strstr(path, "clean")) method = "cleanUpMsg";
-    else if (strstr(path, "mark_msgs_as_read")) method = "markMsgsAsRead";
-    else if (strstr(path, "mark_conversation_as_read")) method = "markConversationAsRead";
-    else if (strstr(path, "mark_as_read")) method = "markMsgAsRead";
-    else if (strstr(path, "set_conversation_has_read")) method = "setConversationHasReadSeq";
-    else if (strstr(path, "set_message_reaction")) method = "setMessageReactionExtensions";
-    else if (strstr(path, "add_message_reaction")) method = "addMessageReactionExtensions";
-    else if (strstr(path, "delete_message_reaction")) method = "deleteMessageReactionExtensions";
-    else if (strstr(path, "search_msg")) method = "searchMsg";
-    else if (strstr(path, "clear_conversation_msg")) method = "clearConversationMsg";
-    else if (strstr(path, "user_clear_all_msg")) method = "userClearAllMsg";
+    const char *method = api_rpc_method(req, "sendMsg");
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0) {
         if (require_fields(j, resp, "sendID", "content", (const char *)NULL)) {
-            free(path); miku_json_destroy(j); return;
+            miku_json_destroy(j); return;
         }
         const char *rid = miku_json_str(miku_json_get(j, "recvID"));
         const char *gid = miku_json_str(miku_json_get(j, "groupID"));
         if ((!rid || !rid[0]) && (!gid || !gid[0])) {
-            free(path); miku_json_destroy(j); miku_json_destroy(out);
+            miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
                 "{\"errCode\":400,\"errMsg\":\"missing required fields: recvID or groupID\"}");
             resp->status = 400;
             return;
         }
     } else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0) {
-        if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "searchMsg") == 0) {
-        if (require_fields(j, resp, "keyword", (const char *)NULL)) { free(path); miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
     }
     miku_msg_handle_rpc(c->msg, method, j, out);
 
@@ -691,8 +758,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     }
 
-    free(path);
-    miku_json_destroy(j);
+        miku_json_destroy(j);
     json_resp(resp, out);
 }
 
@@ -702,42 +768,22 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    const char *method = "getUploadToken";
-    if (strstr(path, "download")) method = "getDownloadURL";
-    else if (strstr(path, "access")) method = "accessURL";
-    else if (strstr(path, "delete")) method = "deleteObject";
-    else if (strstr(path, "initiate_multipart")) method = "initiateMultipartUpload";
-    else if (strstr(path, "complete_multipart")) method = "completeMultipartUpload";
-    else if (strstr(path, "upload_info")) method = "getUploadInfo";
-    else if (strstr(path, "object_info")) method = "getObjectInfo";
-    else if (strstr(path, "signal_invitation")) method = "getSignalInvitationInfo";
-    else if (strstr(path, "fcm_update_token")) method = "fcmUpdateToken";
-    else if (strstr(path, "set_app_badge")) method = "setAppBadge";
-    else if (strstr(path, "upload") && strstr(path, "logs")) method = "uploadLogs";
-    else if (strstr(path, "delete") && strstr(path, "logs")) method = "deleteLogs";
-    else if (strstr(path, "search") && strstr(path, "logs")) method = "searchLogs";
-    else if (strstr(path, "part_limit")) method = "partLimit";
-    else if (strstr(path, "part_size")) method = "partSize";
-    else if (strstr(path, "auth_sign")) method = "authSign";
-    else if (strstr(path, "initiate_form_data")) method = "initiateFormData";
-    else if (strstr(path, "complete_form_data")) method = "completeFormData";
-    else if (strstr(path, "prometheus")) method = "getPrometheus";
+    const char *method = api_rpc_method(req, "getUploadToken");
     miku_third_handle_rpc(c->third, method, j, out);
-    free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
 }
 
 static void handle_admin(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
-    char *path = strndup(req->path.data, req->path.len);
+    char path[128];
+    api_req_path(req, path, sizeof(path));
     /* health is public; stats/shutdown require a valid token */
-    if (!strstr(path, "health")) {
-        if (verify_token(c, req, resp)) { free(path); return; }
+    if (strcmp(path, "/admin/health") != 0) {
+        if (verify_token(c, req, resp)) return;
     }
     miku_json_val_t *out = miku_json_create_object();
-    if (strstr(path, "stats")) {
+    if (strcmp(path, "/admin/stats") == 0) {
         miku_stats_snapshot_t snap;
         miku_stats_snapshot(&c->stats, &snap);
         miku_ji(out, "errCode", 0);
@@ -749,16 +795,15 @@ static void handle_admin(miku_http_request_t *req, miku_http_response_t *resp, v
         miku_ji(out, "bytesRecv", snap.bytes_recv);
         miku_ji(out, "uptimeMs", snap.uptime_ms);
         miku_jss(out, "service", snap.service_name);
-    } else if (strstr(path, "health")) {
+    } else if (strcmp(path, "/admin/health") == 0) {
         miku_ji(out, "status", 0);
         miku_jss(out, "message", "ok");
-    } else if (strstr(path, "shutdown")) {
+    } else if (strcmp(path, "/admin/shutdown") == 0) {
         miku_ji(out, "errCode", 0);
         miku_jss(out, "message", "shutdown scheduled");
     } else {
         miku_ji(out, "errCode", 404);
     }
-    free(path);
     json_resp(resp, out);
 }
 
@@ -814,8 +859,9 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    if (strstr(path, "get_users_info")) {
+    char path[128];
+    api_req_path(req, path, sizeof(path));
+    if (strcmp(path, "/batch/get_users_info") == 0) {
         miku_json_val_t *uid_list = miku_json_get(j, "userIDList");
         miku_json_val_t *arr = miku_json_create_array();
         if (uid_list) {
@@ -837,7 +883,7 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
         }
         miku_ji(out, "errCode", 0);
         miku_json_object_set(out, "data", arr);
-    } else if (strstr(path, "delete_friend")) {
+    } else if (strcmp(path, "/batch/delete_friend") == 0) {
         miku_json_val_t *r = miku_json_create_object();
         miku_friend_handle_rpc(c->friend_svc, "deleteFriend", j, r);
         miku_json_object_set(out, "errCode", miku_json_get(r, "errCode"));
@@ -845,7 +891,6 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
     } else {
         miku_ji(out, "errCode", 404);
     }
-    free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
 }
@@ -864,16 +909,16 @@ static void handle_statistics(miku_http_request_t *req, miku_http_response_t *re
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
+    char path[128];
+    api_req_path(req, path, sizeof(path));
     const char *method = "userRegisterCount";
-    if (strstr(path, "user") && strstr(path, "active")) method = "getActiveUser";
-    else if (strstr(path, "user") && strstr(path, "register")) method = "userRegisterCount";
-    else if (strstr(path, "group") && strstr(path, "active")) method = "getActiveGroup";
-    else if (strstr(path, "group") && strstr(path, "create")) method = "groupCreateCount";
+    if (strcmp(path, "/statistics/user/active") == 0) method = "getActiveUser";
+    else if (strcmp(path, "/statistics/user/register") == 0) method = "userRegisterCount";
+    else if (strcmp(path, "/statistics/group/active") == 0) method = "getActiveGroup";
+    else if (strcmp(path, "/statistics/group/create") == 0) method = "groupCreateCount";
     miku_ji(out, "errCode", 0);
     miku_jss(out, "method", method);
     miku_ji(out, "count", 0);
-    free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
 }
@@ -884,11 +929,11 @@ static void handle_jssdk(miku_http_request_t *req, miku_http_response_t *resp, v
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
-    const char *method = "getConversations";
-    if (strstr(path, "get_active")) method = "getActiveConversations";
+    char path[128];
+    api_req_path(req, path, sizeof(path));
+    const char *method = (strcmp(path, "/jssdk/get_active_conversations") == 0)
+        ? "getActiveConversations" : "getConversations";
     miku_conv_handle_rpc(c->conv, method, j, out);
-    free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
 }
@@ -909,17 +954,17 @@ static void handle_config(miku_http_request_t *req, miku_http_response_t *resp, 
     if (verify_token(c, req, resp)) return;
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
-    char *path = strndup(req->path.data, req->path.len);
+    char path[128];
+    api_req_path(req, path, sizeof(path));
     const char *method = "getConfigList";
-    if (strstr(path, "get_config_list")) method = "getConfigList";
-    else if (strstr(path, "get_config") && !strstr(path, "list") && !strstr(path, "enable")) method = "getConfig";
-    else if (strstr(path, "set_config") && !strstr(path, "enable")) method = "setConfig";
-    else if (strstr(path, "reset_config")) method = "resetConfig";
-    else if (strstr(path, "set_enable_config")) method = "setEnableConfigManager";
-    else if (strstr(path, "get_enable_config")) method = "getEnableConfigManager";
+    if (strcmp(path, "/config/get_config_list") == 0) method = "getConfigList";
+    else if (strcmp(path, "/config/get_config") == 0) method = "getConfig";
+    else if (strcmp(path, "/config/set_config") == 0) method = "setConfig";
+    else if (strcmp(path, "/config/reset_config") == 0) method = "resetConfig";
+    else if (strcmp(path, "/config/set_enable_config_manager") == 0) method = "setEnableConfigManager";
+    else if (strcmp(path, "/config/get_enable_config_manager") == 0) method = "getEnableConfigManager";
     miku_ji(out, "errCode", 0);
     miku_jss(out, "method", method);
-    free(path);
     miku_json_destroy(j);
     json_resp(resp, out);
 }

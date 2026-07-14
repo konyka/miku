@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 171 tests, 67 modules — JSON object key hash + getMsgBySeq; seq pull/delivery/msg_store/WS/msggw/pipeline/friend indexed; S3 cron still stub.
+> **Status**: 203 API routes, 171 tests, 67 modules — API path→RPC exact hash (fixes strstr misroutes); JSON/seq/msg_store/WS/msggw indexed; S3 cron still stub.
 
 ## 1. Overview
 
@@ -1059,7 +1059,7 @@ Client POST → HTTP parse → route dispatch → handler → response
                                          ├─ 1. check_ratelimit()  → 429 if exceeded
                                          ├─ 2. parse_body()       → JSON object
                                          ├─ 3. require_fields()   → 400 if missing
-                                         ├─ 4. method dispatch    → strstr chain
+                                         ├─ 4. method dispatch    → exact path hash O(1)
                                          ├─ 5. RPC handler        → business logic
                                          ├─ 6. webhook fire       → post-success
                                          └─ 7. json_resp()        → serialize
