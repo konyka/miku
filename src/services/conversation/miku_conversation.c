@@ -149,7 +149,8 @@ enum {
     MK_CONV_RPC_getPinnedConversationIDs = 17,
     MK_CONV_RPC_getSortedConversationList = 18,
     MK_CONV_RPC_updateConversationsByUser = 19,
-    MK_CONV_RPC_COUNT = 20
+    MK_CONV_RPC_getActiveConversations = 20,
+    MK_CONV_RPC_COUNT = 21
 };
 
 #define MK_CONV_RPC_HASH 64
@@ -173,7 +174,8 @@ static const char *const g_conv_rpc_names[MK_CONV_RPC_COUNT] = {
     "getOwnerConversation",
     "getPinnedConversationIDs",
     "getSortedConversationList",
-    "updateConversationsByUser"
+    "updateConversationsByUser",
+    "getActiveConversations"
 };
 
 static int16_t g_conv_rpc_hash[MK_CONV_RPC_HASH];
@@ -206,6 +208,20 @@ static int conv_rpc_id(const char *method) {
     return -1;
 }
 
+
+static void conv_owner_to_json_arr(miku_conv_service_t *svc, const char *owner,
+                                   miku_json_val_t *arr, int max, int active_only) {
+    if (!svc || !owner || !arr || max <= 0) return;
+    int n = 0;
+    for (int ci = owner_head(svc, owner); ci >= 0 && n < max; ci = svc->owner_next[ci]) {
+        miku_conversation_t *c = &svc->convs[ci];
+        if (active_only && c->latest_msg_send_time <= 0 && c->unread_count <= 0)
+            continue;
+        miku_json_array_push(arr, miku_conversation_to_json(c));
+        n++;
+    }
+}
+
 void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
                            const miku_json_val_t *req, miku_json_val_t *resp) {
     if (!svc || !method || !resp) return;
@@ -213,11 +229,11 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     case MK_CONV_RPC_getAllConversations:
     {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        miku_conversation_t list[16];
-        int n = miku_conv_get_all(svc, owner, list, 16);
+        int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 0;
+        int max = (cnt > 0 && cnt < MK_MAX_CONVS) ? (int)cnt : MK_MAX_CONVS;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_conversation_to_json(&list[i]));
+        if (owner) conv_owner_to_json_arr(svc, owner, arr, max, 0);
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_CONV_RPC_getConversation:
@@ -255,11 +271,23 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     case MK_CONV_RPC_getConversations:
     {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        miku_conversation_t list[16];
-        int n = miku_conv_get_all(svc, owner, list, 16);
+        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 0;
+        int max = (cnt > 0 && cnt < MK_MAX_CONVS) ? (int)cnt : MK_MAX_CONVS;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_conversation_to_json(&list[i]));
+        if (owner) conv_owner_to_json_arr(svc, owner, arr, max, 0);
+        miku_json_object_set(resp, "data", arr);
+    } break;
+    case MK_CONV_RPC_getActiveConversations:
+    {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 0;
+        int max = (cnt > 0 && cnt < MK_MAX_CONVS) ? (int)cnt : MK_MAX_CONVS;
+        miku_ji(resp, "errCode", 0);
+        miku_json_val_t *arr = miku_json_create_array();
+        if (owner) conv_owner_to_json_arr(svc, owner, arr, max, 1);
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_CONV_RPC_getTotalUnreadMsgCount:

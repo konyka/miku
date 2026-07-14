@@ -134,99 +134,15 @@ static int lower_bound_seq(miku_msg_service_t *svc, int64_t begin) {
     return lo;
 }
 
-
-static void hash_del_cid(miku_msg_service_t *svc, const char *cid) {
-    if (!cid || !cid[0]) return;
-    uint32_t idx = str_slot(cid);
-    for (int n = 0; n < MK_MSG_HASH; n++) {
-        int mi = svc->cid_hash[idx];
-        if (mi < 0) return;
-        if (strcmp(svc->msgs[mi].client_msg_id, cid) == 0) {
-            svc->cid_hash[idx] = -1;
-            uint32_t j = (idx + 1) & (MK_MSG_HASH - 1);
-            while (svc->cid_hash[j] >= 0) {
-                int rem = svc->cid_hash[j];
-                svc->cid_hash[j] = -1;
-                if (svc->msgs[rem].client_msg_id[0])
-                    hash_insert_key(svc->cid_hash, svc->msgs[rem].client_msg_id,
-                                    rem, svc->msgs, 1);
-                j = (j + 1) & (MK_MSG_HASH - 1);
-            }
-            return;
-        }
-        idx = (idx + 1) & (MK_MSG_HASH - 1);
-    }
-}
-
-static void conv_unlink(miku_msg_service_t *svc, int mi) {
-    if (mi < 0 || mi >= svc->count) return;
-    const char *cid = svc->msgs[mi].conversation_id;
-    if (!cid[0]) { svc->conv_next[mi] = -1; return; }
-    uint32_t idx = str_slot(cid);
-    for (int n = 0; n < MK_MSG_HASH; n++) {
-        int head = svc->conv_hash[idx];
-        if (head < 0) return;
-        if (strcmp(svc->msgs[head].conversation_id, cid) != 0) {
-            idx = (idx + 1) & (MK_MSG_HASH - 1);
-            continue;
-        }
-        if (head == mi) {
-            svc->conv_hash[idx] = svc->conv_next[mi];
-            svc->conv_next[mi] = -1;
-            if (svc->conv_hash[idx] < 0) {
-                uint32_t j = (idx + 1) & (MK_MSG_HASH - 1);
-                while (svc->conv_hash[j] >= 0) {
-                    int rem = svc->conv_hash[j];
-                    svc->conv_hash[j] = -1;
-                    const char *rcid = svc->msgs[rem].conversation_id;
-                    if (rcid[0]) {
-                        uint32_t ridx = str_slot(rcid);
-                        for (int k = 0; k < MK_MSG_HASH; k++) {
-                            if (svc->conv_hash[ridx] < 0) {
-                                svc->conv_hash[ridx] = rem;
-                                break;
-                            }
-                            ridx = (ridx + 1) & (MK_MSG_HASH - 1);
-                        }
-                    }
-                    j = (j + 1) & (MK_MSG_HASH - 1);
-                }
-            }
-            return;
-        }
-        int prev = head;
-        for (int cur = svc->conv_next[head]; cur >= 0; prev = cur, cur = svc->conv_next[cur]) {
-            if (cur == mi) {
-                svc->conv_next[prev] = svc->conv_next[mi];
-                svc->conv_next[mi] = -1;
-                return;
-            }
-        }
-        return;
-    }
-}
+static void rebuild_indexes(miku_msg_service_t *svc);
 
 static void msg_remove_at(miku_msg_service_t *svc, int mi) {
     if (!svc || mi < 0 || mi >= svc->count) return;
-    if (svc->msgs[mi].server_msg_id[0])
-        hash_del_sid(svc, svc->msgs[mi].server_msg_id);
-    if (svc->msgs[mi].client_msg_id[0])
-        hash_del_cid(svc, svc->msgs[mi].client_msg_id);
-    conv_unlink(svc, mi);
+    /* Keep msgs[] seq-ordered (binary pull); rebuild indexes after compact. */
     memmove(&svc->msgs[mi], &svc->msgs[mi + 1],
             (size_t)(svc->count - mi - 1) * sizeof(miku_msg_t));
-    memmove(&svc->conv_next[mi], &svc->conv_next[mi + 1],
-            (size_t)(svc->count - mi - 1) * sizeof(int32_t));
     svc->count--;
-    if (svc->count >= 0) svc->conv_next[svc->count] = -1;
-    for (int i = 0; i < MK_MSG_HASH; i++) {
-        if (svc->sid_hash[i] > mi) svc->sid_hash[i]--;
-        if (svc->cid_hash[i] > mi) svc->cid_hash[i]--;
-        if (svc->conv_hash[i] > mi) svc->conv_hash[i]--;
-    }
-    for (int i = 0; i < svc->count; i++) {
-        if (svc->conv_next[i] > mi) svc->conv_next[i]--;
-    }
+    rebuild_indexes(svc);
 }
 
 static void rebuild_indexes(miku_msg_service_t *svc) {
