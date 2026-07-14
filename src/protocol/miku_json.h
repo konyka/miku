@@ -33,6 +33,8 @@ struct miku_json_val {
             miku_json_pair_t *pairs;
             size_t            count;
             size_t            capacity;
+            int32_t          *kh;      /* open-address key → pair index, -1 empty */
+            size_t            kh_mask; /* kh length - 1 (power of 2) */
         } object;
     } u;
 };

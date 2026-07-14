@@ -298,8 +298,15 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } else if (strcmp(method, "markMsgAsRead") == 0) {
         miku_ji(resp, "errCode", 0);
     } else if (strcmp(method, "getMsgBySeq") == 0) {
+        int64_t seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
         miku_ji(resp, "errCode", 0);
-        miku_json_object_set(resp, "data", miku_json_create_array());
+        miku_json_val_t *arr = miku_json_create_array();
+        if (seq > 0) {
+            int i = lower_bound_seq(svc, seq);
+            if (i < svc->count && svc->msgs[i].seq == seq)
+                miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[i]));
+        }
+        miku_json_object_set(resp, "data", arr);
     } else if (strcmp(method, "send") == 0) {
         miku_msg_t m;
         memset(&m, 0, sizeof(m));

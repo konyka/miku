@@ -1,15 +1,67 @@
 #include "miku_json.h"
 #include "miku_string.h"
+#include "miku_hash.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <stdint.h>
 
 typedef struct {
     const char *src;
     size_t     len;
     size_t     pos;
 } json_parser_t;
+
+static size_t json_pow2(size_t n) {
+    size_t p = 16;
+    while (p < n) p <<= 1;
+    return p;
+}
+
+static int obj_kh_alloc(miku_json_val_t *obj, size_t min_slots) {
+    size_t sz = json_pow2(min_slots < 16 ? 16 : min_slots);
+    int32_t *kh = (int32_t *)malloc(sz * sizeof(int32_t));
+    if (!kh) return -1;
+    for (size_t i = 0; i < sz; i++) kh[i] = -1;
+    free(obj->u.object.kh);
+    obj->u.object.kh = kh;
+    obj->u.object.kh_mask = sz - 1;
+    return 0;
+}
+
+static void obj_kh_insert(miku_json_val_t *obj, size_t pair_i) {
+    if (!obj->u.object.kh) return;
+    const char *key = obj->u.object.pairs[pair_i].key;
+    uint32_t idx = (uint32_t)(miku_fnv1a_64(key, strlen(key)) & obj->u.object.kh_mask);
+    for (size_t n = 0; n <= obj->u.object.kh_mask; n++) {
+        if (obj->u.object.kh[idx] < 0) {
+            obj->u.object.kh[idx] = (int32_t)pair_i;
+            return;
+        }
+        idx = (idx + 1) & (uint32_t)obj->u.object.kh_mask;
+    }
+}
+
+static void obj_kh_rebuild(miku_json_val_t *obj) {
+    if (obj_kh_alloc(obj, obj->u.object.capacity * 2) != 0) return;
+    for (size_t i = 0; i < obj->u.object.count; i++)
+        obj_kh_insert(obj, i);
+}
+
+static int obj_kh_find(const miku_json_val_t *obj, const char *key) {
+    if (!obj->u.object.kh || !key) return -1;
+    uint32_t idx = (uint32_t)(miku_fnv1a_64(key, strlen(key)) & obj->u.object.kh_mask);
+    for (size_t n = 0; n <= obj->u.object.kh_mask; n++) {
+        int32_t pi = obj->u.object.kh[idx];
+        if (pi < 0) return -1;
+        if ((size_t)pi < obj->u.object.count &&
+            strcmp(obj->u.object.pairs[pi].key, key) == 0)
+            return pi;
+        idx = (idx + 1) & (uint32_t)obj->u.object.kh_mask;
+    }
+    return -1;
+}
 
 static void skip_ws(json_parser_t *p) {
     while (p->pos < p->len) {
@@ -157,6 +209,11 @@ static miku_json_val_t *parse_object(json_parser_t *p) {
     v->u.object.capacity = 8;
     v->u.object.pairs = (miku_json_pair_t *)malloc(v->u.object.capacity * sizeof(miku_json_pair_t));
     if (!v->u.object.pairs) { free(v); return NULL; }
+    if (obj_kh_alloc(v, 16) != 0) {
+        free(v->u.object.pairs);
+        free(v);
+        return NULL;
+    }
 
     if (peek(p) == '}') { next(p); return v; }
 
@@ -182,6 +239,7 @@ static miku_json_val_t *parse_object(json_parser_t *p) {
         miku_json_destroy(v);
         return NULL;
     }
+    obj_kh_rebuild(v);
     return v;
 }
 
@@ -249,6 +307,7 @@ void miku_json_destroy(miku_json_val_t *v) {
                 miku_json_destroy(v->u.object.pairs[i].val);
             }
             free(v->u.object.pairs);
+            free(v->u.object.kh);
             break;
         default:
             break;
@@ -258,6 +317,9 @@ void miku_json_destroy(miku_json_val_t *v) {
 
 miku_json_val_t *miku_json_get(const miku_json_val_t *obj, const char *key) {
     if (!obj || obj->type != MK_JSON_OBJECT || !key) return NULL;
+    int pi = obj_kh_find(obj, key);
+    if (pi >= 0) return obj->u.object.pairs[pi].val;
+    /* Fallback if hash missing (should not happen for create/parse objects). */
     for (size_t i = 0; i < obj->u.object.count; i++) {
         if (strcmp(obj->u.object.pairs[i].key, key) == 0)
             return obj->u.object.pairs[i].val;
@@ -344,6 +406,11 @@ miku_json_val_t *miku_json_create_object(void) {
     v->u.object.capacity = 8;
     v->u.object.pairs = (miku_json_pair_t *)malloc(8 * sizeof(miku_json_pair_t));
     if (!v->u.object.pairs) { free(v); return NULL; }
+    if (obj_kh_alloc(v, 16) != 0) {
+        free(v->u.object.pairs);
+        free(v);
+        return NULL;
+    }
     return v;
 }
 
@@ -361,22 +428,29 @@ int miku_json_array_push(miku_json_val_t *arr, miku_json_val_t *item) {
 
 int miku_json_object_set(miku_json_val_t *obj, const char *key, miku_json_val_t *val) {
     if (!obj || obj->type != MK_JSON_OBJECT || !key) return -1;
-    for (size_t i = 0; i < obj->u.object.count; i++) {
-        if (strcmp(obj->u.object.pairs[i].key, key) == 0) {
-            miku_json_destroy(obj->u.object.pairs[i].val);
-            obj->u.object.pairs[i].val = val;
-            return 0;
-        }
+    int pi = obj_kh_find(obj, key);
+    if (pi >= 0) {
+        miku_json_destroy(obj->u.object.pairs[pi].val);
+        obj->u.object.pairs[pi].val = val;
+        return 0;
     }
     if (obj->u.object.count >= obj->u.object.capacity) {
         obj->u.object.capacity *= 2;
         obj->u.object.pairs = (miku_json_pair_t *)realloc(obj->u.object.pairs,
             obj->u.object.capacity * sizeof(miku_json_pair_t));
         if (!obj->u.object.pairs) return -1;
+        obj_kh_rebuild(obj);
     }
-    obj->u.object.pairs[obj->u.object.count].key = strdup(key);
-    obj->u.object.pairs[obj->u.object.count].val = val;
+    size_t idx = obj->u.object.count;
+    obj->u.object.pairs[idx].key = strdup(key);
+    obj->u.object.pairs[idx].val = val;
     obj->u.object.count++;
+    if (!obj->u.object.kh)
+        obj_kh_rebuild(obj);
+    else if (obj->u.object.count * 2 > obj->u.object.kh_mask + 1)
+        obj_kh_rebuild(obj);
+    else
+        obj_kh_insert(obj, idx);
     return 0;
 }
 
