@@ -348,9 +348,9 @@ void test_msggw_ws_resolve_conv(void) {
 
     /* Single chat: lexicographic si_<min>_<max> — A→B and B→A share one bucket. */
     miku_msggw_ws_resolve_conv(conv, sizeof(conv), NULL, NULL, "alice", "bob");
-    mk_assert_str_eq("si_alice_bob", conv);
+    mk_assert_str_eq("si_5_alice_bob", conv);
     miku_msggw_ws_resolve_conv(conv, sizeof(conv), "", "", "bob", "alice");
-    mk_assert_str_eq("si_alice_bob", conv);
+    mk_assert_str_eq("si_5_alice_bob", conv);
 
     miku_msggw_ws_resolve_conv(conv, sizeof(conv), NULL, NULL, NULL, "u2");
     mk_assert_str_eq("u2", conv);
@@ -396,13 +396,13 @@ void test_msggw_ws_deliver_msg(void) {
     mk_assert_int_eq(0, miku_msggw_ws_deliver_msg(&ctx, &im));
     mk_assert_long_eq(1, (long)im.seq);
     mk_assert(im.msg_id[0] != '\0');
-    mk_assert_str_eq("si_alice_bob", im.conversation_id);
+    mk_assert_str_eq("si_5_alice_bob", im.conversation_id);
     mk_assert_int_eq(1, miku_msg_store_count(store));
 
     miku_conversation_t bob_c, alice_c;
-    mk_assert_int_eq(0, miku_conv_get(conv, "bob", "si_alice_bob", &bob_c));
+    mk_assert_int_eq(0, miku_conv_get(conv, "bob", "si_5_alice_bob", &bob_c));
     mk_assert_int_eq(1, bob_c.unread_count);
-    mk_assert_int_eq(0, miku_conv_get(conv, "alice", "si_alice_bob", &alice_c));
+    mk_assert_int_eq(0, miku_conv_get(conv, "alice", "si_5_alice_bob", &alice_c));
     mk_assert_int_eq(0, alice_c.unread_count);
 
     /* Reverse direction shares the same conversation bucket and continues seq. */
@@ -414,14 +414,14 @@ void test_msggw_ws_deliver_msg(void) {
     im2.content_type = MK_IM_MSG_TYPE_TEXT;
     mk_assert_int_eq(0, miku_msggw_ws_deliver_msg(&ctx, &im2));
     mk_assert_long_eq(2, (long)im2.seq);
-    mk_assert_str_eq("si_alice_bob", im2.conversation_id);
+    mk_assert_str_eq("si_5_alice_bob", im2.conversation_id);
     mk_assert_int_eq(2, miku_msg_store_count(store));
 
-    mk_assert_int_eq(0, miku_conv_get(conv, "alice", "si_alice_bob", &alice_c));
+    mk_assert_int_eq(0, miku_conv_get(conv, "alice", "si_5_alice_bob", &alice_c));
     mk_assert_int_eq(1, alice_c.unread_count);
 
     char *msgs = NULL;
-    mk_assert_int_eq(0, miku_msg_store_find_by_conv(store, "si_alice_bob", 1, 2, &msgs));
+    mk_assert_int_eq(0, miku_msg_store_find_by_conv(store, "si_5_alice_bob", 1, 2, &msgs));
     mk_assert_not_null(msgs);
     mk_assert(strstr(msgs, "hello via deliver") != NULL);
     mk_assert(strstr(msgs, "reply") != NULL);
@@ -1115,7 +1115,7 @@ static void test_conv_set_update_flow(void) {
 
     miku_json_val_t *set_req = miku_json_create_object();
     miku_json_object_set(set_req, "ownerUserID", miku_json_create_str("u1"));
-    miku_json_object_set(set_req, "conversationID", miku_json_create_str("si_u1_u2"));
+    miku_json_object_set(set_req, "conversationID", miku_json_create_str("si_2_u1_u2"));
     miku_json_object_set(set_req, "conversationType", miku_json_create_int(1));
     miku_json_object_set(set_req, "ex", miku_json_create_str("initial ex"));
     miku_json_val_t *set_resp = miku_json_create_object();
@@ -1124,7 +1124,7 @@ static void test_conv_set_update_flow(void) {
 
     miku_json_val_t *update_req = miku_json_create_object();
     miku_json_object_set(update_req, "ownerUserID", miku_json_create_str("u1"));
-    miku_json_object_set(update_req, "conversationID", miku_json_create_str("si_u1_u2"));
+    miku_json_object_set(update_req, "conversationID", miku_json_create_str("si_2_u1_u2"));
     miku_json_object_set(update_req, "ex", miku_json_create_str("updated ex"));
     miku_json_val_t *update_resp = miku_json_create_object();
     miku_conv_handle_rpc(svc, "updateConversationsByUser", update_req, update_resp);
@@ -1132,7 +1132,7 @@ static void test_conv_set_update_flow(void) {
 
     miku_json_val_t *get_req = miku_json_create_object();
     miku_json_object_set(get_req, "ownerUserID", miku_json_create_str("u1"));
-    miku_json_object_set(get_req, "conversationID", miku_json_create_str("si_u1_u2"));
+    miku_json_object_set(get_req, "conversationID", miku_json_create_str("si_2_u1_u2"));
     miku_json_val_t *get_resp = miku_json_create_object();
     miku_conv_handle_rpc(svc, "getConversation", get_req, get_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(get_resp, "errCode")));
@@ -1674,7 +1674,7 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_not_null(data);
     mk_assert_int_eq(1, (int)miku_json_size(data));
     miku_json_val_t *c0 = miku_json_at(data, 0);
-    mk_assert_str_eq("si_r1_s1", miku_json_str(miku_json_get(c0, "conversationID")));
+    mk_assert_str_eq("si_2_r1_s1", miku_json_str(miku_json_get(c0, "conversationID")));
     mk_assert_str_eq("r1", miku_json_str(miku_json_get(c0, "userID")));
     miku_json_destroy(r);
 
@@ -1688,14 +1688,14 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_not_null(data);
     mk_assert_int_eq(1, (int)miku_json_size(data));
     c0 = miku_json_at(data, 0);
-    mk_assert_str_eq("si_r1_s1", miku_json_str(miku_json_get(c0, "conversationID")));
+    mk_assert_str_eq("si_2_r1_s1", miku_json_str(miku_json_get(c0, "conversationID")));
     mk_assert_str_eq("s1", miku_json_str(miku_json_get(c0, "userID")));
     mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(c0, "unreadCount")));
     miku_json_destroy(r);
 
     char mark[8192] = {0};
     http_post_with_token(19780, "/msg/mark_conversation_as_read", tok_r1,
-        "{\"userID\":\"forged\",\"conversationID\":\"si_r1_s1\"}", mark, sizeof(mark));
+        "{\"userID\":\"forged\",\"conversationID\":\"si_2_r1_s1\"}", mark, sizeof(mark));
     char conv_r2[8192] = {0};
     http_post_with_token(19780, "/conversation/get_all_conversations", tok_r1,
         "{\"ownerUserID\":\"forged\"}", conv_r2, sizeof(conv_r2));
@@ -1727,16 +1727,44 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert(tok_x && tok_x[0]);
     char pull_bad[8192] = {0};
     http_post_with_token(19780, "/msg/pull_msg_by_seq", tok_x,
-        "{\"conversationID\":\"si_r1_s1\",\"beginSeq\":0,\"endSeq\":0}",
+        "{\"conversationID\":\"si_2_r1_s1\",\"beginSeq\":0,\"endSeq\":0}",
         pull_bad, sizeof(pull_bad));
     body = extract_json_body(pull_bad);
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);
     mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
+
+    /* Underscore UIDs: length-prefix prevents si_ collision IDOR (a vs a_b). */
+    char cid_ac[64], cid_ab[64], peer[64];
+    miku_conversation_id_resolve(cid_ac, sizeof(cid_ac), NULL, NULL, "a", "b_c");
+    miku_conversation_id_resolve(cid_ab, sizeof(cid_ab), NULL, NULL, "a_b", "c");
+    mk_assert(strcmp(cid_ac, cid_ab) != 0);
+    mk_assert_int_eq(0, miku_conversation_si_peer(cid_ac, "a", peer, sizeof(peer)));
+    mk_assert_str_eq("b_c", peer);
+    mk_assert_int_eq(-1, miku_conversation_si_peer(cid_ac, "a_b", peer, sizeof(peer)));
+    char auth_ab[8192] = {0};
+    http_post_to(19780, "/auth/user_token",
+        "{\"userID\":\"a_b\",\"secret\":\"openIM123\",\"platformID\":1}",
+        auth_ab, sizeof(auth_ab));
+    miku_json_val_t *ar_ab = miku_json_parse_str(extract_json_body(auth_ab));
+    const char *tok_ab = ar_ab ? miku_json_str(miku_json_get(ar_ab, "token")) : NULL;
+    mk_assert(tok_ab && tok_ab[0]);
+    char pull_collide[8192] = {0};
+    char body_c[256];
+    snprintf(body_c, sizeof(body_c),
+             "{\"conversationID\":\"%s\",\"beginSeq\":0,\"endSeq\":0}", cid_ac);
+    http_post_with_token(19780, "/msg/pull_msg_by_seq", tok_ab, body_c,
+                         pull_collide, sizeof(pull_collide));
+    r = miku_json_parse_str(extract_json_body(pull_collide));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    if (ar_ab) miku_json_destroy(ar_ab);
+
     char get_ok[8192] = {0};
     http_post_with_token(19780, "/msg/get", token,
-        "{\"conversationID\":\"si_r1_s1\",\"count\":10}", get_ok, sizeof(get_ok));
+        "{\"conversationID\":\"si_2_r1_s1\",\"count\":10}", get_ok, sizeof(get_ok));
     body = extract_json_body(get_ok);
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);

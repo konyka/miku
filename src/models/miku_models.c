@@ -125,7 +125,8 @@ void miku_conversation_id_resolve(char *out, size_t out_sz,
     if (send_id && send_id[0] && recv_id && recv_id[0]) {
         const char *a = send_id, *b = recv_id;
         if (strcmp(a, b) > 0) { a = recv_id; b = send_id; }
-        snprintf(out, out_sz, "si_%s_%s", a, b);
+        /* Length-prefix first uid so underscores in userIDs cannot collide. */
+        snprintf(out, out_sz, "si_%zu_%s_%s", strlen(a), a, b);
         return;
     }
     if (recv_id && recv_id[0]) {
@@ -140,6 +141,54 @@ void miku_conversation_id_resolve(char *out, size_t out_sz,
     }
     strncpy(out, "default", out_sz - 1);
     out[out_sz - 1] = '\0';
+}
+
+int miku_conversation_si_peer(const char *conv, const char *self,
+                              char *peer, size_t peer_sz) {
+    if (!conv || !self || !self[0] || !peer || peer_sz == 0 ||
+        strncmp(conv, "si_", 3) != 0)
+        return -1;
+    peer[0] = '\0';
+    const char *p = conv + 3;
+    /* New: si_<len>_<a>_<b> */
+    if (p[0] >= '1' && p[0] <= '9') {
+        char *end = NULL;
+        unsigned long alen = strtoul(p, &end, 10);
+        if (!end || *end != '_' || alen == 0 || alen >= MK_USER_ID_LEN) return -1;
+        const char *a = end + 1;
+        if (strlen(a) <= alen || a[alen] != '_') return -1;
+        const char *b = a + alen + 1;
+        if (!b[0]) return -1;
+        if (strlen(self) == alen && strncmp(a, self, alen) == 0) {
+            strncpy(peer, b, peer_sz - 1);
+            peer[peer_sz - 1] = '\0';
+            return 0;
+        }
+        if (strcmp(b, self) == 0) {
+            if (alen >= peer_sz) return -1;
+            memcpy(peer, a, alen);
+            peer[alen] = '\0';
+            return 0;
+        }
+        return -1;
+    }
+    /* Legacy si_<a>_<b> (no leading length) — ambiguous if uids contain '_'. */
+    size_t slen = strlen(self);
+    size_t rlen = strlen(p);
+    if (rlen > slen + 1 && strncmp(p, self, slen) == 0 && p[slen] == '_') {
+        strncpy(peer, p + slen + 1, peer_sz - 1);
+        peer[peer_sz - 1] = '\0';
+        return peer[0] ? 0 : -1;
+    }
+    if (rlen > slen + 1 && p[rlen - slen - 1] == '_' &&
+        strcmp(p + (rlen - slen), self) == 0) {
+        size_t plen = rlen - slen - 1;
+        if (plen >= peer_sz) return -1;
+        memcpy(peer, p, plen);
+        peer[plen] = '\0';
+        return 0;
+    }
+    return -1;
 }
 
 miku_json_val_t *miku_conversation_to_json(const miku_conversation_t *c) {

@@ -106,29 +106,7 @@ static void fill_read_seq_entry(miku_msggw_t *gw, const char *uid, const char *c
 
 static int fill_peer_from_si_conv(const char *conv, const char *self,
                                   char *peer, size_t peer_sz) {
-    if (!conv || !self || !self[0] || !peer || peer_sz == 0 ||
-        strncmp(conv, "si_", 3) != 0)
-        return -1;
-    const char *rest = conv + 3;
-    size_t slen = strlen(self);
-    size_t rlen = strlen(rest);
-    peer[0] = '\0';
-    /* si_<self>_<peer> */
-    if (rlen > slen + 1 && strncmp(rest, self, slen) == 0 && rest[slen] == '_') {
-        strncpy(peer, rest + slen + 1, peer_sz - 1);
-        peer[peer_sz - 1] = '\0';
-        return peer[0] ? 0 : -1;
-    }
-    /* si_<peer>_<self> */
-    if (rlen > slen + 1 && rest[rlen - slen - 1] == '_' &&
-        strcmp(rest + (rlen - slen), self) == 0) {
-        size_t plen = rlen - slen - 1;
-        if (plen >= peer_sz) return -1;
-        memcpy(peer, rest, plen);
-        peer[plen] = '\0';
-        return 0;
-    }
-    return -1;
+    return miku_conversation_si_peer(conv, self, peer, peer_sz);
 }
 
 /* 1 if session user may pull/peek this conversation. */

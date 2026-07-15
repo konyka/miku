@@ -572,13 +572,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         }
         int participant = 0, has_group = 0;
         if (strncmp(cid, "si_", 3) == 0) {
-            const char *rest = cid + 3;
-            size_t ulen = strlen(uid);
-            size_t rlen = strlen(rest);
-            if (rlen > ulen + 1 && strncmp(rest, uid, ulen) == 0 && rest[ulen] == '_')
-                participant = 1;
-            else if (rlen > ulen + 1 && rest[rlen - ulen - 1] == '_' &&
-                     strcmp(rest + (rlen - ulen), uid) == 0)
+            char peer[MK_USER_ID_LEN];
+            if (miku_conversation_si_peer(cid, uid, peer, sizeof(peer)) == 0)
                 participant = 1;
         }
         for (int i = 0; i < svc->count; i++) {

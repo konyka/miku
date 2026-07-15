@@ -128,12 +128,16 @@ MIKU_API int miku_user_from_json(const miku_json_val_t *j, miku_user_t *u);
 MIKU_API miku_json_val_t *miku_msg_to_json(const miku_msg_t *m);
 MIKU_API int miku_msg_from_json(const miku_json_val_t *j, miku_msg_t *m);
 
-/* Resolve conversationID: explicit > sg_<groupID> > si_<min>_<max> > fallback. */
+/* Resolve conversationID: explicit > sg_<groupID> > si_<len>_<a>_<b> > fallback. */
 MIKU_API void miku_conversation_id_resolve(char *out, size_t out_sz,
                                            const char *conversation_id,
                                            const char *group_id,
                                            const char *send_id,
                                            const char *recv_id);
+
+/* Fill peer from si_<len>_<a>_<b> when self is a or b. Returns 0 on success. */
+MIKU_API int miku_conversation_si_peer(const char *conv, const char *self,
+                                       char *peer, size_t peer_sz);
 
 MIKU_API miku_json_val_t *miku_conversation_to_json(const miku_conversation_t *c);
 MIKU_API int miku_conversation_from_json(const miku_json_val_t *j, miku_conversation_t *c);

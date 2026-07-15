@@ -476,10 +476,10 @@ static void test_msg_send_and_query(void) {
 
     strncpy(m.client_msg_id, "c_upd_1", sizeof(m.client_msg_id) - 1);
     mk_assert_int_eq(0, miku_msg_send(svc, &m));
-    mk_assert_str_eq("si_r1_s1", m.conversation_id);
+    mk_assert_str_eq("si_2_r1_s1", m.conversation_id);
     mk_assert_int_eq(0, miku_msg_update_delivery(svc, "c_upd_1", 99, "gw_id", 12345));
     miku_msg_t out[4];
-    int n = miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4);
+    int n = miku_msg_get_by_conv(svc, "si_2_r1_s1", 0, 0, 10, out, 4);
     mk_assert(n >= 1);
     int found = 0;
     for (int i = 0; i < n; i++) {
@@ -500,12 +500,12 @@ static void test_msg_send_and_query(void) {
     strncpy(ice.content, "a", sizeof(ice.content) - 1);
     ice.msg_type = MK_MSG_TYPE_TEXT;
     mk_assert_int_eq(0, miku_msg_send(svc, &ice));
-    mk_assert_str_eq("si_alice_bob", ice.conversation_id);
-    n = miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4);
+    mk_assert_str_eq("si_5_alice_bob", ice.conversation_id);
+    n = miku_msg_get_by_conv(svc, "si_2_r1_s1", 0, 0, 10, out, 4);
     mk_assert(n >= 1);
     for (int i = 0; i < n; i++)
         mk_assert(strcmp(out[i].send_id, "alice") != 0);
-    n = miku_msg_get_by_conv(svc, "si_alice_bob", 0, 0, 10, out, 4);
+    n = miku_msg_get_by_conv(svc, "si_5_alice_bob", 0, 0, 10, out, 4);
     mk_assert_int_eq(1, n);
     mk_assert_str_eq("alice", out[0].send_id);
 
@@ -533,19 +533,19 @@ static void test_msg_send_and_query(void) {
     mk_assert_int_eq(0, miku_msg_send(svc, &gm2));
 
     miku_json_val_t *clr = miku_json_create_object();
-    miku_json_object_set(clr, "conversationID", miku_json_create_str("si_alice_bob"));
+    miku_json_object_set(clr, "conversationID", miku_json_create_str("si_5_alice_bob"));
     miku_json_object_set(clr, "userID", miku_json_create_str("alice"));
     miku_json_val_t *clr_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "clearConversationMsg", clr, clr_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(clr_resp, "errCode")));
-    mk_assert_int_eq(0, miku_msg_get_by_conv(svc, "si_alice_bob", 0, 0, 10, out, 4));
-    mk_assert(miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4) >= 1);
+    mk_assert_int_eq(0, miku_msg_get_by_conv(svc, "si_5_alice_bob", 0, 0, 10, out, 4));
+    mk_assert(miku_msg_get_by_conv(svc, "si_2_r1_s1", 0, 0, 10, out, 4) >= 1);
     miku_json_destroy(clr);
     miku_json_destroy(clr_resp);
 
     /* Stranger / group clear refused. */
     miku_json_val_t *clr_bad = miku_json_create_object();
-    miku_json_object_set(clr_bad, "conversationID", miku_json_create_str("si_r1_s1"));
+    miku_json_object_set(clr_bad, "conversationID", miku_json_create_str("si_2_r1_s1"));
     miku_json_object_set(clr_bad, "userID", miku_json_create_str("alice"));
     miku_json_val_t *clr_bad_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "clearConversationMsg", clr_bad, clr_bad_resp);
@@ -567,7 +567,7 @@ static void test_msg_send_and_query(void) {
     miku_json_val_t *uclr_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "userClearAllMsg", uclr, uclr_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(uclr_resp, "errCode")));
-    mk_assert_int_eq(0, miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4));
+    mk_assert_int_eq(0, miku_msg_get_by_conv(svc, "si_2_r1_s1", 0, 0, 10, out, 4));
     mk_assert_int_eq(2, miku_msg_get_by_conv(svc, "sg_g9", 0, 0, 10, out, 4));
     miku_json_destroy(uclr);
     miku_json_destroy(uclr_resp);
@@ -1144,7 +1144,7 @@ static void test_msggateway_read_receipt_fanout(void) {
 
     const char *frame =
         "{\"reqIdentifier\":1003,\"data\":{\"sendID\":\"read_a\",\"recvID\":\"read_b\","
-        "\"conversationID\":\"si_read_a_read_b\",\"contentType\":302,"
+        "\"conversationID\":\"si_6_read_a_read_b\",\"contentType\":302,"
         "\"hasReadSeq\":7,\"content\":\"read\"}}";
     mk_assert_int_eq(0, ws_client_send_text_masked(fd_a, frame));
     miku_msggw_poll(gw, 500);
@@ -1168,14 +1168,14 @@ static void test_msggateway_read_receipt_fanout(void) {
     mk_assert(strstr(json, "2001") != NULL);
     mk_assert(strstr(json, "hasReadSeq") != NULL);
     mk_assert(strstr(json, "302") != NULL);
-    mk_assert_long_eq(7, (long)miku_msggw_get_user_read(gw, "read_a", "si_read_a_read_b"));
+    mk_assert_long_eq(7, (long)miku_msggw_get_user_read(gw, "read_a", "si_6_read_a_read_b"));
 
     /* Stranger cannot forge a READ receipt into someone else's conversation. */
     int fd_x = -1;
     mk_assert_int_eq(0, ws_connect_user(gw, 19225, "read_x", &fd_x));
     const char *bad_frame =
         "{\"reqIdentifier\":1003,\"data\":{\"sendID\":\"read_x\","
-        "\"conversationID\":\"si_read_a_read_b\",\"contentType\":302,"
+        "\"conversationID\":\"si_6_read_a_read_b\",\"contentType\":302,"
         "\"hasReadSeq\":99,\"content\":\"read\"}}";
     mk_assert_int_eq(0, ws_client_send_text_masked(fd_x, bad_frame));
     miku_msggw_poll(gw, 500);
@@ -1192,8 +1192,8 @@ static void test_msggateway_read_receipt_fanout(void) {
         mk_assert_not_null(ack);
         mk_assert(strstr(ack, "3003") != NULL);
     }
-    mk_assert_long_eq(7, (long)miku_msggw_get_user_read(gw, "read_a", "si_read_a_read_b"));
-    mk_assert_long_eq(0, (long)miku_msggw_get_user_read(gw, "read_x", "si_read_a_read_b"));
+    mk_assert_long_eq(7, (long)miku_msggw_get_user_read(gw, "read_a", "si_6_read_a_read_b"));
+    mk_assert_long_eq(0, (long)miku_msggw_get_user_read(gw, "read_x", "si_6_read_a_read_b"));
     close(fd_x);
 
     close(fd_a);
