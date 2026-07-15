@@ -166,6 +166,15 @@ static void test_friend_add_and_check(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(blk_resp, "errCode")));
     mk_assert(miku_friend_is_black(svc, "u1", "u3"));
     miku_json_destroy(blk_resp);
+    miku_json_val_t *blk_self = miku_json_create_object();
+    miku_json_object_set(blk_self, "ownerUserID", miku_json_create_str("u1"));
+    miku_json_object_set(blk_self, "friendUserID", miku_json_create_str("u1"));
+    blk_resp = miku_json_create_object();
+    miku_friend_handle_rpc(svc, "addBlack", blk_self, blk_resp);
+    mk_assert_int_ne(0, (int)miku_json_int(miku_json_get(blk_resp, "errCode")));
+    mk_assert(!miku_friend_is_black(svc, "u1", "u1"));
+    miku_json_destroy(blk_self);
+    miku_json_destroy(blk_resp);
     blk_resp = miku_json_create_object();
     miku_friend_handle_rpc(svc, "getBlackList", blk, blk_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(blk_resp, "errCode")));

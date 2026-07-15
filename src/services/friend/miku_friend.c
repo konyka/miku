@@ -224,7 +224,9 @@ static int black_pair_find(miku_friend_service_t *svc, const char *owner, const 
 }
 
 static int black_add(miku_friend_service_t *svc, const char *owner, const char *uid) {
-    if (!svc || !owner || !uid || svc->black_count >= MK_MAX_FRIENDS) return -1;
+    if (!svc || !owner || !owner[0] || !uid || !uid[0] || svc->black_count >= MK_MAX_FRIENDS)
+        return -1;
+    if (strcmp(owner, uid) == 0) return -1;
     if (black_pair_find(svc, owner, uid) >= 0) return 0; /* idempotent */
     int bi = svc->black_count++;
     miku_friend_t *b = &svc->blacks[bi];
