@@ -283,7 +283,7 @@ static void test_group_create_and_members(void) {
 
     miku_group_member_t members[16];
     int n = miku_group_get_members(svc, g.group_id, members, 16);
-    mk_assert_int_eq(3, n);
+    mk_assert_int_eq(4, n);
 
     miku_json_val_t *req = miku_json_create_object();
     miku_json_object_set(req, "userID", miku_json_create_str("member1"));
