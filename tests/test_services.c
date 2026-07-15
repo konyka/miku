@@ -292,6 +292,24 @@ static void test_group_create_and_members(void) {
     miku_json_destroy(joined);
     miku_json_destroy(joined_resp);
 
+    /* Cannot re-join a dismissed group or a missing groupID. */
+    miku_json_val_t *rejoin = miku_json_create_object();
+    miku_json_object_set(rejoin, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(rejoin, "userID", miku_json_create_str("outsider"));
+    miku_json_val_t *rejoin_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "joinGroup", rejoin, rejoin_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(rejoin_resp, "errCode")));
+    miku_json_destroy(rejoin);
+    miku_json_destroy(rejoin_resp);
+    miku_json_val_t *ghost = miku_json_create_object();
+    miku_json_object_set(ghost, "groupID", miku_json_create_str("no-such-group"));
+    miku_json_object_set(ghost, "userID", miku_json_create_str("outsider"));
+    miku_json_val_t *ghost_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "joinGroup", ghost, ghost_resp);
+    mk_assert_int_eq(3001, (int)miku_json_int(miku_json_get(ghost_resp, "errCode")));
+    miku_json_destroy(ghost);
+    miku_json_destroy(ghost_resp);
+
     miku_group_service_destroy(svc);
 }
 
