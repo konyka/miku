@@ -517,6 +517,13 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             const char *action = miku_json_str(miku_json_get(j, "action"));
             if (target && action) {
                 if (strcmp(action, "subscribe") == 0) {
+                    if (gc->friend_svc && uid[0] && strcmp(uid, target) != 0
+                        && !miku_friend_is_friend(gc->friend_svc, uid, target)) {
+                        miku_json_destroy(j);
+                        reply_json(gc->gw, client_idx, opcode,
+                                   "{\"errCode\":3003,\"errMsg\":\"not friends\"}");
+                        break;
+                    }
                     miku_ws_sub_subscribe(gc->sub, subscriber, target);
                     MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS subscribe %s→%s",
                                 opcode, subscriber, target);

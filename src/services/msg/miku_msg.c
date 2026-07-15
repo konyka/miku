@@ -496,8 +496,15 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_MSG_RPC_getNewestSeq: {
+        const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        int64_t max = 0;
+        if (cid && cid[0]) {
+            for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
+                if (svc->msgs[mi].seq > max) max = svc->msgs[mi].seq;
+            }
+        }
         miku_ji(resp, "errCode", 0);
-        miku_ji(resp, "seq", (int)svc->seq);
+        miku_ji(resp, "seq", (int)max);
     } break;
     case MK_MSG_RPC_pullMsgBySeq: {
         int64_t begin = req ? miku_json_int(miku_json_get(req, "beginSeq")) : 0;

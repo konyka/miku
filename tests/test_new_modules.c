@@ -1677,6 +1677,11 @@ static void test_http_e2e_msg_send_and_search(void) {
     const char *smid = miku_json_str(miku_json_get(r, "serverMsgID"));
     mk_assert_not_null(smid);
     mk_assert(strlen(smid) > 0);
+    char smid_copy[128];
+    strncpy(smid_copy, smid, sizeof(smid_copy) - 1);
+    smid_copy[sizeof(smid_copy) - 1] = '\0';
+    int64_t sent_seq = miku_json_int(miku_json_get(r, "seq"));
+    mk_assert(sent_seq > 0);
     miku_json_destroy(r);
 
     char conv_s[8192] = {0};
@@ -1749,6 +1754,42 @@ static void test_http_e2e_msg_send_and_search(void) {
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);
     mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    /* Existence oracle: unauthorized get-by-seq / get_msg must match "not found". */
+    char body_seq[256];
+    snprintf(body_seq, sizeof(body_seq), "{\"seq\":%lld}", (long long)sent_seq);
+    char get_seq_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/get_by_seq", tok_x, body_seq, get_seq_bad, sizeof(get_seq_bad));
+    r = miku_json_parse_str(extract_json_body(get_seq_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(r, "data")));
+    miku_json_destroy(r);
+    char body_smid[256];
+    snprintf(body_smid, sizeof(body_smid), "{\"serverMsgID\":\"%s\"}", smid_copy);
+    char get_msg_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/get_msg", tok_x, body_smid, get_msg_bad, sizeof(get_msg_bad));
+    r = miku_json_parse_str(extract_json_body(get_msg_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(r, "data")));
+    miku_json_destroy(r);
+    char check_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/check_msg_is_send_success", tok_x, body_smid,
+                         check_bad, sizeof(check_bad));
+    r = miku_json_parse_str(extract_json_body(check_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "status")));
+    miku_json_destroy(r);
+    char newest_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/newest_seq", tok_x,
+        "{\"conversationID\":\"si_2_r1_s1\"}", newest_bad, sizeof(newest_bad));
+    r = miku_json_parse_str(extract_json_body(newest_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "seq")));
     miku_json_destroy(r);
 
     /* Underscore UIDs: length-prefix prevents si_ collision IDOR (a vs a_b). */

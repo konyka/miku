@@ -972,47 +972,54 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "getNewestSeq") == 0) {
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
-        if (cid && cid[0] && (!actor[0] || !api_may_access_conv(c, actor, cid))) {
+        if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
             miku_json_destroy(j); miku_json_destroy(out);
-            miku_http_response_set_json(resp,
-                "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
-            resp->status = 403;
+            miku_http_response_set_json(resp, "{\"errCode\":0,\"seq\":0}");
             return;
         }
     }
     miku_msg_handle_rpc(c->msg, method, j, out);
 
-    /* getMsg / getMsgBySeq / searchMsg: drop or deny non-participant results. */
+    /* getMsg / getMsgBySeq / searchMsg: drop non-participant results (no 3003 oracle). */
     if (actor[0] && (strcmp(method, "getMsg") == 0 || strcmp(method, "getMsgBySeq") == 0
                      || strcmp(method, "searchMsg") == 0)) {
         miku_json_val_t *data = miku_json_get(out, "data");
         if (data && miku_json_size(data) > 0) {
-            if (strcmp(method, "searchMsg") == 0) {
-                miku_json_val_t *filtered = miku_json_create_array();
-                size_t n = miku_json_size(data);
-                for (size_t i = 0; i < n; i++) {
-                    miku_json_val_t *msg = miku_json_at(data, i);
-                    const char *cid = miku_json_str(miku_json_get(msg, "conversationID"));
-                    if (!cid || !api_may_access_conv(c, actor, cid)) continue;
-                    miku_string_t *ss = miku_json_stringify(msg);
-                    if (ss && ss->data) {
-                        miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
-                        if (copy) miku_json_array_push(filtered, copy);
-                    }
-                    miku_str_destroy(ss);
-                }
-                miku_json_object_set(out, "data", filtered);
-            } else {
-                miku_json_val_t *msg = miku_json_at(data, 0);
+            miku_json_val_t *filtered = miku_json_create_array();
+            size_t n = miku_json_size(data);
+            for (size_t i = 0; i < n; i++) {
+                miku_json_val_t *msg = miku_json_at(data, i);
                 const char *cid = miku_json_str(miku_json_get(msg, "conversationID"));
-                if (!cid || !api_may_access_conv(c, actor, cid)) {
-                    miku_json_destroy(j); miku_json_destroy(out);
-                    miku_http_response_set_json(resp,
-                        "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
-                    resp->status = 403;
-                    return;
+                if (!cid || !api_may_access_conv(c, actor, cid)) continue;
+                miku_string_t *ss = miku_json_stringify(msg);
+                if (ss && ss->data) {
+                    miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
+                    if (copy) miku_json_array_push(filtered, copy);
                 }
+                miku_str_destroy(ss);
             }
+            miku_json_object_set(out, "data", filtered);
+        }
+    }
+    if (actor[0] && strcmp(method, "checkMsgIsSendSuccess") == 0) {
+        int64_t st = miku_json_int(miku_json_get(out, "status"));
+        if (st != 0) {
+            const char *smid = miku_json_str(miku_json_get(j, "serverMsgID"));
+            int ok = 0;
+            if (smid && smid[0]) {
+                miku_json_val_t *gq = miku_json_create_object();
+                miku_jss(gq, "serverMsgID", smid);
+                miku_json_val_t *gr = miku_json_create_object();
+                miku_msg_handle_rpc(c->msg, "getMsg", gq, gr);
+                miku_json_val_t *data = miku_json_get(gr, "data");
+                if (data && miku_json_size(data) > 0) {
+                    const char *cid = miku_json_str(miku_json_get(miku_json_at(data, 0), "conversationID"));
+                    if (cid && api_may_access_conv(c, actor, cid)) ok = 1;
+                }
+                miku_json_destroy(gq);
+                miku_json_destroy(gr);
+            }
+            if (!ok) miku_ji(out, "status", 0);
         }
     }
 
