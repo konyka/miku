@@ -731,7 +731,9 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     const char *method = api_rpc_method(req, "sendMsg");
     char actor[128] = {0};
     if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
-        if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0)
+        if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
+            || strcmp(method, "send") == 0
+            || strcmp(method, "sendBusinessNotification") == 0)
             miku_jss(j, "sendID", actor);
         else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0
                  || strcmp(method, "deleteMsgPhysical") == 0
@@ -743,7 +745,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                  || strcmp(method, "markMsgsAsRead") == 0)
             miku_jss(j, "userID", actor);
     }
-    if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0) {
+    if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
+        || strcmp(method, "send") == 0) {
         if (require_fields(j, resp, "sendID", "content", (const char *)NULL)) {
             miku_json_destroy(j); return;
         }
@@ -786,7 +789,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     }
     miku_msg_handle_rpc(c->msg, method, j, out);
 
-    if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0) {
+    if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
+        || strcmp(method, "send") == 0) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
         if (err == 0) {
             const char *send_id = miku_json_str(miku_json_get(j, "sendID"));
@@ -860,7 +864,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     if (c->webhook) {
         int64_t wh_err = miku_json_int(miku_json_get(out, "errCode"));
         if (wh_err == 0 &&
-            (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0)) {
+            (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
+             || strcmp(method, "send") == 0)) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
             const char *rid = miku_json_str(miku_json_get(j, "recvID"));
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));
