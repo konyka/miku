@@ -479,6 +479,27 @@ static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *c
     return 0;
 }
 
+/* Keep only owner + friends in createGroup member lists (block force-add strangers). */
+static void filter_group_create_member_ids(miku_api_ctx_t *c, const char *owner,
+                                          miku_json_val_t *j) {
+    if (!c || !owner || !owner[0] || !j) return;
+    static const char *keys[] = {"memberUserIDs", "invitedUserIDs"};
+    for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
+        miku_json_val_t *ids = miku_json_get(j, keys[k]);
+        if (!ids || miku_json_type(ids) != MK_JSON_ARRAY) continue;
+        miku_json_val_t *filtered = miku_json_create_array();
+        size_t n = miku_json_size(ids);
+        for (size_t i = 0; i < n; i++) {
+            const char *u = miku_json_str(miku_json_at(ids, i));
+            if (!u || !u[0]) continue;
+            if (strcmp(u, owner) == 0
+                || miku_friend_is_friend(c->friend_svc, owner, u))
+                miku_json_array_push(filtered, miku_json_create_str(u));
+        }
+        miku_json_object_set(j, keys[k], filtered);
+    }
+}
+
 static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
@@ -689,6 +710,8 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     }
     if (strcmp(method, "createGroup") == 0) {
         if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { miku_json_destroy(j); return; }
+        const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
+        if (owner && owner[0]) filter_group_create_member_ids(c, owner, j);
     } else if (strcmp(method, "joinGroup") == 0 || strcmp(method, "quitGroup") == 0
                || strcmp(method, "dismissGroup") == 0
                || strcmp(method, "transferGroupOwner") == 0) {

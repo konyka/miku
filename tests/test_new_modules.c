@@ -1890,7 +1890,8 @@ static void test_group_member_sync_callback(void) {
 
     char resp[8192] = {0};
     http_post_with_token(19850, "/group/create", tok,
-        "{\"ownerUserID\":\"gm_owner\",\"groupName\":\"sync group\"}", resp, sizeof(resp));
+        "{\"ownerUserID\":\"gm_owner\",\"groupName\":\"sync group\","
+        "\"memberUserIDs\":[\"stranger_not_friend\"]}", resp, sizeof(resp));
     miku_json_val_t *r = miku_json_parse_str(extract_json_body(resp));
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
