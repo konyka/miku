@@ -653,6 +653,18 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             miku_http_response_set_json(resp, "{\"errCode\":400,\"errMsg\":\"missing opUserID\"}");
             return;
         }
+    } else if (strcmp(method, "getGroupMemberList") == 0
+               || strcmp(method, "getGroupMemberUserID") == 0
+               || strcmp(method, "getFullGroupMemberUserIDs") == 0) {
+        const char *gid = miku_json_str(miku_json_get(j, "groupID"));
+        if (!actor[0] || !gid || !gid[0]
+            || !miku_group_is_member(c->group_svc, gid, actor)) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"not a group member\"}");
+            resp->status = 403;
+            return;
+        }
     }
 
     /* Snapshot members before dismiss clears them (for gateway sync). */

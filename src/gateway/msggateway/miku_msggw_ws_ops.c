@@ -463,16 +463,19 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                 size_t n = miku_json_size(ids);
                 for (size_t i = 0; i < n; i++) {
                     const char *cid = miku_json_str(miku_json_at(ids, i));
-                    fill_read_seq_entry(gc->gw, uid, cid, map);
+                    if (cid && cid[0] && ws_may_access_conv(gc, uid, cid))
+                        fill_read_seq_entry(gc->gw, uid, cid, map);
                 }
             } else {
                 const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
-                fill_read_seq_entry(gc->gw, uid, cid, map);
+                if (cid && cid[0] && ws_may_access_conv(gc, uid, cid))
+                    fill_read_seq_entry(gc->gw, uid, cid, map);
             }
             /* Optional mark-as-read in same round-trip: hasReadSeq + conversationID */
             const char *mark_cid = miku_json_str(miku_json_get(j, "conversationID"));
             int64_t mark_seq = miku_json_int(miku_json_get(j, "hasReadSeq"));
-            if (mark_cid && mark_cid[0] && mark_seq > 0 && uid[0]) {
+            if (mark_cid && mark_cid[0] && mark_seq > 0 && uid[0]
+                && ws_may_access_conv(gc, uid, mark_cid)) {
                 miku_msggw_set_user_read(gc->gw, uid, mark_cid, mark_seq);
                 fill_read_seq_entry(gc->gw, uid, mark_cid, map);
             }
