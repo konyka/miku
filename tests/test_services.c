@@ -134,6 +134,7 @@ static void test_friend_add_and_check(void) {
 
     int rc = miku_friend_add(svc, "u1", "u2", "my friend");
     mk_assert_int_eq(0, rc);
+    mk_assert_int_eq(-1, miku_friend_add(svc, "u1", "u1", "self"));
 
     bool is = miku_friend_is_friend(svc, "u1", "u2");
     mk_assert(is);

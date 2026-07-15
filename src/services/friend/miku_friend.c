@@ -117,7 +117,8 @@ miku_friend_service_t *miku_friend_service_create(void) {
 void miku_friend_service_destroy(miku_friend_service_t *svc) { free(svc); }
 
 int miku_friend_add(miku_friend_service_t *svc, const char *owner, const char *fuid, const char *remark) {
-    if (!svc || !owner || !fuid || svc->count >= MK_MAX_FRIENDS) return -1;
+    if (!svc || !owner || !owner[0] || !fuid || !fuid[0] || svc->count >= MK_MAX_FRIENDS) return -1;
+    if (strcmp(owner, fuid) == 0) return -1;
     if (pair_hash_find(svc, owner, fuid) >= 0) return -2;
     int fi = svc->count++;
     miku_friend_t *f = &svc->friends[fi];
