@@ -628,7 +628,7 @@ Middleware executes in chain order before route handlers. Chain: **CORS → requ
 | `miku_mw_cors` | Sets `Access-Control-Allow-*` headers for cross-origin requests |
 | `miku_mw_request_id` | Generates unique `X-Request-ID` (UUID v4) per request, propagates to response |
 | `miku_mw_logging` | Access log: method, path, status code, latency, request ID |
-| `miku_mw_auth` | Cryptographic token validation (`miku\|uid\|platform\|ts\|nonce\|sig`, FNV-1a over secret), returns 401 on failure. Public: `/auth/user_token`, `/auth/admin_token`, `/auth/parse_token`, `/admin/health`, `/admin/metrics`, `/version`, `/prometheus*`. `force_logout` requires auth. |
+| `miku_mw_auth` | Cryptographic token validation (`miku\|uid\|platform\|ts\|nonce\|sig`, FNV-1a over secret), returns 401 on failure. Public: `/auth/user_token`, `/auth/admin_token`, `/auth/parse_token`, `/admin/health`, `/admin/metrics`, `/version`, `/prometheus*`. `force_logout` requires auth; `/admin/stats` and `/admin/shutdown` require admin token (platform 5). |
 | `miku_mw_stats` | Increments request/error counters in `miku_stats_t` |
 
 ```c
