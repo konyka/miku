@@ -1407,6 +1407,28 @@ static void test_http_e2e_user_register_and_get(void) {
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
+
+    char upd[8192] = {0};
+    http_post_with_token(19777, "/user/update_user_info", token,
+        "{\"userID\":\"forged_other\",\"nickname\":\"Bound Alice\"}", upd, sizeof(upd));
+    body = extract_json_body(upd);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char get2[8192] = {0};
+    n = http_post_with_token(19777, "/user/get_users_info", token,
+        "{\"userIDList\":[\"http_u1\"]}", get2, sizeof(get2));
+    mk_assert(n > 0);
+    body = extract_json_body(get2);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    miku_json_val_t *udata = miku_json_get(r, "data");
+    mk_assert_not_null(udata);
+    mk_assert(miku_json_size(udata) >= 1);
+    mk_assert_str_eq("Bound Alice",
+        miku_json_str(miku_json_get(miku_json_at(udata, 0), "nickname")));
+    miku_json_destroy(r);
     if (auth_r) miku_json_destroy(auth_r);
 
     miku_http_server_stop(srv);

@@ -534,6 +534,11 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getUserInfo");
+    char actor[128] = {0};
+    if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
+        if (strcmp(method, "updateUserInfo") == 0 || strcmp(method, "updateUserInfoEx") == 0)
+            miku_jss(j, "userID", actor);
+    }
     if (strcmp(method, "registerUser") == 0 || strcmp(method, "updateUserInfo") == 0
         || strcmp(method, "updateUserInfoEx") == 0 || strcmp(method, "setGlobalRecvMessageOpt") == 0) {
         if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); return; }
