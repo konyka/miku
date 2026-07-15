@@ -356,7 +356,16 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         const char *from = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!from || !from[0]) from = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
-        if (!gid || !from || !from[0] || miku_group_member_role(svc, gid, from) < 20) {
+        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        if (!g) {
+            miku_ji(resp, "errCode", 3001);
+            break;
+        }
+        if (g->status != 0) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
+        if (!from || !from[0] || miku_group_member_role(svc, gid, from) < 20) {
             miku_ji(resp, "errCode", 3003);
             break;
         }

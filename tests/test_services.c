@@ -310,6 +310,26 @@ static void test_group_create_and_members(void) {
     miku_json_destroy(ghost);
     miku_json_destroy(ghost_resp);
 
+    /* inviteToGroup also rejects missing / dismissed groups. */
+    miku_json_val_t *inv_ghost = miku_json_create_object();
+    miku_json_object_set(inv_ghost, "groupID", miku_json_create_str("no-such-group"));
+    miku_json_object_set(inv_ghost, "fromUserID", miku_json_create_str("outsider"));
+    miku_json_object_set(inv_ghost, "userID", miku_json_create_str("victim"));
+    miku_json_val_t *inv_ghost_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "inviteToGroup", inv_ghost, inv_ghost_resp);
+    mk_assert_int_eq(3001, (int)miku_json_int(miku_json_get(inv_ghost_resp, "errCode")));
+    miku_json_destroy(inv_ghost);
+    miku_json_destroy(inv_ghost_resp);
+    miku_json_val_t *inv_dis = miku_json_create_object();
+    miku_json_object_set(inv_dis, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(inv_dis, "fromUserID", miku_json_create_str("member1"));
+    miku_json_object_set(inv_dis, "userID", miku_json_create_str("victim"));
+    miku_json_val_t *inv_dis_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "inviteToGroup", inv_dis, inv_dis_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(inv_dis_resp, "errCode")));
+    miku_json_destroy(inv_dis);
+    miku_json_destroy(inv_dis_resp);
+
     miku_group_service_destroy(svc);
 }
 
