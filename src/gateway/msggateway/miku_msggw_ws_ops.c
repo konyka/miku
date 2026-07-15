@@ -368,6 +368,11 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
 
         /* Read receipt: update hasReadSeq, then PUSH to peer(s) without alloc/store. */
         if (im.content_type == MK_IM_MSG_TYPE_READ) {
+            if (!conv[0] || !ws_may_access_conv(gc, uid, conv)) {
+                reply_json(gc->gw, client_idx, opcode,
+                           "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+                break;
+            }
             int64_t rs = has_read_seq > 0 ? has_read_seq : im.seq;
             if (rs > 0 && uid[0])
                 miku_msggw_set_user_read(gc->gw, uid, conv, rs);

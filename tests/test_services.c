@@ -1092,6 +1092,32 @@ static void test_msggateway_read_receipt_fanout(void) {
     mk_assert(strstr(json, "302") != NULL);
     mk_assert_long_eq(7, (long)miku_msggw_get_user_read(gw, "read_a", "si_read_a_read_b"));
 
+    /* Stranger cannot forge a READ receipt into someone else's conversation. */
+    int fd_x = -1;
+    mk_assert_int_eq(0, ws_connect_user(gw, 19225, "read_x", &fd_x));
+    const char *bad_frame =
+        "{\"reqIdentifier\":1003,\"data\":{\"sendID\":\"read_x\","
+        "\"conversationID\":\"si_read_a_read_b\",\"contentType\":302,"
+        "\"hasReadSeq\":99,\"content\":\"read\"}}";
+    mk_assert_int_eq(0, ws_client_send_text_masked(fd_x, bad_frame));
+    miku_msggw_poll(gw, 500);
+    {
+        uint8_t dump[2048];
+        struct pollfd pfd = { .fd = fd_x, .events = POLLIN };
+        mk_assert(poll(&pfd, 1, 500) > 0);
+        ssize_t rn = read(fd_x, dump, sizeof(dump) - 1);
+        mk_assert(rn > 0);
+        const char *ack = NULL;
+        for (ssize_t i = 0; i < rn; i++) {
+            if (dump[i] == '{') { ack = (const char *)(dump + i); break; }
+        }
+        mk_assert_not_null(ack);
+        mk_assert(strstr(ack, "3003") != NULL);
+    }
+    mk_assert_long_eq(7, (long)miku_msggw_get_user_read(gw, "read_a", "si_read_a_read_b"));
+    mk_assert_long_eq(0, (long)miku_msggw_get_user_read(gw, "read_x", "si_read_a_read_b"));
+    close(fd_x);
+
     close(fd_a);
     close(fd_b);
     miku_msggw_stop(gw);
