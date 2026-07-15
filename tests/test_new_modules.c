@@ -1489,9 +1489,16 @@ static void test_http_e2e_msg_send_and_search(void) {
     const char *token = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
     mk_assert(token && token[0]);
 
+    char auth_r1[8192] = {0};
+    http_post_to(19780, "/auth/user_token",
+        "{\"userID\":\"r1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_r1, sizeof(auth_r1));
+    miku_json_val_t *ar_r1 = miku_json_parse_str(extract_json_body(auth_r1));
+    const char *tok_r1 = ar_r1 ? miku_json_str(miku_json_get(ar_r1, "token")) : NULL;
+    mk_assert(tok_r1 && tok_r1[0]);
+
     char resp[8192] = {0};
     http_post_with_token(19780, "/msg/send_msg", token,
-        "{\"sendID\":\"s1\",\"recvID\":\"r1\",\"content\":\"e2e test message\",\"msgType\":101,\"clientMsgID\":\"cm_e2e_1\"}",
+        "{\"sendID\":\"forged\",\"recvID\":\"r1\",\"content\":\"e2e test message\",\"msgType\":101,\"clientMsgID\":\"cm_e2e_1\"}",
         resp, sizeof(resp));
     char *body = extract_json_body(resp);
     miku_json_val_t *r = miku_json_parse_str(body);
@@ -1504,7 +1511,7 @@ static void test_http_e2e_msg_send_and_search(void) {
 
     char conv_s[8192] = {0};
     http_post_with_token(19780, "/conversation/get_all_conversations", token,
-        "{\"ownerUserID\":\"s1\"}", conv_s, sizeof(conv_s));
+        "{\"ownerUserID\":\"forged\"}", conv_s, sizeof(conv_s));
     body = extract_json_body(conv_s);
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);
@@ -1518,8 +1525,8 @@ static void test_http_e2e_msg_send_and_search(void) {
     miku_json_destroy(r);
 
     char conv_r[8192] = {0};
-    http_post_with_token(19780, "/conversation/get_all_conversations", token,
-        "{\"ownerUserID\":\"r1\"}", conv_r, sizeof(conv_r));
+    http_post_with_token(19780, "/conversation/get_all_conversations", tok_r1,
+        "{\"ownerUserID\":\"forged\"}", conv_r, sizeof(conv_r));
     body = extract_json_body(conv_r);
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);
@@ -1533,11 +1540,11 @@ static void test_http_e2e_msg_send_and_search(void) {
     miku_json_destroy(r);
 
     char mark[8192] = {0};
-    http_post_with_token(19780, "/msg/mark_conversation_as_read", token,
-        "{\"userID\":\"r1\",\"conversationID\":\"si_r1_s1\"}", mark, sizeof(mark));
+    http_post_with_token(19780, "/msg/mark_conversation_as_read", tok_r1,
+        "{\"userID\":\"forged\",\"conversationID\":\"si_r1_s1\"}", mark, sizeof(mark));
     char conv_r2[8192] = {0};
-    http_post_with_token(19780, "/conversation/get_all_conversations", token,
-        "{\"ownerUserID\":\"r1\"}", conv_r2, sizeof(conv_r2));
+    http_post_with_token(19780, "/conversation/get_all_conversations", tok_r1,
+        "{\"ownerUserID\":\"forged\"}", conv_r2, sizeof(conv_r2));
     body = extract_json_body(conv_r2);
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);
@@ -1558,6 +1565,7 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(1, (int)miku_json_size(data));
     miku_json_destroy(r);
     if (ar) miku_json_destroy(ar);
+    if (ar_r1) miku_json_destroy(ar_r1);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -1744,18 +1752,25 @@ static void test_group_member_sync_callback(void) {
     mk_assert_str_eq("gm_owner", g_gm_last_uid);
     mk_assert_int_eq(100, g_gm_last_role);
 
+    char auth2[8192] = {0};
+    http_post_to(19850, "/auth/user_token",
+        "{\"userID\":\"gm_u2\",\"secret\":\"openIM123\",\"platformID\":1}", auth2, sizeof(auth2));
+    miku_json_val_t *ar2 = miku_json_parse_str(extract_json_body(auth2));
+    const char *tok2 = ar2 ? miku_json_str(miku_json_get(ar2, "token")) : NULL;
+    mk_assert(tok2 && tok2[0]);
+
     char join[8192] = {0};
     char body[256];
-    snprintf(body, sizeof(body), "{\"userID\":\"gm_u2\",\"groupID\":\"%s\"}", gid);
-    http_post_with_token(19850, "/group/join", tok, body, join, sizeof(join));
+    snprintf(body, sizeof(body), "{\"userID\":\"forged\",\"groupID\":\"%s\"}", gid);
+    http_post_with_token(19850, "/group/join", tok2, body, join, sizeof(join));
     mk_assert_int_eq(2, g_gm_sync_count);
     mk_assert_str_eq("gm_u2", g_gm_last_uid);
     mk_assert_int_eq(20, g_gm_last_role);
     mk_assert_int_eq(0, g_gm_last_remove);
 
     char quit[8192] = {0};
-    snprintf(body, sizeof(body), "{\"userID\":\"gm_u2\",\"groupID\":\"%s\"}", gid);
-    http_post_with_token(19850, "/group/quit", tok, body, quit, sizeof(quit));
+    snprintf(body, sizeof(body), "{\"userID\":\"forged\",\"groupID\":\"%s\"}", gid);
+    http_post_with_token(19850, "/group/quit", tok2, body, quit, sizeof(quit));
     mk_assert_int_eq(3, g_gm_sync_count);
     mk_assert_str_eq("gm_u2", g_gm_last_uid);
     mk_assert_int_eq(1, g_gm_last_remove);
@@ -1771,6 +1786,7 @@ static void test_group_member_sync_callback(void) {
 
     miku_json_destroy(r);
     if (ar) miku_json_destroy(ar);
+    if (ar2) miku_json_destroy(ar2);
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
     miku_http_server_destroy(srv);

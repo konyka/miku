@@ -408,6 +408,18 @@ static int verify_token(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_r
     return 0;
 }
 
+/* Fill uid from token header; returns 0 on success. */
+static int req_token_uid(miku_api_ctx_t *c, miku_http_request_t *req, char *uid, size_t cap) {
+    if (!uid || cap == 0) return -1;
+    uid[0] = '\0';
+    if (!c || !c->auth || !req || !req->headers) return -1;
+    const char *token = (const char *)miku_hashmap_get(req->headers, "token");
+    if (!token) token = (const char *)miku_hashmap_get(req->headers, "authorization");
+    if (token && strncmp(token, "Bearer ", 7) == 0) token += 7;
+    if (!token || !token[0]) return -1;
+    return miku_auth_parse_token(c->auth, token, uid, cap);
+}
+
 static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (check_ratelimit(c, req, resp)) return;
@@ -496,6 +508,16 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getFriendList");
+    char actor[128] = {0};
+    if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
+        if (strcmp(method, "addFriend") == 0 || strcmp(method, "addBlack") == 0
+            || strcmp(method, "deleteFriend") == 0 || strcmp(method, "removeBlack") == 0
+            || strcmp(method, "setFriendRemark") == 0 || strcmp(method, "getFriendList") == 0
+            || strcmp(method, "getBlackList") == 0)
+            miku_jss(j, "ownerUserID", actor);
+        if (strcmp(method, "isFriend") == 0)
+            miku_jss(j, "userID", actor);
+    }
     if (strcmp(method, "addFriend") == 0 || strcmp(method, "addBlack") == 0
         || strcmp(method, "deleteFriend") == 0 || strcmp(method, "removeBlack") == 0) {
         if (require_fields(j, resp, "ownerUserID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); return; }
@@ -527,6 +549,19 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getGroupInfo");
+    char actor[128] = {0};
+    if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
+        if (strcmp(method, "createGroup") == 0)
+            miku_jss(j, "ownerUserID", actor);
+        else if (strcmp(method, "joinGroup") == 0 || strcmp(method, "quitGroup") == 0
+                 || strcmp(method, "dismissGroup") == 0
+                 || strcmp(method, "transferGroupOwner") == 0)
+            miku_jss(j, "userID", actor);
+        else if (strcmp(method, "kickGroupMember") == 0)
+            miku_jss(j, "opUserID", actor);
+        else if (strcmp(method, "inviteToGroup") == 0)
+            miku_jss(j, "fromUserID", actor);
+    }
     if (strcmp(method, "createGroup") == 0) {
         if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "joinGroup") == 0 || strcmp(method, "quitGroup") == 0
@@ -649,6 +684,11 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getConversation");
+    char actor[128] = {0};
+    if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
+        miku_jss(j, "ownerUserID", actor);
+        miku_jss(j, "userID", actor);
+    }
     if (strcmp(method, "setConversation") == 0 || strcmp(method, "deleteConversation") == 0) {
         if (require_fields(j, resp, "conversationID", (const char *)NULL)) { miku_json_destroy(j); return; }
         const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
@@ -673,6 +713,17 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "sendMsg");
+    char actor[128] = {0};
+    if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
+        if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0)
+            miku_jss(j, "sendID", actor);
+        else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0
+                 || strcmp(method, "userClearAllMsg") == 0
+                 || strcmp(method, "markConversationAsRead") == 0
+                 || strcmp(method, "setConversationHasReadSeq") == 0
+                 || strcmp(method, "markMsgsAsRead") == 0)
+            miku_jss(j, "userID", actor);
+    }
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0) {
         if (require_fields(j, resp, "sendID", "content", (const char *)NULL)) {
             miku_json_destroy(j); return;
