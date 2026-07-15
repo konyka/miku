@@ -568,8 +568,31 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
             resp->status = 403;
             return;
         }
+    } else if (strcmp(method, "searchUser") == 0) {
+        if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
     }
     miku_user_handle_rpc(c->user, method, j, out);
+    /* Non-admin search: exact userID only — block nickname/userID substring sweeps. */
+    if (strcmp(method, "searchUser") == 0 && req_token_platform(req) != 5) {
+        const char *kw = miku_json_str(miku_json_get(j, "keyword"));
+        miku_json_val_t *data = miku_json_get(out, "data");
+        miku_json_val_t *filtered = miku_json_create_array();
+        if (kw && kw[0] && data && miku_json_type(data) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(data);
+            for (size_t i = 0; i < n; i++) {
+                miku_json_val_t *u = miku_json_at(data, i);
+                const char *uid = miku_json_str(miku_json_get(u, "userID"));
+                if (!uid || strcmp(uid, kw) != 0) continue;
+                miku_string_t *ss = miku_json_stringify(u);
+                if (ss && ss->data) {
+                    miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
+                    if (copy) miku_json_array_push(filtered, copy);
+                }
+                miku_str_destroy(ss);
+            }
+        }
+        miku_json_object_set(out, "data", filtered);
+    }
     if (c->webhook && strcmp(method, "registerUser") == 0) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
         if (err == 0) {

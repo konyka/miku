@@ -1479,6 +1479,26 @@ static void test_http_e2e_user_register_and_get(void) {
     mk_assert_str_eq("reg_bind",
         miku_json_str(miku_json_get(miku_json_at(udata, 0), "userID")));
     miku_json_destroy(r);
+
+    char search_sub[8192] = {0};
+    http_post_with_token(19777, "/user/search", tok_rb,
+        "{\"keyword\":\"reg\"}", search_sub, sizeof(search_sub));
+    r = miku_json_parse_str(extract_json_body(search_sub));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    udata = miku_json_get(r, "data");
+    mk_assert_not_null(udata);
+    mk_assert_int_eq(0, (int)miku_json_size(udata));
+    miku_json_destroy(r);
+    char search_exact[8192] = {0};
+    http_post_with_token(19777, "/user/search", tok_rb,
+        "{\"keyword\":\"http_u1\"}", search_exact, sizeof(search_exact));
+    r = miku_json_parse_str(extract_json_body(search_exact));
+    mk_assert_not_null(r);
+    udata = miku_json_get(r, "data");
+    mk_assert_not_null(udata);
+    mk_assert_int_eq(1, (int)miku_json_size(udata));
+    miku_json_destroy(r);
     if (ar_rb) miku_json_destroy(ar_rb);
     if (auth_r) miku_json_destroy(auth_r);
 
