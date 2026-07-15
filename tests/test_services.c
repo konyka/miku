@@ -232,6 +232,37 @@ static void test_conv_create_and_get(void) {
     miku_json_destroy(req);
     miku_json_destroy(resp);
 
+    /* API-style setConversation uses userID as owner */
+    miku_json_val_t *set = miku_json_create_object();
+    miku_json_object_set(set, "userID", miku_json_create_str("u2"));
+    miku_json_object_set(set, "conversationID", miku_json_create_str("conv_u2"));
+    miku_json_object_set(set, "conversationType", miku_json_create_int(1));
+    miku_json_val_t *set_resp = miku_json_create_object();
+    miku_conv_handle_rpc(svc, "setConversation", set, set_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(set_resp, "errCode")));
+    mk_assert_int_eq(0, miku_conv_get(svc, "u2", "conv_u2", &out));
+    miku_json_destroy(set);
+    miku_json_destroy(set_resp);
+
+    miku_json_val_t *pin = miku_json_create_object();
+    miku_json_object_set(pin, "userID", miku_json_create_str("u2"));
+    miku_json_object_set(pin, "conversationID", miku_json_create_str("conv_u2"));
+    miku_json_object_set(pin, "isPinned", miku_json_create_int(1));
+    miku_json_val_t *pin_resp = miku_json_create_object();
+    miku_conv_handle_rpc(svc, "pinConversation", pin, pin_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(pin_resp, "errCode")));
+    miku_json_destroy(pin);
+    miku_json_destroy(pin_resp);
+
+    miku_json_val_t *ids_req = miku_json_create_object();
+    miku_json_object_set(ids_req, "userID", miku_json_create_str("u2"));
+    miku_json_val_t *ids_resp = miku_json_create_object();
+    miku_conv_handle_rpc(svc, "getPinnedConversationIDs", ids_req, ids_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ids_resp, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_size(miku_json_get(ids_resp, "data")));
+    miku_json_destroy(ids_req);
+    miku_json_destroy(ids_resp);
+
     miku_conv_service_destroy(svc);
 }
 

@@ -127,6 +127,46 @@ int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c) {
     return 0;
 }
 
+static void indexes_rebuild(miku_conv_service_t *svc) {
+    for (int i = 0; i < MK_CONV_HASH; i++) {
+        svc->pair_hash[i] = -1;
+        svc->owner_hash[i] = -1;
+    }
+    for (int i = 0; i < MK_MAX_CONVS; i++) svc->owner_next[i] = -1;
+    for (int i = 0; i < svc->count; i++) {
+        conv_hash_insert(svc, i);
+        owner_link(svc, i);
+    }
+}
+
+static int conv_delete(miku_conv_service_t *svc, const char *owner, const char *cid) {
+    if (!svc || !owner || !cid) return -1;
+    int ci = conv_hash_find(svc, owner, cid);
+    if (ci < 0) return -2;
+    memmove(&svc->convs[ci], &svc->convs[ci + 1],
+            (size_t)(svc->count - ci - 1) * sizeof(miku_conversation_t));
+    svc->count--;
+    indexes_rebuild(svc);
+    return 0;
+}
+
+/* API often sends userID as the conversation owner (not peer). */
+static void conv_normalize_owner(miku_conversation_t *c, const miku_json_val_t *req) {
+    if (!c || c->owner_user_id[0]) return;
+    const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+    if (!uid || !uid[0]) return;
+    strncpy(c->owner_user_id, uid, sizeof(c->owner_user_id) - 1);
+    if (strcmp(c->user_id, uid) == 0)
+        c->user_id[0] = '\0';
+}
+
+static const char *conv_req_owner(const miku_json_val_t *req) {
+    const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+    if (!owner || !owner[0])
+        owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+    return owner;
+}
+
 
 enum {
     MK_CONV_RPC_getAllConversations = 0,
@@ -228,7 +268,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     switch (conv_rpc_id(method)) {
     case MK_CONV_RPC_getAllConversations:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *owner = conv_req_owner(req);
         int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 0;
         int max = (cnt > 0 && cnt < MK_MAX_CONVS) ? (int)cnt : MK_MAX_CONVS;
         miku_ji(resp, "errCode", 0);
@@ -238,7 +278,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } break;
     case MK_CONV_RPC_getConversation:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *owner = conv_req_owner(req);
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         miku_conversation_t c;
         int rc = miku_conv_get(svc, owner, cid, &c);
@@ -250,6 +290,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         miku_conversation_t c;
         memset(&c, 0, sizeof(c));
         miku_conversation_from_json(req, &c);
+        conv_normalize_owner(&c, req);
         int rc = miku_conv_update(svc, &c);
         if (rc == -2) rc = miku_conv_create(svc, &c);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
@@ -259,19 +300,22 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         miku_conversation_t c;
         memset(&c, 0, sizeof(c));
         miku_conversation_from_json(req, &c);
+        conv_normalize_owner(&c, req);
         if (miku_conv_update(svc, &c) == -2)
             miku_conv_create(svc, &c);
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_CONV_RPC_deleteConversation:
     {
-        miku_ji(resp, "errCode", 0);
+        const char *owner = conv_req_owner(req);
+        const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        int rc = (owner && cid) ? conv_delete(svc, owner, cid) : -1;
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 4001);
     } break;
     case MK_CONV_RPC_getConversationList:
     case MK_CONV_RPC_getConversations:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        const char *owner = conv_req_owner(req);
         int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 0;
         int max = (cnt > 0 && cnt < MK_MAX_CONVS) ? (int)cnt : MK_MAX_CONVS;
         miku_ji(resp, "errCode", 0);
@@ -281,8 +325,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } break;
     case MK_CONV_RPC_getActiveConversations:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        const char *owner = conv_req_owner(req);
         int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 0;
         int max = (cnt > 0 && cnt < MK_MAX_CONVS) ? (int)cnt : MK_MAX_CONVS;
         miku_ji(resp, "errCode", 0);
@@ -292,8 +335,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } break;
     case MK_CONV_RPC_getTotalUnreadMsgCount:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *owner = conv_req_owner(req);
         int64_t total = 0;
         if (owner) {
             for (int ci = owner_head(svc, owner); ci >= 0; ci = svc->owner_next[ci])
@@ -308,8 +350,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } break;
     case MK_CONV_RPC_markConversationMessageAsRead:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        const char *owner = conv_req_owner(req);
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         int rc = -1;
         if (owner && cid) {
@@ -327,16 +368,45 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } break;
     case MK_CONV_RPC_pinConversation:
     {
-        miku_ji(resp, "errCode", 0);
+        const char *owner = conv_req_owner(req);
+        const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        int64_t pinned = req ? miku_json_int(miku_json_get(req, "isPinned")) : 1;
+        int rc = -1;
+        if (owner && cid) {
+            int ci = conv_hash_find(svc, owner, cid);
+            if (ci >= 0) {
+                svc->convs[ci].is_pinned = pinned ? 1 : 0;
+                rc = 0;
+            }
+        }
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 4001);
     } break;
     case MK_CONV_RPC_deleteConversations:
     {
+        const char *owner = conv_req_owner(req);
+        miku_json_val_t *ids = req ? miku_json_get(req, "conversationIDs") : NULL;
+        if (!ids) ids = req ? miku_json_get(req, "conversationIDList") : NULL;
+        int deleted = 0;
+        if (owner && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+            size_t n = miku_json_size(ids);
+            for (size_t i = 0; i < n; i++) {
+                const char *cid = miku_json_str(miku_json_at(ids, i));
+                if (cid && conv_delete(svc, owner, cid) == 0) deleted++;
+            }
+        }
         miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "deleted", deleted);
     } break;
     case MK_CONV_RPC_getFullConversationIDs:
     {
+        const char *owner = conv_req_owner(req);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        if (owner) {
+            for (int ci = owner_head(svc, owner); ci >= 0; ci = svc->owner_next[ci])
+                miku_json_array_push(arr,
+                    miku_json_create_str(svc->convs[ci].conversation_id));
+        }
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_CONV_RPC_getIncrementalConversation:
@@ -353,25 +423,36 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } break;
     case MK_CONV_RPC_getOwnerConversation:
     {
+        const char *owner = conv_req_owner(req);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        if (owner) conv_owner_to_json_arr(svc, owner, arr, MK_MAX_CONVS, 0);
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_CONV_RPC_getPinnedConversationIDs:
     {
+        const char *owner = conv_req_owner(req);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        if (owner) {
+            for (int ci = owner_head(svc, owner); ci >= 0; ci = svc->owner_next[ci])
+                if (svc->convs[ci].is_pinned)
+                    miku_json_array_push(arr,
+                        miku_json_create_str(svc->convs[ci].conversation_id));
+        }
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_CONV_RPC_getSortedConversationList:
     {
+        const char *owner = conv_req_owner(req);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        if (owner) conv_owner_to_json_arr(svc, owner, arr, MK_MAX_CONVS, 0);
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_CONV_RPC_updateConversationsByUser:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *owner = conv_req_owner(req);
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         int updated = 0;
         if (owner && cid) {

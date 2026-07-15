@@ -347,11 +347,19 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_getGroupMemberList:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        miku_group_member_t list[16];
-        int n = miku_group_get_members(svc, gid, list, 16);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_group_member_to_json(&list[i]));
+        if (gid) {
+            int gi = group_index_find(svc, gid);
+            if (gi >= 0) {
+                for (int mi = svc->member_head[gi]; mi >= 0; mi = svc->member_next[mi])
+                    miku_json_array_push(arr, miku_group_member_to_json(&svc->members[mi]));
+            } else {
+                for (int i = 0; i < svc->member_count; i++)
+                    if (strcmp(svc->members[i].group_id, gid) == 0)
+                        miku_json_array_push(arr, miku_group_member_to_json(&svc->members[i]));
+            }
+        }
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_GROUP_RPC_getGroupsInfo:
@@ -456,25 +464,28 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_GROUP_RPC_getGroupMemberUserID:
+    case MK_GROUP_RPC_getFullGroupMemberUserIDs:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        miku_group_member_t list[16];
-        int n = miku_group_get_members(svc, gid, list, 16);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_json_create_str(list[i].user_id));
+        if (gid) {
+            int gi = group_index_find(svc, gid);
+            if (gi >= 0) {
+                for (int mi = svc->member_head[gi]; mi >= 0; mi = svc->member_next[mi])
+                    miku_json_array_push(arr, miku_json_create_str(svc->members[mi].user_id));
+            } else {
+                for (int i = 0; i < svc->member_count; i++)
+                    if (strcmp(svc->members[i].group_id, gid) == 0)
+                        miku_json_array_push(arr, miku_json_create_str(svc->members[i].user_id));
+            }
+        }
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_GROUP_RPC_muteGroupMember:
     case MK_GROUP_RPC_cancelMuteGroupMember:
     {
         miku_ji(resp, "errCode", 0);
-    } break;
-    case MK_GROUP_RPC_getFullGroupMemberUserIDs:
-    {
-        miku_ji(resp, "errCode", 0);
-        miku_json_val_t *arr = miku_json_create_array();
-        miku_json_object_set(resp, "data", arr);
     } break;
     case MK_GROUP_RPC_getFullJoinGroupIDs:
     {

@@ -381,11 +381,19 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int64_t start = req ? miku_json_int(miku_json_get(req, "startTime")) : 0;
         int64_t end = req ? miku_json_int(miku_json_get(req, "endTime")) : 0;
         int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 20;
-        miku_msg_t list[16];
-        int n = miku_msg_get_by_conv(svc, cid, start, end, (int)cnt, list, 16);
+        int max = (cnt > 0 && cnt < MK_MAX_MSGS) ? (int)cnt : 20;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        for (int i = 0; i < n; i++) miku_json_array_push(arr, miku_msg_to_json(&list[i]));
+        int n = 0;
+        if (cid) {
+            for (int mi = conv_head(svc, cid); mi >= 0 && n < max; mi = svc->conv_next[mi]) {
+                miku_msg_t *m = &svc->msgs[mi];
+                if (m->send_time >= start && (end == 0 || m->send_time <= end)) {
+                    miku_json_array_push(arr, miku_msg_to_json(m));
+                    n++;
+                }
+            }
+        }
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_MSG_RPC_revokeMsg: {
