@@ -541,6 +541,18 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             return;
         }
     }
+
+    /* Snapshot members before dismiss clears them (for gateway sync). */
+    miku_group_member_t dismiss_members[256];
+    int dismiss_n = 0;
+    const char *dismiss_gid = NULL;
+    if (strcmp(method, "dismissGroup") == 0) {
+        dismiss_gid = miku_json_str(miku_json_get(j, "groupID"));
+        if (dismiss_gid)
+            dismiss_n = miku_group_get_members(c->group_svc, dismiss_gid,
+                                               dismiss_members, 256);
+    }
+
     miku_group_handle_rpc(c->group_svc, method, j, out);
 
     /* Sync members to msggateway so split-deploy group PUSH works. */
@@ -550,6 +562,16 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
             const char *gid = miku_json_str(miku_json_get(out, "data"));
             if (owner && gid) c->on_group_member(gid, owner, 100, 0, c->on_group_member_ctx);
+            miku_json_val_t *ids = miku_json_get(j, "memberUserIDs");
+            if (!ids) ids = miku_json_get(j, "invitedUserIDs");
+            if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+                size_t n = miku_json_size(ids);
+                for (size_t i = 0; i < n; i++) {
+                    const char *u = miku_json_str(miku_json_at(ids, i));
+                    if (u && (!owner || strcmp(u, owner) != 0))
+                        c->on_group_member(gid, u, 20, 0, c->on_group_member_ctx);
+                }
+            }
         } else if (err == 0 && strcmp(method, "joinGroup") == 0) {
             const char *uid = miku_json_str(miku_json_get(j, "userID"));
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));
@@ -583,6 +605,10 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
                     if (u) c->on_group_member(gid, u, 0, 1, c->on_group_member_ctx);
                 }
             }
+        } else if (err == 0 && strcmp(method, "dismissGroup") == 0 && dismiss_gid) {
+            for (int i = 0; i < dismiss_n; i++)
+                c->on_group_member(dismiss_gid, dismiss_members[i].user_id, 0, 1,
+                                   c->on_group_member_ctx);
         }
     }
 
@@ -651,6 +677,18 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                 "{\"errCode\":400,\"errMsg\":\"missing required fields: recvID or groupID\"}");
             resp->status = 400;
             return;
+        }
+        /* Single chat: either side blacklisted blocks send. */
+        if (rid && rid[0] && (!gid || !gid[0])) {
+            const char *sid = miku_json_str(miku_json_get(j, "sendID"));
+            if (sid && (miku_friend_is_black(c->friend_svc, sid, rid) ||
+                        miku_friend_is_black(c->friend_svc, rid, sid))) {
+                miku_json_destroy(j); miku_json_destroy(out);
+                miku_http_response_set_json(resp,
+                    "{\"errCode\":6001,\"errMsg\":\"blocked by blacklist\"}");
+                resp->status = 403;
+                return;
+            }
         }
     } else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0) {
         if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) { miku_json_destroy(j); return; }

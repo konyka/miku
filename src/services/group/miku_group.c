@@ -316,6 +316,18 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         if (name) strncpy(g.group_name, name, sizeof(g.group_name) - 1);
         int rc = miku_group_create(svc, &g, owner);
+        if (rc == 0) {
+            miku_json_val_t *ids = req ? miku_json_get(req, "memberUserIDs") : NULL;
+            if (!ids) ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
+            if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+                size_t n = miku_json_size(ids);
+                for (size_t i = 0; i < n; i++) {
+                    const char *u = miku_json_str(miku_json_at(ids, i));
+                    if (u && owner && strcmp(u, owner) != 0)
+                        miku_group_add_member(svc, g.group_id, u, 20);
+                }
+            }
+        }
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
         if (rc == 0) miku_jss(resp, "data", g.group_id);
     } break;

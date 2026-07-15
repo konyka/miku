@@ -247,6 +247,11 @@ static int black_remove(miku_friend_service_t *svc, const char *owner, const cha
     return 0;
 }
 
+bool miku_friend_is_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid) {
+    if (!svc || !owner || !blocked_uid) return false;
+    return black_pair_find(svc, owner, blocked_uid) >= 0;
+}
+
 
 enum {
     MK_FRIEND_RPC_addFriend = 0,

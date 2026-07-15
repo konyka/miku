@@ -1014,12 +1014,17 @@ static void test_group_create_setinfo_member_flow(void) {
     miku_json_val_t *create_req = miku_json_create_object();
     miku_json_object_set(create_req, "groupName", miku_json_create_str("chat room"));
     miku_json_object_set(create_req, "ownerUserID", miku_json_create_str("admin"));
+    miku_json_val_t *members = miku_json_create_array();
+    miku_json_array_push(members, miku_json_create_str("u_a"));
+    miku_json_array_push(members, miku_json_create_str("u_b"));
+    miku_json_object_set(create_req, "memberUserIDs", members);
     miku_json_val_t *create_resp = miku_json_create_object();
     miku_group_handle_rpc(svc, "createGroup", create_req, create_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(create_resp, "errCode")));
     const char *gid = miku_json_str(miku_json_get(create_resp, "data"));
     mk_assert_not_null(gid);
     mk_assert(strlen(gid) > 0);
+    mk_assert_int_eq(3, miku_group_find(svc, gid)->member_count);
 
     miku_json_val_t *setex_req = miku_json_create_object();
     miku_json_object_set(setex_req, "groupID", miku_json_create_str(gid));
@@ -1053,7 +1058,7 @@ static void test_group_create_setinfo_member_flow(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(members_resp, "errCode")));
     miku_json_val_t *mdata = miku_json_get(members_resp, "data");
     mk_assert_not_null(mdata);
-    mk_assert_int_eq(2, (int)miku_json_size(mdata));
+    mk_assert_int_eq(4, (int)miku_json_size(mdata));
 
     miku_json_destroy(create_req); miku_json_destroy(create_resp);
     miku_json_destroy(setex_req); miku_json_destroy(setex_resp);

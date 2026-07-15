@@ -190,6 +190,15 @@ int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *gc, miku_im_msg_t *im) {
         return -1;
     }
 
+    /* Single chat blacklist (either direction). */
+    if (gc->friend_svc && im->recv_id[0] && !im->group_id[0] &&
+        (miku_friend_is_black(gc->friend_svc, im->send_id, im->recv_id) ||
+         miku_friend_is_black(gc->friend_svc, im->recv_id, im->send_id))) {
+        MK_LOG_WARN("deliver_msg: blocked by blacklist send=%s recv=%s",
+                    im->send_id, im->recv_id);
+        return -1;
+    }
+
     miku_im_msg_generate_id(im);
 
     int64_t seq = 0;

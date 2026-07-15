@@ -16,6 +16,8 @@ MIKU_API int miku_friend_add(miku_friend_service_t *svc, const char *owner, cons
 MIKU_API int miku_friend_delete(miku_friend_service_t *svc, const char *owner, const char *friend_uid);
 MIKU_API int miku_friend_get_list(miku_friend_service_t *svc, const char *owner, miku_friend_t *out, int max);
 MIKU_API bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1, const char *uid2);
+/* True if owner has blocked blocked_uid. */
+MIKU_API bool miku_friend_is_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid);
 
 MIKU_API void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                                       const miku_json_val_t *req, miku_json_val_t *resp);

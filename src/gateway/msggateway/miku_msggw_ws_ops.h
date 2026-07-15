@@ -7,6 +7,7 @@
 #include "miku_msg_store.h"
 #include "miku_group.h"
 #include "miku_conversation.h"
+#include "miku_friend.h"
 #include "miku_im_message.h"
 
 typedef struct {
@@ -15,6 +16,7 @@ typedef struct {
     miku_msg_store_t       *store;
     miku_group_service_t   *group;
     miku_conv_service_t    *conv;
+    miku_friend_service_t  *friend_svc;
 } miku_msggw_ws_ctx_t;
 
 /*
