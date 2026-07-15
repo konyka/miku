@@ -195,6 +195,26 @@ static void test_group_create_and_members(void) {
     miku_json_destroy(req);
     miku_json_destroy(resp);
 
+    miku_json_val_t *dis = miku_json_create_object();
+    miku_json_object_set(dis, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(dis, "userID", miku_json_create_str("owner1"));
+    miku_json_val_t *dis_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "dismissGroup", dis, dis_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(dis_resp, "errCode")));
+    mk_assert_int_eq(2, miku_group_find(svc, g.group_id)->status);
+    mk_assert_int_eq(0, miku_group_find(svc, g.group_id)->member_count);
+    mk_assert_int_eq(0, miku_group_get_members(svc, g.group_id, members, 16));
+
+    miku_json_val_t *joined = miku_json_create_object();
+    miku_json_object_set(joined, "userID", miku_json_create_str("member1"));
+    miku_json_val_t *joined_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "getJoinedGroupList", joined, joined_resp);
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(joined_resp, "data")));
+    miku_json_destroy(dis);
+    miku_json_destroy(dis_resp);
+    miku_json_destroy(joined);
+    miku_json_destroy(joined_resp);
+
     miku_group_service_destroy(svc);
 }
 

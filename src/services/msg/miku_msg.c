@@ -415,7 +415,20 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_deleteMsg: {
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
-        miku_ji(resp, "errCode", cmid ? 0 : 400);
+        int deleted = 0;
+        if (cmid && cmid[0]) {
+            int mi = hash_find_cid(svc, cmid);
+            if (mi < 0) {
+                for (int i = 0; i < svc->count; i++) {
+                    if (strcmp(svc->msgs[i].client_msg_id, cmid) == 0) { mi = i; break; }
+                }
+            }
+            if (mi >= 0) {
+                msg_remove_at(svc, mi);
+                deleted = 1;
+            }
+        }
+        miku_ji(resp, "errCode", deleted ? 0 : (cmid && cmid[0] ? 5001 : 400));
     } break;
     case MK_MSG_RPC_batchSendMsg: {
         miku_ji(resp, "errCode", 0);

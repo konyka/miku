@@ -653,7 +653,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             return;
         }
     } else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0) {
-        if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "searchMsg") == 0) {
         if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
     }

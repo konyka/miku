@@ -407,6 +407,21 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     } break;
     case MK_GROUP_RPC_dismissGroup:
     {
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        if (!g) {
+            miku_ji(resp, "errCode", 3001);
+            break;
+        }
+        int w = 0;
+        for (int i = 0; i < svc->member_count; i++) {
+            if (strcmp(svc->members[i].group_id, gid) == 0) continue;
+            svc->members[w++] = svc->members[i];
+        }
+        svc->member_count = w;
+        g->member_count = 0;
+        g->status = 2; /* dismissed */
+        rebuild_member_indexes(svc);
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_GROUP_RPC_muteGroup:
@@ -447,7 +462,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             for (int i = 0; i < svc->member_count; i++) {
                 if (strcmp(svc->members[i].user_id, uid) != 0) continue;
                 miku_group_t *g = miku_group_find(svc, svc->members[i].group_id);
-                if (g) miku_json_array_push(arr, miku_group_to_json(g));
+                if (g && g->status == 0) miku_json_array_push(arr, miku_group_to_json(g));
             }
         }
         miku_json_object_set(resp, "data", arr);
