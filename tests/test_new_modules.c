@@ -1436,6 +1436,12 @@ static void test_http_e2e_user_register_and_get(void) {
     mk_assert_not_null(r);
     mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
+    char count_bad[8192] = {0};
+    http_post_with_token(19777, "/user/count", token, "{}", count_bad, sizeof(count_bad));
+    r = miku_json_parse_str(extract_json_body(count_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
     char admin_auth[8192] = {0};
     http_post_to(19777, "/auth/admin_token",
         "{\"userID\":\"http_u1\",\"secret\":\"openIM123\"}", admin_auth, sizeof(admin_auth));

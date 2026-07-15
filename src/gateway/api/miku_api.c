@@ -560,7 +560,8 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     if (strcmp(method, "registerUser") == 0 || strcmp(method, "updateUserInfo") == 0
         || strcmp(method, "updateUserInfoEx") == 0 || strcmp(method, "setGlobalRecvMessageOpt") == 0) {
         if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); return; }
-    } else if (strcmp(method, "getAllUsers") == 0 || strcmp(method, "getAllUsersUID") == 0) {
+    } else if (strcmp(method, "getAllUsers") == 0 || strcmp(method, "getAllUsersUID") == 0
+               || strcmp(method, "getUserCount") == 0) {
         if (req_token_platform(req) != 5) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
