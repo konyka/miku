@@ -1013,6 +1013,9 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
         miku_ji(out, "errCode", 0);
         miku_json_object_set(out, "data", arr);
     } else if (strcmp(path, "/batch/delete_friend") == 0) {
+        char actor[128] = {0};
+        if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0])
+            miku_jss(j, "ownerUserID", actor);
         miku_json_val_t *r = miku_json_create_object();
         miku_friend_handle_rpc(c->friend_svc, "deleteFriend", j, r);
         miku_json_object_set(out, "errCode", miku_json_get(r, "errCode"));
