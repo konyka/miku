@@ -727,6 +727,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             miku_jss(j, "sendID", actor);
         else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0
                  || strcmp(method, "userClearAllMsg") == 0
+                 || strcmp(method, "clearConversationMsg") == 0
                  || strcmp(method, "markConversationAsRead") == 0
                  || strcmp(method, "setConversationHasReadSeq") == 0
                  || strcmp(method, "markMsgsAsRead") == 0)

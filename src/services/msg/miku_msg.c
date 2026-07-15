@@ -560,8 +560,36 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_clearConversationMsg: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
-        if (!cid || !cid[0]) {
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!cid || !cid[0] || !uid || !uid[0]) {
             miku_ji(resp, "errCode", 400);
+            break;
+        }
+        /* Group history is shared — never hard-delete via clear. */
+        if (strncmp(cid, "sg_", 3) == 0) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
+        int participant = 0, has_group = 0;
+        if (strncmp(cid, "si_", 3) == 0) {
+            const char *rest = cid + 3;
+            size_t ulen = strlen(uid);
+            size_t rlen = strlen(rest);
+            if (rlen > ulen + 1 && strncmp(rest, uid, ulen) == 0 && rest[ulen] == '_')
+                participant = 1;
+            else if (rlen > ulen + 1 && rest[rlen - ulen - 1] == '_' &&
+                     strcmp(rest + (rlen - ulen), uid) == 0)
+                participant = 1;
+        }
+        for (int i = 0; i < svc->count; i++) {
+            miku_msg_t *m = &svc->msgs[i];
+            if (strcmp(m->conversation_id, cid) != 0) continue;
+            if (m->group_id[0]) has_group = 1;
+            if (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0)
+                participant = 1;
+        }
+        if (has_group || !participant) {
+            miku_ji(resp, "errCode", 3003);
             break;
         }
         int w = 0;

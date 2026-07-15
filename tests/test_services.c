@@ -438,6 +438,7 @@ static void test_msg_send_and_query(void) {
 
     miku_json_val_t *clr = miku_json_create_object();
     miku_json_object_set(clr, "conversationID", miku_json_create_str("si_alice_bob"));
+    miku_json_object_set(clr, "userID", miku_json_create_str("alice"));
     miku_json_val_t *clr_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "clearConversationMsg", clr, clr_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(clr_resp, "errCode")));
@@ -445,6 +446,25 @@ static void test_msg_send_and_query(void) {
     mk_assert(miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4) >= 1);
     miku_json_destroy(clr);
     miku_json_destroy(clr_resp);
+
+    /* Stranger / group clear refused. */
+    miku_json_val_t *clr_bad = miku_json_create_object();
+    miku_json_object_set(clr_bad, "conversationID", miku_json_create_str("si_r1_s1"));
+    miku_json_object_set(clr_bad, "userID", miku_json_create_str("alice"));
+    miku_json_val_t *clr_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(svc, "clearConversationMsg", clr_bad, clr_bad_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(clr_bad_resp, "errCode")));
+    miku_json_destroy(clr_bad);
+    miku_json_destroy(clr_bad_resp);
+
+    miku_json_val_t *clr_g = miku_json_create_object();
+    miku_json_object_set(clr_g, "conversationID", miku_json_create_str("sg_g9"));
+    miku_json_object_set(clr_g, "userID", miku_json_create_str("owner"));
+    miku_json_val_t *clr_g_resp = miku_json_create_object();
+    miku_msg_handle_rpc(svc, "clearConversationMsg", clr_g, clr_g_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(clr_g_resp, "errCode")));
+    miku_json_destroy(clr_g);
+    miku_json_destroy(clr_g_resp);
 
     miku_json_val_t *uclr = miku_json_create_object();
     miku_json_object_set(uclr, "userID", miku_json_create_str("s1"));
