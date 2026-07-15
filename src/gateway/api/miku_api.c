@@ -554,6 +554,8 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
         if (strcmp(method, "updateUserInfo") == 0 || strcmp(method, "updateUserInfoEx") == 0)
             miku_jss(j, "userID", actor);
+        else if (strcmp(method, "registerUser") == 0 && req_token_platform(req) != 5)
+            miku_jss(j, "userID", actor);
     }
     if (strcmp(method, "registerUser") == 0 || strcmp(method, "updateUserInfo") == 0
         || strcmp(method, "updateUserInfoEx") == 0 || strcmp(method, "setGlobalRecvMessageOpt") == 0) {

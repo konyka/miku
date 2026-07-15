@@ -1452,6 +1452,34 @@ static void test_http_e2e_user_register_and_get(void) {
     mk_assert(miku_json_size(all_data) >= 1);
     miku_json_destroy(r);
     if (admin_r) miku_json_destroy(admin_r);
+
+    char auth_rb[8192] = {0};
+    http_post_to(19777, "/auth/user_token",
+        "{\"userID\":\"reg_bind\",\"secret\":\"openIM123\",\"platformID\":1}",
+        auth_rb, sizeof(auth_rb));
+    miku_json_val_t *ar_rb = miku_json_parse_str(extract_json_body(auth_rb));
+    const char *tok_rb = ar_rb ? miku_json_str(miku_json_get(ar_rb, "token")) : NULL;
+    mk_assert(tok_rb && tok_rb[0]);
+    char reg_forged[8192] = {0};
+    http_post_with_token(19777, "/user/register", tok_rb,
+        "{\"userID\":\"forged_reg\",\"nickname\":\"Should Be reg_bind\"}",
+        reg_forged, sizeof(reg_forged));
+    r = miku_json_parse_str(extract_json_body(reg_forged));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char get_rb[8192] = {0};
+    http_post_with_token(19777, "/user/get_users_info", tok_rb,
+        "{\"userIDList\":[\"reg_bind\",\"forged_reg\"]}", get_rb, sizeof(get_rb));
+    r = miku_json_parse_str(extract_json_body(get_rb));
+    mk_assert_not_null(r);
+    udata = miku_json_get(r, "data");
+    mk_assert_not_null(udata);
+    mk_assert_int_eq(1, (int)miku_json_size(udata));
+    mk_assert_str_eq("reg_bind",
+        miku_json_str(miku_json_get(miku_json_at(udata, 0), "userID")));
+    miku_json_destroy(r);
+    if (ar_rb) miku_json_destroy(ar_rb);
     if (auth_r) miku_json_destroy(auth_r);
 
     miku_http_server_stop(srv);
