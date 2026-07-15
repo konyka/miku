@@ -225,6 +225,17 @@ static void test_group_create_and_members(void) {
     miku_json_destroy(inv);
     miku_json_destroy(inv_resp);
 
+    /* Owner cannot quit without transferring first. */
+    miku_json_val_t *quit_owner = miku_json_create_object();
+    miku_json_object_set(quit_owner, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(quit_owner, "userID", miku_json_create_str("owner1"));
+    miku_json_val_t *quit_owner_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "quitGroup", quit_owner, quit_owner_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(quit_owner_resp, "errCode")));
+    mk_assert_int_eq(1, miku_group_is_member(svc, g.group_id, "owner1"));
+    miku_json_destroy(quit_owner);
+    miku_json_destroy(quit_owner_resp);
+
     miku_json_val_t *xfer = miku_json_create_object();
     miku_json_object_set(xfer, "groupID", miku_json_create_str(g.group_id));
     miku_json_object_set(xfer, "userID", miku_json_create_str("owner1"));

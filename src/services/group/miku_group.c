@@ -464,6 +464,20 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        if (!g || g->status != 0) {
+            miku_ji(resp, "errCode", g ? 3003 : 3001);
+            break;
+        }
+        if (!uid || !uid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
+        /* Owner must transfer before quitting. */
+        if (strcmp(uid, g->owner_user_id) == 0) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
         int rc = miku_group_remove_member(svc, gid, uid);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
     } break;
@@ -477,7 +491,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             miku_ji(resp, "errCode", 3001);
             break;
         }
-        if (!op || !op[0] || strcmp(op, g->owner_user_id) != 0) {
+        if (!op || !op[0] || strcmp(op, g->owner_user_id) != 0
+            || !miku_group_is_member(svc, gid, op)) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
@@ -537,7 +552,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             miku_ji(resp, "errCode", 3001);
             break;
         }
-        if (!op || !op[0] || strcmp(op, g->owner_user_id) != 0) {
+        if (!op || !op[0] || strcmp(op, g->owner_user_id) != 0
+            || !miku_group_is_member(svc, gid, op)) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
