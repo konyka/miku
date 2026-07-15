@@ -535,7 +535,8 @@ static void read_client_frames(miku_msggw_t *gw, int idx) {
         if (rc <= 0) break;
         if (frame->opcode == MK_WS_TEXT && frame->payload && frame->payload_len > 0) {
             gw->total_msgs_in++;
-            miku_json_val_t *j = miku_json_parse_str((const char *)frame->payload);
+            miku_json_val_t *j = miku_json_parse((const char *)frame->payload,
+                                                 frame->payload_len);
             if (j) {
                 int64_t req_op = miku_json_int(miku_json_get(j, "reqIdentifier"));
                 if (req_op > 0 && gw->on_op) {

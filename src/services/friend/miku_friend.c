@@ -13,6 +13,11 @@ struct miku_friend_service_s {
     int16_t pair_hash[MK_FRIEND_HASH];  /* -1 empty, else friends[] index */
     int16_t owner_hash[MK_FRIEND_HASH]; /* owner → first friend index */
     int16_t owner_next[MK_MAX_FRIENDS]; /* intrusive list per owner */
+    miku_friend_t blacks[MK_MAX_FRIENDS]; /* friend_user_id = blocked user */
+    int black_count;
+    int16_t black_pair_hash[MK_FRIEND_HASH];
+    int16_t black_owner_hash[MK_FRIEND_HASH];
+    int16_t black_owner_next[MK_MAX_FRIENDS];
 };
 
 static uint32_t pair_hash_slot(const char *owner, const char *fuid) {
@@ -98,8 +103,13 @@ miku_friend_service_t *miku_friend_service_create(void) {
         for (int i = 0; i < MK_FRIEND_HASH; i++) {
             svc->pair_hash[i] = -1;
             svc->owner_hash[i] = -1;
+            svc->black_pair_hash[i] = -1;
+            svc->black_owner_hash[i] = -1;
         }
-        for (int i = 0; i < MK_MAX_FRIENDS; i++) svc->owner_next[i] = -1;
+        for (int i = 0; i < MK_MAX_FRIENDS; i++) {
+            svc->owner_next[i] = -1;
+            svc->black_owner_next[i] = -1;
+        }
     }
     return svc;
 }
@@ -143,6 +153,98 @@ int miku_friend_get_list(miku_friend_service_t *svc, const char *owner, miku_fri
 bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1, const char *uid2) {
     if (!svc || !uid1 || !uid2) return false;
     return pair_hash_find(svc, uid1, uid2) >= 0 || pair_hash_find(svc, uid2, uid1) >= 0;
+}
+
+static void black_pair_insert(miku_friend_service_t *svc, int bi) {
+    uint32_t idx = pair_hash_slot(svc->blacks[bi].owner_user_id,
+                                  svc->blacks[bi].friend_user_id);
+    for (int n = 0; n < MK_FRIEND_HASH; n++) {
+        if (svc->black_pair_hash[idx] < 0) {
+            svc->black_pair_hash[idx] = (int16_t)bi;
+            return;
+        }
+        idx = (idx + 1) & (MK_FRIEND_HASH - 1);
+    }
+}
+
+static void black_owner_link(miku_friend_service_t *svc, int bi) {
+    const char *owner = svc->blacks[bi].owner_user_id;
+    uint32_t idx = owner_slot(owner);
+    for (int n = 0; n < MK_FRIEND_HASH; n++) {
+        int head = svc->black_owner_hash[idx];
+        if (head < 0) {
+            svc->black_owner_hash[idx] = (int16_t)bi;
+            svc->black_owner_next[bi] = -1;
+            return;
+        }
+        if (strcmp(svc->blacks[head].owner_user_id, owner) == 0) {
+            svc->black_owner_next[bi] = (int16_t)head;
+            svc->black_owner_hash[idx] = (int16_t)bi;
+            return;
+        }
+        idx = (idx + 1) & (MK_FRIEND_HASH - 1);
+    }
+}
+
+static int black_owner_head(miku_friend_service_t *svc, const char *owner) {
+    uint32_t idx = owner_slot(owner);
+    for (int n = 0; n < MK_FRIEND_HASH; n++) {
+        int head = svc->black_owner_hash[idx];
+        if (head < 0) return -1;
+        if (strcmp(svc->blacks[head].owner_user_id, owner) == 0) return head;
+        idx = (idx + 1) & (MK_FRIEND_HASH - 1);
+    }
+    return -1;
+}
+
+static void black_indexes_rebuild(miku_friend_service_t *svc) {
+    for (int i = 0; i < MK_FRIEND_HASH; i++) {
+        svc->black_pair_hash[i] = -1;
+        svc->black_owner_hash[i] = -1;
+    }
+    for (int i = 0; i < MK_MAX_FRIENDS; i++) svc->black_owner_next[i] = -1;
+    for (int i = 0; i < svc->black_count; i++) {
+        black_pair_insert(svc, i);
+        black_owner_link(svc, i);
+    }
+}
+
+static int black_pair_find(miku_friend_service_t *svc, const char *owner, const char *uid) {
+    uint32_t idx = pair_hash_slot(owner, uid);
+    for (int n = 0; n < MK_FRIEND_HASH; n++) {
+        int bi = svc->black_pair_hash[idx];
+        if (bi < 0) return -1;
+        if (strcmp(svc->blacks[bi].owner_user_id, owner) == 0 &&
+            strcmp(svc->blacks[bi].friend_user_id, uid) == 0)
+            return bi;
+        idx = (idx + 1) & (MK_FRIEND_HASH - 1);
+    }
+    return -1;
+}
+
+static int black_add(miku_friend_service_t *svc, const char *owner, const char *uid) {
+    if (!svc || !owner || !uid || svc->black_count >= MK_MAX_FRIENDS) return -1;
+    if (black_pair_find(svc, owner, uid) >= 0) return 0; /* idempotent */
+    int bi = svc->black_count++;
+    miku_friend_t *b = &svc->blacks[bi];
+    memset(b, 0, sizeof(*b));
+    strncpy(b->owner_user_id, owner, sizeof(b->owner_user_id) - 1);
+    strncpy(b->friend_user_id, uid, sizeof(b->friend_user_id) - 1);
+    b->create_time = miku_timestamp_ms();
+    black_pair_insert(svc, bi);
+    black_owner_link(svc, bi);
+    return 0;
+}
+
+static int black_remove(miku_friend_service_t *svc, const char *owner, const char *uid) {
+    if (!svc || !owner || !uid) return -1;
+    int bi = black_pair_find(svc, owner, uid);
+    if (bi < 0) return -2;
+    memmove(&svc->blacks[bi], &svc->blacks[bi + 1],
+            (size_t)(svc->black_count - bi - 1) * sizeof(miku_friend_t));
+    svc->black_count--;
+    black_indexes_rebuild(svc);
+    return 0;
 }
 
 
@@ -281,17 +383,38 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_ji(resp, "isFriend", miku_friend_is_friend(svc, u1, u2) ? 1 : 0);
     } break;
     case MK_FRIEND_RPC_addBlack:
+    {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
+        if (!uid) uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        int rc = (owner && uid) ? black_add(svc, owner, uid) : -1;
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 400);
+    } break;
     case MK_FRIEND_RPC_removeBlack:
     {
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
         if (!uid) uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        miku_ji(resp, "errCode", (owner && uid) ? 0 : 400);
+        int rc = (owner && uid) ? black_remove(svc, owner, uid) : -1;
+        miku_ji(resp, "errCode", rc == 0 ? 0 : 2002);
     } break;
     case MK_FRIEND_RPC_getBlackList:
     {
+        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_ji(resp, "errCode", 0);
-        miku_json_object_set(resp, "data", miku_json_create_array());
+        miku_json_val_t *arr = miku_json_create_array();
+        if (owner) {
+            for (int bi = black_owner_head(svc, owner); bi >= 0; bi = svc->black_owner_next[bi]) {
+                miku_json_val_t *bj = miku_json_create_object();
+                miku_jss(bj, "ownerUserID", svc->blacks[bi].owner_user_id);
+                miku_jss(bj, "blockUserID", svc->blacks[bi].friend_user_id);
+                miku_jss(bj, "userID", svc->blacks[bi].friend_user_id);
+                miku_ji(bj, "createTime", svc->blacks[bi].create_time);
+                miku_json_array_push(arr, bj);
+            }
+        }
+        miku_json_object_set(resp, "data", arr);
     } break;
     case MK_FRIEND_RPC_getFriendApplyList:
     case MK_FRIEND_RPC_getSelfApplyList:

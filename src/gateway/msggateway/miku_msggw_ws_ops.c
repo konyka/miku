@@ -243,9 +243,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
     case MK_WS_OP_GET_NEWEST_SEQ: {
         char conv[128] = {0};
         if (payload && len > 0) {
-            char *tmp = strndup(payload, len);
-            miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
-            free(tmp);
+            miku_json_val_t *j = miku_json_parse(payload, len);
             if (j) {
                 const char *c = miku_json_str(miku_json_get(j, "conversationID"));
                 if (c) strncpy(conv, c, sizeof(conv) - 1);
@@ -268,9 +266,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         char conv[128] = {0};
         int64_t begin_seq = 0, end_seq = 0;
         if (payload && len > 0) {
-            char *tmp = strndup(payload, len);
-            miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
-            free(tmp);
+            miku_json_val_t *j = miku_json_parse(payload, len);
             if (j) {
                 const char *c = miku_json_str(miku_json_get(j, "conversationID"));
                 if (c) strncpy(conv, c, sizeof(conv) - 1);
@@ -299,9 +295,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         break;
     }
     case MK_WS_OP_SEND_MSG: {
-        char *tmp = payload && len > 0 ? strndup(payload, len) : NULL;
-        miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
-        free(tmp);
+        miku_json_val_t *j = (payload && len > 0) ? miku_json_parse(payload, len) : NULL;
         miku_im_msg_t im;
         miku_im_msg_init(&im);
         int64_t has_read_seq = 0;
@@ -376,9 +370,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
     case MK_WS_OP_PULL_CONV_LAST_MSG: {
         char conv[128] = {0};
         if (payload && len > 0) {
-            char *tmp = strndup(payload, len);
-            miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
-            free(tmp);
+            miku_json_val_t *j = miku_json_parse(payload, len);
             if (j) {
                 const char *c = miku_json_str(miku_json_get(j, "conversationID"));
                 if (c) strncpy(conv, c, sizeof(conv) - 1);
@@ -409,9 +401,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         miku_json_val_t *map = miku_json_create_object();
         miku_ji(out, "errCode", 0);
 
-        char *tmp = payload && len > 0 ? strndup(payload, len) : NULL;
-        miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
-        free(tmp);
+        miku_json_val_t *j = (payload && len > 0) ? miku_json_parse(payload, len) : NULL;
 
         if (j) {
             miku_json_val_t *ids = miku_json_get(j, "conversationIDs");
@@ -459,9 +449,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
     case MK_WS_OP_SET_BACKGROUND: {
         int bg = 0;
         if (payload && len > 0) {
-            char *tmp = strndup(payload, len);
-            miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
-            free(tmp);
+            miku_json_val_t *j = miku_json_parse(payload, len);
             if (j) {
                 bg = (int)miku_json_int(miku_json_get(j, "isBackground"));
                 miku_json_destroy(j);
@@ -473,9 +461,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         break;
     }
     case MK_WS_OP_SUB_USER_STATUS: {
-        char *tmp = payload && len > 0 ? strndup(payload, len) : NULL;
-        miku_json_val_t *j = tmp ? miku_json_parse_str(tmp) : NULL;
-        free(tmp);
+        miku_json_val_t *j = (payload && len > 0) ? miku_json_parse(payload, len) : NULL;
         const char *subscriber = uid[0] ? uid : "anonymous";
         if (j && gc->sub) {
             const char *target = miku_json_str(miku_json_get(j, "userID"));

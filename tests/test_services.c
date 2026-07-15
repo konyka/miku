@@ -157,6 +157,28 @@ static void test_friend_add_and_check(void) {
     miku_json_destroy(req);
     miku_json_destroy(resp);
 
+    miku_json_val_t *blk = miku_json_create_object();
+    miku_json_object_set(blk, "ownerUserID", miku_json_create_str("u1"));
+    miku_json_object_set(blk, "friendUserID", miku_json_create_str("u3"));
+    miku_json_val_t *blk_resp = miku_json_create_object();
+    miku_friend_handle_rpc(svc, "addBlack", blk, blk_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(blk_resp, "errCode")));
+    miku_json_destroy(blk_resp);
+    blk_resp = miku_json_create_object();
+    miku_friend_handle_rpc(svc, "getBlackList", blk, blk_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(blk_resp, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_size(miku_json_get(blk_resp, "data")));
+    miku_json_destroy(blk_resp);
+    blk_resp = miku_json_create_object();
+    miku_friend_handle_rpc(svc, "removeBlack", blk, blk_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(blk_resp, "errCode")));
+    miku_json_destroy(blk_resp);
+    blk_resp = miku_json_create_object();
+    miku_friend_handle_rpc(svc, "getBlackList", blk, blk_resp);
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(blk_resp, "data")));
+    miku_json_destroy(blk);
+    miku_json_destroy(blk_resp);
+
     miku_friend_service_destroy(svc);
 }
 
