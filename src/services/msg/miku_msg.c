@@ -625,13 +625,19 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "deleted", deleted);
     } break;
     case MK_MSG_RPC_deleteMsgPhysical: {
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         int deleted = 0;
-        if (cmid) {
+        if (uid && uid[0] && cmid && cmid[0]) {
             int mi = hash_find_cid(svc, cmid);
-            if (mi < 0) {
+            if (mi < 0 || strcmp(svc->msgs[mi].send_id, uid) != 0) {
+                mi = -1;
                 for (int i = 0; i < svc->count; i++) {
-                    if (strcmp(svc->msgs[i].client_msg_id, cmid) == 0) { mi = i; break; }
+                    if (strcmp(svc->msgs[i].client_msg_id, cmid) == 0 &&
+                        strcmp(svc->msgs[i].send_id, uid) == 0) {
+                        mi = i;
+                        break;
+                    }
                 }
             }
             if (mi >= 0) {
@@ -639,19 +645,21 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                 deleted = 1;
             }
         }
-        miku_ji(resp, "errCode", deleted ? 0 : 5001);
+        miku_ji(resp, "errCode", deleted ? 0 : ((uid && uid[0] && cmid && cmid[0]) ? 5001 : 400));
     } break;
     case MK_MSG_RPC_deleteMsgPhysicalBySeq: {
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         int64_t del_seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
         int deleted = 0;
-        if (del_seq > 0) {
+        if (uid && uid[0] && del_seq > 0) {
             int i = lower_bound_seq(svc, del_seq);
-            if (i < svc->count && svc->msgs[i].seq == del_seq) {
+            if (i < svc->count && svc->msgs[i].seq == del_seq &&
+                strcmp(svc->msgs[i].send_id, uid) == 0) {
                 msg_remove_at(svc, i);
                 deleted = 1;
             }
         }
-        miku_ji(resp, "errCode", deleted ? 0 : 5001);
+        miku_ji(resp, "errCode", deleted ? 0 : ((uid && uid[0] && del_seq > 0) ? 5001 : 400));
     } break;
     case MK_MSG_RPC_setMessageReactionExtensions: {
         miku_ji(resp, "errCode", 0);
