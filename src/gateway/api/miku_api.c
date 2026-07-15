@@ -1065,6 +1065,11 @@ static void handle_jssdk(miku_http_request_t *req, miku_http_response_t *resp, v
     api_req_path(req, path, sizeof(path));
     const char *method = (strcmp(path, "/jssdk/get_active_conversations") == 0)
         ? "getActiveConversations" : "getConversations";
+    char actor[128] = {0};
+    if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
+        miku_jss(j, "ownerUserID", actor);
+        miku_jss(j, "userID", actor);
+    }
     miku_conv_handle_rpc(c->conv, method, j, out);
     miku_json_destroy(j);
     json_resp(resp, out);
