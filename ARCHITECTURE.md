@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 171 tests, 67 modules — kick requires higher role; cannot kick owner; friends-only invite; history gated; S3 stub.
+> **Status**: 203 API routes, 171 tests, 67 modules — importFriend admin-only; kick role hierarchy; friends-only invite; history gated; S3 stub.
 
 ## 1. Overview
 

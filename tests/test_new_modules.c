@@ -1584,6 +1584,29 @@ static void test_http_e2e_friend_flow(void) {
     mk_assert_int_eq(1, (int)miku_json_size(data));
     mk_assert_str_eq("test remark", miku_json_str(miku_json_get(miku_json_at(data, 0), "remark")));
     miku_json_destroy(r);
+
+    char imp_bad[8192] = {0};
+    http_post_with_token(19779, "/friend/import_friend", token,
+        "{\"ownerUserID\":\"u1\",\"friendList\":[\"u9\"]}", imp_bad, sizeof(imp_bad));
+    r = miku_json_parse_str(extract_json_body(imp_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char admin_auth[8192] = {0};
+    http_post_to(19779, "/auth/admin_token",
+        "{\"userID\":\"u1\",\"secret\":\"openIM123\"}", admin_auth, sizeof(admin_auth));
+    miku_json_val_t *admin_r = miku_json_parse_str(extract_json_body(admin_auth));
+    const char *admin_tok = admin_r ? miku_json_str(miku_json_get(admin_r, "token")) : NULL;
+    mk_assert(admin_tok && admin_tok[0]);
+    char imp_ok[8192] = {0};
+    http_post_with_token(19779, "/friend/import_friend", admin_tok,
+        "{\"ownerUserID\":\"forged\",\"friendList\":[\"u9\"]}", imp_ok, sizeof(imp_ok));
+    r = miku_json_parse_str(extract_json_body(imp_ok));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(r, "imported")));
+    miku_json_destroy(r);
+    if (admin_r) miku_json_destroy(admin_r);
     if (ar) miku_json_destroy(ar);
 
     miku_http_server_stop(srv);

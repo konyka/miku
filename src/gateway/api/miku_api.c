@@ -668,6 +668,14 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
         if (require_fields(j, resp, "ownerUserID", "friendUserID", "remark", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "isFriend") == 0) {
         if (require_fields(j, resp, "userID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); return; }
+    } else if (strcmp(method, "importFriend") == 0) {
+        if (req_token_platform(req) != 5) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+            resp->status = 403;
+            return;
+        }
     }
     miku_friend_handle_rpc(c->friend_svc, method, j, out);
     if (c->webhook && strcmp(method, "addFriend") == 0) {
