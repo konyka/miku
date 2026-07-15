@@ -246,6 +246,19 @@ static void test_group_create_and_members(void) {
     miku_json_destroy(quit_owner);
     miku_json_destroy(quit_owner_resp);
 
+    /* Admin cannot kick the owner. */
+    mk_assert_int_eq(0, miku_group_add_member(svc, g.group_id, "admin1", 60));
+    miku_json_val_t *kick_owner = miku_json_create_object();
+    miku_json_object_set(kick_owner, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(kick_owner, "opUserID", miku_json_create_str("admin1"));
+    miku_json_object_set(kick_owner, "userID", miku_json_create_str("owner1"));
+    miku_json_val_t *kick_owner_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "kickGroupMember", kick_owner, kick_owner_resp);
+    mk_assert_int_eq(3002, (int)miku_json_int(miku_json_get(kick_owner_resp, "errCode")));
+    mk_assert_int_eq(1, miku_group_is_member(svc, g.group_id, "owner1"));
+    miku_json_destroy(kick_owner);
+    miku_json_destroy(kick_owner_resp);
+
     miku_json_val_t *xfer = miku_json_create_object();
     miku_json_object_set(xfer, "groupID", miku_json_create_str(g.group_id));
     miku_json_object_set(xfer, "userID", miku_json_create_str("owner1"));
