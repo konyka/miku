@@ -455,8 +455,8 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
     } break;
     case MK_FRIEND_RPC_syncFriend:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        if (!owner || !owner[0]) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (owner) {
@@ -494,8 +494,8 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
     } break;
     case MK_FRIEND_RPC_getFriendIDs:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        if (!owner || !owner[0]) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_json_val_t *arr = miku_json_create_array();
         if (owner) {
             for (int fi = owner_head(svc, owner); fi >= 0; fi = svc->owner_next[fi])
@@ -506,8 +506,8 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
     } break;
     case MK_FRIEND_RPC_getFullFriendUserIDs:
     {
-        const char *owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        if (!owner) owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        if (!owner || !owner[0]) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_json_val_t *arr = miku_json_create_array();
         if (owner) {
             for (int fi = owner_head(svc, owner); fi >= 0; fi = svc->owner_next[fi])

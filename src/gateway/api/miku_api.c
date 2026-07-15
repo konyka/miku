@@ -527,10 +527,13 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
             || strcmp(method, "updateFriends") == 0
             || strcmp(method, "acceptFriendApply") == 0
             || strcmp(method, "refuseFriendApply") == 0
-            || strcmp(method, "getSpecifiedFriendsInfo") == 0) {
+            || strcmp(method, "getSpecifiedFriendsInfo") == 0
+            || strcmp(method, "getFriendIDs") == 0
+            || strcmp(method, "getFullFriendUserIDs") == 0
+            || strcmp(method, "syncFriend") == 0
+            || strcmp(method, "getDesignatedFriends") == 0) {
             miku_jss(j, "ownerUserID", actor);
-            if (strcmp(method, "getFriendList") == 0 || strcmp(method, "getBlackList") == 0)
-                miku_jss(j, "userID", actor);
+            miku_jss(j, "userID", actor);
         }
         if (strcmp(method, "isFriend") == 0)
             miku_jss(j, "userID", actor);
@@ -580,6 +583,11 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             miku_jss(j, "opUserID", actor);
         else if (strcmp(method, "inviteToGroup") == 0)
             miku_jss(j, "fromUserID", actor);
+        else if (strcmp(method, "getJoinedGroupList") == 0
+                 || strcmp(method, "getFullJoinGroupIDs") == 0) {
+            miku_jss(j, "userID", actor);
+            miku_jss(j, "ownerUserID", actor);
+        }
     }
     if (strcmp(method, "createGroup") == 0) {
         if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { miku_json_destroy(j); return; }

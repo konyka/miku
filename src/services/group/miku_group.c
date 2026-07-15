@@ -533,8 +533,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     } break;
     case MK_GROUP_RPC_getJoinedGroupList:
     {
-        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        if (!uid) uid = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        if (!uid || !uid[0]) uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (uid) {
@@ -583,8 +583,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     } break;
     case MK_GROUP_RPC_getFullJoinGroupIDs:
     {
-        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        if (!uid) uid = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        if (!uid || !uid[0]) uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (uid) {
