@@ -1586,6 +1586,34 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_not_null(data);
     mk_assert_int_eq(1, (int)miku_json_size(data));
     miku_json_destroy(r);
+
+    char auth_x[8192] = {0};
+    http_post_to(19780, "/auth/user_token",
+        "{\"userID\":\"x1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_x, sizeof(auth_x));
+    miku_json_val_t *ar_x = miku_json_parse_str(extract_json_body(auth_x));
+    const char *tok_x = ar_x ? miku_json_str(miku_json_get(ar_x, "token")) : NULL;
+    mk_assert(tok_x && tok_x[0]);
+    char pull_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/pull_msg_by_seq", tok_x,
+        "{\"conversationID\":\"si_r1_s1\",\"beginSeq\":0,\"endSeq\":0}",
+        pull_bad, sizeof(pull_bad));
+    body = extract_json_body(pull_bad);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char get_ok[8192] = {0};
+    http_post_with_token(19780, "/msg/get", token,
+        "{\"conversationID\":\"si_r1_s1\",\"count\":10}", get_ok, sizeof(get_ok));
+    body = extract_json_body(get_ok);
+    r = miku_json_parse_str(body);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    data = miku_json_get(r, "data");
+    mk_assert_not_null(data);
+    mk_assert_int_eq(1, (int)miku_json_size(data));
+    miku_json_destroy(r);
+    if (ar_x) miku_json_destroy(ar_x);
     if (ar) miku_json_destroy(ar);
     if (ar_r1) miku_json_destroy(ar_r1);
 
