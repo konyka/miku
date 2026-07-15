@@ -354,12 +354,18 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_inviteToGroup:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *from = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (!from || !from[0]) from = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
+        if (!gid || !from || !from[0] || miku_group_member_role(svc, gid, from) < 20) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
         int rc = -1;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        if (gid && uid)
+        if (uid)
             rc = miku_group_add_member(svc, gid, uid, 20);
         miku_json_val_t *ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
-        if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+        if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
             size_t n = miku_json_size(ids);
             for (size_t i = 0; i < n; i++) {
                 const char *u = miku_json_str(miku_json_at(ids, i));

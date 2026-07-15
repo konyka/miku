@@ -203,6 +203,28 @@ static void test_group_create_and_members(void) {
     mk_assert_int_eq(0, rc);
     mk_assert_int_eq(2, miku_group_find(svc, g.group_id)->member_count);
 
+    /* Non-member cannot invite. */
+    miku_json_val_t *inv_bad = miku_json_create_object();
+    miku_json_object_set(inv_bad, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(inv_bad, "fromUserID", miku_json_create_str("stranger"));
+    miku_json_object_set(inv_bad, "userID", miku_json_create_str("member2"));
+    miku_json_val_t *inv_bad_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "inviteToGroup", inv_bad, inv_bad_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(inv_bad_resp, "errCode")));
+    miku_json_destroy(inv_bad);
+    miku_json_destroy(inv_bad_resp);
+
+    miku_json_val_t *inv = miku_json_create_object();
+    miku_json_object_set(inv, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(inv, "fromUserID", miku_json_create_str("owner1"));
+    miku_json_object_set(inv, "userID", miku_json_create_str("member2"));
+    miku_json_val_t *inv_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "inviteToGroup", inv, inv_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(inv_resp, "errCode")));
+    mk_assert_int_eq(3, miku_group_find(svc, g.group_id)->member_count);
+    miku_json_destroy(inv);
+    miku_json_destroy(inv_resp);
+
     miku_json_val_t *xfer = miku_json_create_object();
     miku_json_object_set(xfer, "groupID", miku_json_create_str(g.group_id));
     miku_json_object_set(xfer, "userID", miku_json_create_str("owner1"));
@@ -227,7 +249,7 @@ static void test_group_create_and_members(void) {
 
     miku_group_member_t members[16];
     int n = miku_group_get_members(svc, g.group_id, members, 16);
-    mk_assert_int_eq(2, n);
+    mk_assert_int_eq(3, n);
 
     miku_json_val_t *req = miku_json_create_object();
     miku_json_object_set(req, "userID", miku_json_create_str("member1"));
