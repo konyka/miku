@@ -17,6 +17,13 @@ MIKU_API int miku_conv_get(miku_conv_service_t *svc, const char *owner, const ch
 MIKU_API int miku_conv_get_all(miku_conv_service_t *svc, const char *owner, miku_conversation_t *out, int max);
 MIKU_API int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c);
 
+/* Upsert conversation metadata after a send; bump_unread increments unread_count. */
+MIKU_API void miku_conv_touch_on_send(miku_conv_service_t *svc, const char *owner,
+                                      const char *cid, int conv_type,
+                                      const char *peer_user_id, const char *group_id,
+                                      int64_t send_time, const char *content,
+                                      int bump_unread);
+
 MIKU_API void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
                                     const miku_json_val_t *req, miku_json_val_t *resp);
 #endif

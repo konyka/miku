@@ -380,10 +380,12 @@ void test_msggw_user_read_seq(void) {
 void test_msggw_ws_deliver_msg(void) {
     miku_msggw_t *gw = miku_msggw_create(19351);
     miku_msg_store_t *store = miku_msg_store_create(NULL);
+    miku_conv_service_t *conv = miku_conv_service_create();
     mk_assert_not_null(gw);
     mk_assert_not_null(store);
+    mk_assert_not_null(conv);
 
-    miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = store, .sub = NULL, .group = NULL };
+    miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = store, .sub = NULL, .group = NULL, .conv = conv };
     miku_im_msg_t im;
     miku_im_msg_init(&im);
     strncpy(im.send_id, "alice", sizeof(im.send_id) - 1);
@@ -397,6 +399,12 @@ void test_msggw_ws_deliver_msg(void) {
     mk_assert_str_eq("si_alice_bob", im.conversation_id);
     mk_assert_int_eq(1, miku_msg_store_count(store));
 
+    miku_conversation_t bob_c, alice_c;
+    mk_assert_int_eq(0, miku_conv_get(conv, "bob", "si_alice_bob", &bob_c));
+    mk_assert_int_eq(1, bob_c.unread_count);
+    mk_assert_int_eq(0, miku_conv_get(conv, "alice", "si_alice_bob", &alice_c));
+    mk_assert_int_eq(0, alice_c.unread_count);
+
     /* Reverse direction shares the same conversation bucket and continues seq. */
     miku_im_msg_t im2;
     miku_im_msg_init(&im2);
@@ -409,6 +417,9 @@ void test_msggw_ws_deliver_msg(void) {
     mk_assert_str_eq("si_alice_bob", im2.conversation_id);
     mk_assert_int_eq(2, miku_msg_store_count(store));
 
+    mk_assert_int_eq(0, miku_conv_get(conv, "alice", "si_alice_bob", &alice_c));
+    mk_assert_int_eq(1, alice_c.unread_count);
+
     char *msgs = NULL;
     mk_assert_int_eq(0, miku_msg_store_find_by_conv(store, "si_alice_bob", 1, 2, &msgs));
     mk_assert_not_null(msgs);
@@ -420,6 +431,7 @@ void test_msggw_ws_deliver_msg(void) {
     miku_im_msg_init(&bad);
     mk_assert_int_eq(-1, miku_msggw_ws_deliver_msg(&ctx, &bad));
 
+    miku_conv_service_destroy(conv);
     miku_msg_store_destroy(store);
     miku_msggw_destroy(gw);
 }

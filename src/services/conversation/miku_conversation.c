@@ -127,6 +127,31 @@ int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c) {
     return 0;
 }
 
+void miku_conv_touch_on_send(miku_conv_service_t *svc, const char *owner,
+                             const char *cid, int conv_type,
+                             const char *peer_user_id, const char *group_id,
+                             int64_t send_time, const char *content,
+                             int bump_unread) {
+    if (!svc || !owner || !owner[0] || !cid || !cid[0]) return;
+    miku_conversation_t c;
+    memset(&c, 0, sizeof(c));
+    if (miku_conv_get(svc, owner, cid, &c) != 0) {
+        strncpy(c.owner_user_id, owner, sizeof(c.owner_user_id) - 1);
+        strncpy(c.conversation_id, cid, sizeof(c.conversation_id) - 1);
+        c.conversation_type = conv_type;
+    }
+    if (peer_user_id && peer_user_id[0])
+        strncpy(c.user_id, peer_user_id, sizeof(c.user_id) - 1);
+    if (group_id && group_id[0])
+        strncpy(c.group_id, group_id, sizeof(c.group_id) - 1);
+    if (send_time > 0) c.latest_msg_send_time = send_time;
+    if (content && content[0])
+        strncpy(c.latest_msg_content, content, sizeof(c.latest_msg_content) - 1);
+    if (bump_unread) c.unread_count++;
+    if (miku_conv_update(svc, &c) == -2)
+        miku_conv_create(svc, &c);
+}
+
 static void indexes_rebuild(miku_conv_service_t *svc) {
     for (int i = 0; i < MK_CONV_HASH; i++) {
         svc->pair_hash[i] = -1;
@@ -417,8 +442,15 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     } break;
     case MK_CONV_RPC_getNotNotifyConversationIDs:
     {
+        const char *owner = conv_req_owner(req);
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        if (owner) {
+            for (int ci = owner_head(svc, owner); ci >= 0; ci = svc->owner_next[ci])
+                if (svc->convs[ci].recv_msg_opt != 0)
+                    miku_json_array_push(arr,
+                        miku_json_create_str(svc->convs[ci].conversation_id));
+        }
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_CONV_RPC_getOwnerConversation:

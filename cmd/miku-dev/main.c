@@ -137,6 +137,7 @@ int main(int argc, char **argv) {
     ws_ctx.sub = sub;
     ws_ctx.store = g_msg_store;
     ws_ctx.group = ctx->group_svc;
+    ws_ctx.conv = ctx->conv;
     miku_ws_sub_set_notify(sub, miku_msggw_ws_sub_notify, gw);
     miku_msggw_on_opcode(gw, miku_msggw_ws_on_opcode, &ws_ctx);
     miku_msggw_on_presence(gw, miku_msggw_ws_on_presence, &ws_ctx);

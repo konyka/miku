@@ -8,6 +8,7 @@
 #include "miku_msggw_ws_ops.h"
 #include "miku_msg_store.h"
 #include "miku_group.h"
+#include "miku_conversation.h"
 #include "miku_json.h"
 #include "miku_http_server.h"
 #include "miku_token.h"
@@ -22,6 +23,7 @@ static miku_http_server_t *g_admin;
 static miku_msggw_t *g_gw;
 static miku_msg_store_t *g_store;
 static miku_group_service_t *g_group;
+static miku_conv_service_t *g_conv;
 
 static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_msggw_t *gw = (miku_msggw_t *)ctx;
@@ -180,9 +182,19 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    g_conv = miku_conv_service_create();
+    if (!g_conv) {
+        MK_LOG_ERROR("Failed to create conversation service");
+        miku_group_service_destroy(g_group);
+        miku_msg_store_destroy(g_store);
+        miku_msggw_destroy(g_gw);
+        return 1;
+    }
+
     miku_ws_sub_t *sub = miku_ws_sub_create();
     if (!sub) {
         MK_LOG_ERROR("Failed to create subscription manager");
+        miku_conv_service_destroy(g_conv);
         miku_group_service_destroy(g_group);
         miku_msg_store_destroy(g_store);
         miku_msggw_destroy(g_gw);
@@ -194,6 +206,7 @@ int main(int argc, char **argv) {
     gctx.sub = sub;
     gctx.store = g_store;
     gctx.group = g_group;
+    gctx.conv = g_conv;
 
     miku_ws_sub_set_notify(sub, miku_msggw_ws_sub_notify, g_gw);
     miku_msggw_on_message(g_gw, on_ws_message, &gctx);
@@ -232,6 +245,7 @@ int main(int argc, char **argv) {
     miku_msggw_stop(g_gw);
     miku_msggw_destroy(g_gw);
     miku_ws_sub_destroy(sub);
+    miku_conv_service_destroy(g_conv);
     miku_group_service_destroy(g_group);
     miku_msg_store_destroy(g_store);
     miku_graceful_cleanup(&g_graceful);

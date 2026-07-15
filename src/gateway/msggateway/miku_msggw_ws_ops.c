@@ -1,6 +1,7 @@
 #include "miku_msggw_ws_ops.h"
 #include "miku_im_message.h"
 #include "miku_models.h"
+#include "miku_conversation.h"
 #include "miku_json.h"
 #include "miku_json_util.h"
 #include "miku_string.h"
@@ -18,6 +19,50 @@ typedef struct {
     int                 members;
     int                 pushed;
 } fanout_ctx_t;
+
+typedef struct {
+    miku_conv_service_t *svc;
+    const char          *cid;
+    const char          *gid;
+    const char          *send_id;
+    int64_t              send_time;
+    const char          *content;
+} ws_group_conv_ctx_t;
+
+static void ws_upsert_group_member_conv(const char *user_id, int role, void *v) {
+    (void)role;
+    ws_group_conv_ctx_t *g = (ws_group_conv_ctx_t *)v;
+    if (!g || !user_id) return;
+    int bump = (g->send_id && strcmp(user_id, g->send_id) != 0) ? 1 : 0;
+    miku_conv_touch_on_send(g->svc, user_id, g->cid, MK_IM_CONV_GROUP,
+                            NULL, g->gid, g->send_time, g->content, bump);
+}
+
+static void ws_touch_convs_on_send(miku_msggw_ws_ctx_t *gc, const miku_im_msg_t *im,
+                                   const char *conv) {
+    if (!gc || !gc->conv || !im || !conv || !conv[0] || !im->send_id[0]) return;
+    int is_group = (im->conversation_type == MK_IM_CONV_GROUP) || im->group_id[0];
+    if (is_group && im->group_id[0]) {
+        ws_group_conv_ctx_t gctx = {
+            .svc = gc->conv, .cid = conv, .gid = im->group_id,
+            .send_id = im->send_id, .send_time = im->send_time,
+            .content = im->content,
+        };
+        if (gc->group)
+            miku_group_foreach_member(gc->group, im->group_id,
+                                      ws_upsert_group_member_conv, &gctx);
+        miku_conv_touch_on_send(gc->conv, im->send_id, conv, MK_IM_CONV_GROUP,
+                                NULL, im->group_id, im->send_time, im->content, 0);
+        return;
+    }
+    if (im->recv_id[0]) {
+        miku_conv_touch_on_send(gc->conv, im->send_id, conv, MK_IM_CONV_SINGLE,
+                                im->recv_id, NULL, im->send_time, im->content, 0);
+        if (strcmp(im->recv_id, im->send_id) != 0)
+            miku_conv_touch_on_send(gc->conv, im->recv_id, conv, MK_IM_CONV_SINGLE,
+                                    im->send_id, NULL, im->send_time, im->content, 1);
+    }
+}
 
 void miku_msggw_ws_resolve_conv(char *out, size_t out_sz,
                                 const char *conversation_id,
@@ -164,6 +209,7 @@ int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *gc, miku_im_msg_t *im) {
     }
 
     fanout_send_msg(gc, im);
+    ws_touch_convs_on_send(gc, im, conv);
     MK_LOG_DEBUG("deliver_msg: conv=%s send=%s recv=%s group=%s seq=%lld",
                  conv, im->send_id, im->recv_id, im->group_id, (long long)im->seq);
     return 0;

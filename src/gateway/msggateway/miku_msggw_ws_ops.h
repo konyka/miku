@@ -6,6 +6,7 @@
 #include "miku_ws_subscription.h"
 #include "miku_msg_store.h"
 #include "miku_group.h"
+#include "miku_conversation.h"
 #include "miku_im_message.h"
 
 typedef struct {
@@ -13,6 +14,7 @@ typedef struct {
     miku_ws_sub_t          *sub;
     miku_msg_store_t       *store;
     miku_group_service_t   *group;
+    miku_conv_service_t    *conv;
 } miku_msggw_ws_ctx_t;
 
 /*

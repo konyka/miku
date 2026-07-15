@@ -260,24 +260,8 @@ static void upsert_conv_on_send(miku_conv_service_t *svc, const char *owner,
                                 const char *peer_user_id, const char *group_id,
                                 int64_t send_time, const char *content,
                                 int bump_unread) {
-    if (!svc || !owner || !owner[0] || !cid || !cid[0]) return;
-    miku_conversation_t c;
-    memset(&c, 0, sizeof(c));
-    if (miku_conv_get(svc, owner, cid, &c) != 0) {
-        strncpy(c.owner_user_id, owner, sizeof(c.owner_user_id) - 1);
-        strncpy(c.conversation_id, cid, sizeof(c.conversation_id) - 1);
-        c.conversation_type = conv_type;
-    }
-    if (peer_user_id && peer_user_id[0])
-        strncpy(c.user_id, peer_user_id, sizeof(c.user_id) - 1);
-    if (group_id && group_id[0])
-        strncpy(c.group_id, group_id, sizeof(c.group_id) - 1);
-    if (send_time > 0) c.latest_msg_send_time = send_time;
-    if (content && content[0])
-        strncpy(c.latest_msg_content, content, sizeof(c.latest_msg_content) - 1);
-    if (bump_unread) c.unread_count++;
-    if (miku_conv_update(svc, &c) == -2)
-        miku_conv_create(svc, &c);
+    miku_conv_touch_on_send(svc, owner, cid, conv_type, peer_user_id, group_id,
+                            send_time, content, bump_unread);
 }
 
 typedef struct {
@@ -632,7 +616,16 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getConversation");
     if (strcmp(method, "setConversation") == 0 || strcmp(method, "deleteConversation") == 0) {
-        if (require_fields(j, resp, "userID", "conversationID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "conversationID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
+        if (!owner || !owner[0]) owner = miku_json_str(miku_json_get(j, "userID"));
+        if (!owner || !owner[0]) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":400,\"errMsg\":\"missing required fields: userID or ownerUserID\"}");
+            resp->status = 400;
+            return;
+        }
     }
     miku_conv_handle_rpc(c->conv, method, j, out);
         miku_json_destroy(j);
