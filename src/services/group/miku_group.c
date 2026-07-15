@@ -520,15 +520,16 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
-        if (!g || g->status != 0 || !op || !op[0]
-            || miku_group_member_role(svc, gid, op) < 60) {
+        int op_role = (gid && op && op[0]) ? miku_group_member_role(svc, gid, op) : -1;
+        if (!g || g->status != 0 || op_role < 60) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
         int rc = -1;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         if (uid && uid[0] && strcmp(uid, op) != 0
-            && strcmp(uid, g->owner_user_id) != 0)
+            && strcmp(uid, g->owner_user_id) != 0
+            && op_role > miku_group_member_role(svc, gid, uid))
             rc = miku_group_remove_member(svc, gid, uid);
         miku_json_val_t *ids = req ? miku_json_get(req, "kickedUserIDs") : NULL;
         if (!ids) ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
@@ -538,6 +539,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
                 const char *u = miku_json_str(miku_json_at(ids, i));
                 if (u && u[0] && strcmp(u, op) != 0
                     && strcmp(u, g->owner_user_id) != 0
+                    && op_role > miku_group_member_role(svc, gid, u)
                     && miku_group_remove_member(svc, gid, u) == 0)
                     rc = 0;
             }

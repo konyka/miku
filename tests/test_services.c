@@ -259,6 +259,30 @@ static void test_group_create_and_members(void) {
     miku_json_destroy(kick_owner);
     miku_json_destroy(kick_owner_resp);
 
+    /* Peer admin cannot kick another admin (must be strictly higher role). */
+    mk_assert_int_eq(0, miku_group_add_member(svc, g.group_id, "admin2", 60));
+    miku_json_val_t *kick_peer = miku_json_create_object();
+    miku_json_object_set(kick_peer, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(kick_peer, "opUserID", miku_json_create_str("admin1"));
+    miku_json_object_set(kick_peer, "userID", miku_json_create_str("admin2"));
+    miku_json_val_t *kick_peer_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "kickGroupMember", kick_peer, kick_peer_resp);
+    mk_assert_int_eq(3002, (int)miku_json_int(miku_json_get(kick_peer_resp, "errCode")));
+    mk_assert_int_eq(1, miku_group_is_member(svc, g.group_id, "admin2"));
+    miku_json_destroy(kick_peer);
+    miku_json_destroy(kick_peer_resp);
+    /* Owner can kick admin. */
+    miku_json_val_t *kick_admin = miku_json_create_object();
+    miku_json_object_set(kick_admin, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(kick_admin, "opUserID", miku_json_create_str("owner1"));
+    miku_json_object_set(kick_admin, "userID", miku_json_create_str("admin2"));
+    miku_json_val_t *kick_admin_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "kickGroupMember", kick_admin, kick_admin_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(kick_admin_resp, "errCode")));
+    mk_assert_int_eq(0, miku_group_is_member(svc, g.group_id, "admin2"));
+    miku_json_destroy(kick_admin);
+    miku_json_destroy(kick_admin_resp);
+
     miku_json_val_t *xfer = miku_json_create_object();
     miku_json_object_set(xfer, "groupID", miku_json_create_str(g.group_id));
     miku_json_object_set(xfer, "userID", miku_json_create_str("owner1"));
@@ -283,7 +307,7 @@ static void test_group_create_and_members(void) {
 
     miku_group_member_t members[16];
     int n = miku_group_get_members(svc, g.group_id, members, 16);
-    mk_assert_int_eq(4, n);
+    mk_assert_int_eq(4, n); /* owner1(now member), member1(owner), member2, admin1 */
 
     miku_json_val_t *req = miku_json_create_object();
     miku_json_object_set(req, "userID", miku_json_create_str("member1"));
