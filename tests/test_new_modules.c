@@ -2316,9 +2316,29 @@ static void test_admin_stats(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
-    char auth_resp[8192] = {0};
+    char user_auth[8192] = {0};
     http_post_to(19798, "/auth/user_token",
-        "{\"userID\":\"admin1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_resp, sizeof(auth_resp));
+        "{\"userID\":\"admin1\",\"secret\":\"openIM123\",\"platformID\":1}", user_auth, sizeof(user_auth));
+    miku_json_val_t *ur = miku_json_parse_str(extract_json_body(user_auth));
+    const char *user_tok = ur ? miku_json_str(miku_json_get(ur, "token")) : NULL;
+    mk_assert(user_tok && user_tok[0]);
+
+    char denied[8192] = {0};
+    http_post_with_token(19798, "/admin/stats", user_tok, "{}", denied, sizeof(denied));
+    miku_json_val_t *dr = miku_json_parse_str(extract_json_body(denied));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
+    char shut_bad[8192] = {0};
+    http_post_with_token(19798, "/admin/shutdown", user_tok, "{}", shut_bad, sizeof(shut_bad));
+    dr = miku_json_parse_str(extract_json_body(shut_bad));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
+
+    char auth_resp[8192] = {0};
+    http_post_to(19798, "/auth/admin_token",
+        "{\"userID\":\"admin1\",\"secret\":\"openIM123\"}", auth_resp, sizeof(auth_resp));
     miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth_resp));
     const char *token = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
     mk_assert(token && token[0]);
@@ -2331,6 +2351,13 @@ static void test_admin_stats(void) {
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":0") != NULL);
     mk_assert(strstr(body, "uptimeMs") != NULL);
+    char shut_ok[8192] = {0};
+    http_post_with_token(19798, "/admin/shutdown", token, "{}", shut_ok, sizeof(shut_ok));
+    dr = miku_json_parse_str(extract_json_body(shut_ok));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
+    if (ur) miku_json_destroy(ur);
     if (ar) miku_json_destroy(ar);
 
     miku_http_server_stop(srv);

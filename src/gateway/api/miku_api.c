@@ -1139,9 +1139,15 @@ static void handle_admin(miku_http_request_t *req, miku_http_response_t *resp, v
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     char path[128];
     api_req_path(req, path, sizeof(path));
-    /* health is public; stats/shutdown require a valid token */
+    /* health is public; stats/shutdown need admin token (platform 5). */
     if (strcmp(path, "/admin/health") != 0) {
         if (verify_token(c, req, resp)) return;
+        if (req_token_platform(req) != 5) {
+            miku_http_response_set_json(resp,
+                "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+            resp->status = 403;
+            return;
+        }
     }
     miku_json_val_t *out = miku_json_create_object();
     if (strcmp(path, "/admin/stats") == 0) {
