@@ -411,12 +411,21 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_setGroupInfo:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        miku_group_t *g = miku_group_find(svc, gid);
-        if (g) {
-            const char *name = req ? miku_json_str(miku_json_get(req, "groupName")) : NULL;
-            if (name) strncpy(g->group_name, name, sizeof(g->group_name) - 1);
+        const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        if (!g) {
+            miku_ji(resp, "errCode", 3001);
+            break;
         }
-        miku_ji(resp, "errCode", g ? 0 : 3001);
+        if (!op || !op[0] || miku_group_member_role(svc, gid, op) < 60) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
+        const char *name = req ? miku_json_str(miku_json_get(req, "groupName")) : NULL;
+        if (name) strncpy(g->group_name, name, sizeof(g->group_name) - 1);
+        miku_ji(resp, "errCode", 0);
     } break;
     case MK_GROUP_RPC_setGroupMemberInfo:
     {
@@ -647,14 +656,23 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_setGroupInfoEx:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        miku_group_t *g = miku_group_find(svc, gid);
-        if (g) {
-            const char *name = req ? miku_json_str(miku_json_get(req, "groupName")) : NULL;
-            const char *ex = req ? miku_json_str(miku_json_get(req, "ex")) : NULL;
-            if (name) strncpy(g->group_name, name, sizeof(g->group_name) - 1);
-            if (ex) strncpy(g->ex, ex, sizeof(g->ex) - 1);
+        const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        if (!g) {
+            miku_ji(resp, "errCode", 3001);
+            break;
         }
-        miku_ji(resp, "errCode", g ? 0 : 3001);
+        if (!op || !op[0] || miku_group_member_role(svc, gid, op) < 60) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
+        const char *name = req ? miku_json_str(miku_json_get(req, "groupName")) : NULL;
+        const char *ex = req ? miku_json_str(miku_json_get(req, "ex")) : NULL;
+        if (name) strncpy(g->group_name, name, sizeof(g->group_name) - 1);
+        if (ex) strncpy(g->ex, ex, sizeof(g->ex) - 1);
+        miku_ji(resp, "errCode", 0);
     } break;
     default:
         miku_ji(resp, "errCode", 404);

@@ -565,7 +565,9 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
                  || strcmp(method, "dismissGroup") == 0
                  || strcmp(method, "transferGroupOwner") == 0)
             miku_jss(j, "userID", actor);
-        else if (strcmp(method, "kickGroupMember") == 0)
+        else if (strcmp(method, "kickGroupMember") == 0
+                 || strcmp(method, "setGroupInfo") == 0
+                 || strcmp(method, "setGroupInfoEx") == 0)
             miku_jss(j, "opUserID", actor);
         else if (strcmp(method, "inviteToGroup") == 0)
             miku_jss(j, "fromUserID", actor);

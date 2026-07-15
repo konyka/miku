@@ -1047,8 +1047,19 @@ static void test_group_create_setinfo_member_flow(void) {
     mk_assert(strlen(gid) > 0);
     mk_assert_int_eq(3, miku_group_find(svc, gid)->member_count);
 
+    miku_json_val_t *setex_bad = miku_json_create_object();
+    miku_json_object_set(setex_bad, "groupID", miku_json_create_str(gid));
+    miku_json_object_set(setex_bad, "opUserID", miku_json_create_str("u_a"));
+    miku_json_object_set(setex_bad, "groupName", miku_json_create_str("hacked"));
+    miku_json_val_t *setex_bad_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "setGroupInfoEx", setex_bad, setex_bad_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(setex_bad_resp, "errCode")));
+    miku_json_destroy(setex_bad);
+    miku_json_destroy(setex_bad_resp);
+
     miku_json_val_t *setex_req = miku_json_create_object();
     miku_json_object_set(setex_req, "groupID", miku_json_create_str(gid));
+    miku_json_object_set(setex_req, "opUserID", miku_json_create_str("admin"));
     miku_json_object_set(setex_req, "groupName", miku_json_create_str("updated room"));
     miku_json_object_set(setex_req, "ex", miku_json_create_str("extra data"));
     miku_json_val_t *setex_resp = miku_json_create_object();
