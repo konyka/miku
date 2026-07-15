@@ -924,10 +924,21 @@ static void test_msg_send_get_search_delete(void) {
     mk_assert_int_eq(1, (int)miku_json_size(data));
 
     miku_json_val_t *del_req = miku_json_create_object();
+    miku_json_object_set(del_req, "userID", miku_json_create_str("alice"));
     miku_json_object_set(del_req, "clientMsgID", miku_json_create_str("c_msg_001"));
     miku_json_val_t *del_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "deleteMsg", del_req, del_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(del_resp, "errCode")));
+
+    /* Non-sender cannot delete. */
+    miku_json_val_t *del_bad = miku_json_create_object();
+    miku_json_object_set(del_bad, "userID", miku_json_create_str("bob"));
+    miku_json_object_set(del_bad, "clientMsgID", miku_json_create_str("c_msg_002"));
+    miku_json_val_t *del_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(svc, "deleteMsg", del_bad, del_bad_resp);
+    mk_assert_int_eq(5001, (int)miku_json_int(miku_json_get(del_bad_resp, "errCode")));
+    miku_json_destroy(del_bad);
+    miku_json_destroy(del_bad_resp);
 
     miku_json_val_t *get2_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "getMsg", get_req, get2_resp);

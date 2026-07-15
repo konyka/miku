@@ -697,7 +697,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     }
     miku_msg_handle_rpc(c->msg, method, j, out);
 
-    if (strcmp(method, "sendMsg") == 0) {
+    if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
         if (err == 0) {
             const char *send_id = miku_json_str(miku_json_get(j, "sendID"));
@@ -770,7 +770,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
 
     if (c->webhook) {
         int64_t wh_err = miku_json_int(miku_json_get(out, "errCode"));
-        if (wh_err == 0 && strcmp(method, "sendMsg") == 0) {
+        if (wh_err == 0 &&
+            (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0)) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
             const char *rid = miku_json_str(miku_json_get(j, "recvID"));
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));

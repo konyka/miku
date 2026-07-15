@@ -382,6 +382,16 @@ static void test_msg_send_and_query(void) {
     mk_assert_int_eq(1, n);
     mk_assert_str_eq("g9", out[0].group_id);
 
+    /* Sender's own group message must survive userClearAllMsg. */
+    miku_msg_t gm2;
+    memset(&gm2, 0, sizeof(gm2));
+    strncpy(gm2.send_id, "s1", sizeof(gm2.send_id) - 1);
+    strncpy(gm2.group_id, "g9", sizeof(gm2.group_id) - 1);
+    strncpy(gm2.content, "from-s1", sizeof(gm2.content) - 1);
+    gm2.msg_type = MK_MSG_TYPE_TEXT;
+    gm2.session_type = 3;
+    mk_assert_int_eq(0, miku_msg_send(svc, &gm2));
+
     miku_json_val_t *clr = miku_json_create_object();
     miku_json_object_set(clr, "conversationID", miku_json_create_str("si_alice_bob"));
     miku_json_val_t *clr_resp = miku_json_create_object();
@@ -398,7 +408,7 @@ static void test_msg_send_and_query(void) {
     miku_msg_handle_rpc(svc, "userClearAllMsg", uclr, uclr_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(uclr_resp, "errCode")));
     mk_assert_int_eq(0, miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4));
-    mk_assert_int_eq(1, miku_msg_get_by_conv(svc, "sg_g9", 0, 0, 10, out, 4));
+    mk_assert_int_eq(2, miku_msg_get_by_conv(svc, "sg_g9", 0, 0, 10, out, 4));
     miku_json_destroy(uclr);
     miku_json_destroy(uclr_resp);
 

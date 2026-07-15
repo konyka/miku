@@ -414,13 +414,19 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_MSG_RPC_deleteMsg: {
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         int deleted = 0;
-        if (cmid && cmid[0]) {
+        if (uid && uid[0] && cmid && cmid[0]) {
             int mi = hash_find_cid(svc, cmid);
-            if (mi < 0) {
+            if (mi < 0 || strcmp(svc->msgs[mi].send_id, uid) != 0) {
+                mi = -1;
                 for (int i = 0; i < svc->count; i++) {
-                    if (strcmp(svc->msgs[i].client_msg_id, cmid) == 0) { mi = i; break; }
+                    if (strcmp(svc->msgs[i].client_msg_id, cmid) == 0 &&
+                        strcmp(svc->msgs[i].send_id, uid) == 0) {
+                        mi = i;
+                        break;
+                    }
                 }
             }
             if (mi >= 0) {
@@ -428,7 +434,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                 deleted = 1;
             }
         }
-        miku_ji(resp, "errCode", deleted ? 0 : (cmid && cmid[0] ? 5001 : 400));
+        miku_ji(resp, "errCode", deleted ? 0 : ((uid && uid[0] && cmid && cmid[0]) ? 5001 : 400));
     } break;
     case MK_MSG_RPC_batchSendMsg: {
         miku_ji(resp, "errCode", 0);
@@ -468,7 +474,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
-            miku_ji(resp, "seq", (int)m.seq);
+            miku_ji(resp, "seq", m.seq);
+            miku_ji(resp, "sendTime", m.send_time);
         }
     } break;
     case MK_MSG_RPC_sendBusinessNotification: {
@@ -574,12 +581,14 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", 400);
             break;
         }
+        /* Single-chat only: group msgs are shared history — never hard-delete. */
         int w = 0;
         for (int i = 0; i < svc->count; i++) {
-            if (strcmp(svc->msgs[i].send_id, uid) == 0 ||
-                strcmp(svc->msgs[i].recv_id, uid) == 0)
+            miku_msg_t *m = &svc->msgs[i];
+            if (!m->group_id[0] &&
+                (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0))
                 continue;
-            svc->msgs[w++] = svc->msgs[i];
+            svc->msgs[w++] = *m;
         }
         int deleted = svc->count - w;
         svc->count = w;
