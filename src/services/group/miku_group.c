@@ -443,22 +443,13 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_joinGroup:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
         if (!g) {
             miku_ji(resp, "errCode", 3001);
             break;
         }
-        if (g->status != 0) {
-            miku_ji(resp, "errCode", 3003);
-            break;
-        }
-        if (!uid || !uid[0]) {
-            miku_ji(resp, "errCode", 400);
-            break;
-        }
-        int rc = miku_group_add_member(svc, gid, uid, 20);
-        miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
+        /* Invite-only: open join bypasses friends-only invite gates. */
+        miku_ji(resp, "errCode", 3003);
     } break;
     case MK_GROUP_RPC_quitGroup:
     {

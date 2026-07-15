@@ -479,7 +479,7 @@ static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *c
     return 0;
 }
 
-/* Keep only inviter + friends in invitee lists (block force-add strangers). */
+/* Keep only inviter + mutual friends in invitee lists (block force-add strangers). */
 static void filter_group_invitee_ids(miku_api_ctx_t *c, const char *from,
                                     miku_json_val_t *j) {
     if (!c || !from || !from[0] || !j) return;
@@ -493,14 +493,14 @@ static void filter_group_invitee_ids(miku_api_ctx_t *c, const char *from,
             const char *u = miku_json_str(miku_json_at(ids, i));
             if (!u || !u[0]) continue;
             if (strcmp(u, from) == 0
-                || miku_friend_is_friend(c->friend_svc, from, u))
+                || miku_friend_is_mutual(c->friend_svc, from, u))
                 miku_json_array_push(filtered, miku_json_create_str(u));
         }
         miku_json_object_set(j, keys[k], filtered);
     }
     const char *uid = miku_json_str(miku_json_get(j, "userID"));
     if (uid && uid[0] && strcmp(uid, from) != 0
-        && !miku_friend_is_friend(c->friend_svc, from, uid))
+        && !miku_friend_is_mutual(c->friend_svc, from, uid))
         miku_jss(j, "userID", "");
 }
 

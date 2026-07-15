@@ -1081,7 +1081,17 @@ static void test_group_create_setinfo_member_flow(void) {
     miku_json_object_set(join_req, "userID", miku_json_create_str("member1"));
     miku_json_val_t *join_resp = miku_json_create_object();
     miku_group_handle_rpc(svc, "joinGroup", join_req, join_resp);
-    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(join_resp, "errCode")));
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(join_resp, "errCode")));
+    miku_json_destroy(join_req);
+    miku_json_destroy(join_resp);
+
+    miku_json_val_t *inv_req = miku_json_create_object();
+    miku_json_object_set(inv_req, "groupID", miku_json_create_str(gid));
+    miku_json_object_set(inv_req, "fromUserID", miku_json_create_str("admin"));
+    miku_json_object_set(inv_req, "userID", miku_json_create_str("member1"));
+    miku_json_val_t *inv_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "inviteToGroup", inv_req, inv_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(inv_resp, "errCode")));
 
     miku_json_val_t *members_req = miku_json_create_object();
     miku_json_object_set(members_req, "groupID", miku_json_create_str(gid));
@@ -1095,7 +1105,7 @@ static void test_group_create_setinfo_member_flow(void) {
     miku_json_destroy(create_req); miku_json_destroy(create_resp);
     miku_json_destroy(setex_req); miku_json_destroy(setex_resp);
     miku_json_destroy(get_req); miku_json_destroy(get_resp);
-    miku_json_destroy(join_req); miku_json_destroy(join_resp);
+    miku_json_destroy(inv_req); miku_json_destroy(inv_resp);
     miku_json_destroy(members_req); miku_json_destroy(members_resp);
     miku_group_service_destroy(svc);
 }
@@ -1954,6 +1964,37 @@ static void test_group_member_sync_callback(void) {
     char join[8192] = {0};
     snprintf(body, sizeof(body), "{\"userID\":\"forged\",\"groupID\":\"%s\"}", gid);
     http_post_with_token(19850, "/group/join", tok2, body, join, sizeof(join));
+    ri = miku_json_parse_str(extract_json_body(join));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    miku_json_destroy(ri);
+    mk_assert_int_eq(1, g_gm_sync_count); /* open join blocked */
+
+    /* One-sided friendship must not unlock invite. */
+    char add1[8192] = {0};
+    http_post_with_token(19850, "/friend/add", tok,
+        "{\"ownerUserID\":\"forged\",\"friendUserID\":\"gm_u2\"}", add1, sizeof(add1));
+    char inv_oneway[8192] = {0};
+    snprintf(body, sizeof(body),
+             "{\"groupID\":\"%s\",\"fromUserID\":\"forged\",\"userID\":\"gm_u2\"}", gid);
+    http_post_with_token(19850, "/group/invite", tok, body, inv_oneway, sizeof(inv_oneway));
+    ri = miku_json_parse_str(extract_json_body(inv_oneway));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(3002, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    miku_json_destroy(ri);
+    mk_assert_int_eq(1, g_gm_sync_count);
+
+    char add2[8192] = {0};
+    http_post_with_token(19850, "/friend/add", tok2,
+        "{\"ownerUserID\":\"forged\",\"friendUserID\":\"gm_owner\"}", add2, sizeof(add2));
+    char inv_ok[8192] = {0};
+    snprintf(body, sizeof(body),
+             "{\"groupID\":\"%s\",\"fromUserID\":\"forged\",\"userID\":\"gm_u2\"}", gid);
+    http_post_with_token(19850, "/group/invite", tok, body, inv_ok, sizeof(inv_ok));
+    ri = miku_json_parse_str(extract_json_body(inv_ok));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    miku_json_destroy(ri);
     mk_assert_int_eq(2, g_gm_sync_count);
     mk_assert_str_eq("gm_u2", g_gm_last_uid);
     mk_assert_int_eq(20, g_gm_last_role);

@@ -156,6 +156,11 @@ bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1, const c
     return pair_hash_find(svc, uid1, uid2) >= 0 || pair_hash_find(svc, uid2, uid1) >= 0;
 }
 
+bool miku_friend_is_mutual(miku_friend_service_t *svc, const char *uid1, const char *uid2) {
+    if (!svc || !uid1 || !uid2) return false;
+    return pair_hash_find(svc, uid1, uid2) >= 0 && pair_hash_find(svc, uid2, uid1) >= 0;
+}
+
 static void black_pair_insert(miku_friend_service_t *svc, int bi) {
     uint32_t idx = pair_hash_slot(svc->blacks[bi].owner_user_id,
                                   svc->blacks[bi].friend_user_id);
