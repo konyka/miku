@@ -552,12 +552,40 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "status", found ? 1 : 0);
     } break;
     case MK_MSG_RPC_clearConversationMsg: {
-        miku_ji(resp, "errCode", 0);
-    } break;
-    case MK_MSG_RPC_userClearAllMsg: {
-        svc->count = 0;
+        const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        if (!cid || !cid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
+        int w = 0;
+        for (int i = 0; i < svc->count; i++) {
+            if (strcmp(svc->msgs[i].conversation_id, cid) == 0) continue;
+            svc->msgs[w++] = svc->msgs[i];
+        }
+        int deleted = svc->count - w;
+        svc->count = w;
         rebuild_indexes(svc);
         miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "deleted", deleted);
+    } break;
+    case MK_MSG_RPC_userClearAllMsg: {
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!uid || !uid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
+        int w = 0;
+        for (int i = 0; i < svc->count; i++) {
+            if (strcmp(svc->msgs[i].send_id, uid) == 0 ||
+                strcmp(svc->msgs[i].recv_id, uid) == 0)
+                continue;
+            svc->msgs[w++] = svc->msgs[i];
+        }
+        int deleted = svc->count - w;
+        svc->count = w;
+        rebuild_indexes(svc);
+        miku_ji(resp, "errCode", 0);
+        miku_ji(resp, "deleted", deleted);
     } break;
     case MK_MSG_RPC_deleteMsgPhysical: {
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;

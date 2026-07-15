@@ -180,6 +180,16 @@ static void test_group_create_and_members(void) {
     mk_assert_int_eq(0, rc);
     mk_assert_int_eq(2, miku_group_find(svc, g.group_id)->member_count);
 
+    miku_json_val_t *xfer = miku_json_create_object();
+    miku_json_object_set(xfer, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(xfer, "newOwnerUserID", miku_json_create_str("member1"));
+    miku_json_val_t *xfer_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "transferGroupOwner", xfer, xfer_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(xfer_resp, "errCode")));
+    mk_assert_str_eq("member1", miku_group_find(svc, g.group_id)->owner_user_id);
+    miku_json_destroy(xfer);
+    miku_json_destroy(xfer_resp);
+
     miku_group_member_t members[16];
     int n = miku_group_get_members(svc, g.group_id, members, 16);
     mk_assert_int_eq(2, n);
@@ -348,6 +358,26 @@ static void test_msg_send_and_query(void) {
     n = miku_msg_get_by_conv(svc, "sg_g9", 0, 0, 10, out, 4);
     mk_assert_int_eq(1, n);
     mk_assert_str_eq("g9", out[0].group_id);
+
+    miku_json_val_t *clr = miku_json_create_object();
+    miku_json_object_set(clr, "conversationID", miku_json_create_str("si_alice_bob"));
+    miku_json_val_t *clr_resp = miku_json_create_object();
+    miku_msg_handle_rpc(svc, "clearConversationMsg", clr, clr_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(clr_resp, "errCode")));
+    mk_assert_int_eq(0, miku_msg_get_by_conv(svc, "si_alice_bob", 0, 0, 10, out, 4));
+    mk_assert(miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4) >= 1);
+    miku_json_destroy(clr);
+    miku_json_destroy(clr_resp);
+
+    miku_json_val_t *uclr = miku_json_create_object();
+    miku_json_object_set(uclr, "userID", miku_json_create_str("s1"));
+    miku_json_val_t *uclr_resp = miku_json_create_object();
+    miku_msg_handle_rpc(svc, "userClearAllMsg", uclr, uclr_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(uclr_resp, "errCode")));
+    mk_assert_int_eq(0, miku_msg_get_by_conv(svc, "si_r1_s1", 0, 0, 10, out, 4));
+    mk_assert_int_eq(1, miku_msg_get_by_conv(svc, "sg_g9", 0, 0, 10, out, 4));
+    miku_json_destroy(uclr);
+    miku_json_destroy(uclr_resp);
 
     miku_msg_service_destroy(svc);
 }

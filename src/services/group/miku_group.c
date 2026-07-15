@@ -450,6 +450,24 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     } break;
     case MK_GROUP_RPC_transferGroupOwner:
     {
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *new_owner = req ? miku_json_str(miku_json_get(req, "newOwnerUserID")) : NULL;
+        if (!new_owner) new_owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        if (!g || !new_owner || !new_owner[0]) {
+            miku_ji(resp, "errCode", 3001);
+            break;
+        }
+        int new_mi = member_index_find(svc, gid, new_owner);
+        if (new_mi < 0) {
+            miku_ji(resp, "errCode", 3002);
+            break;
+        }
+        int old_mi = member_index_find(svc, gid, g->owner_user_id);
+        if (old_mi >= 0) svc->members[old_mi].role_level = 20;
+        svc->members[new_mi].role_level = 100;
+        strncpy(g->owner_user_id, new_owner, sizeof(g->owner_user_id) - 1);
+        g->owner_user_id[sizeof(g->owner_user_id) - 1] = '\0';
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_GROUP_RPC_getJoinedGroupList:
