@@ -131,6 +131,24 @@ static int fill_peer_from_si_conv(const char *conv, const char *self,
     return -1;
 }
 
+/* 1 if session user may pull/peek this conversation. */
+static int ws_may_access_conv(miku_msggw_ws_ctx_t *gc, const char *uid, const char *conv) {
+    if (!uid || !uid[0] || !conv || !conv[0]) return 0;
+    if (strncmp(conv, "si_", 3) == 0) {
+        char peer[64];
+        return fill_peer_from_si_conv(conv, uid, peer, sizeof(peer)) == 0;
+    }
+    if (strncmp(conv, "sg_", 3) == 0) {
+        if (!gc || !gc->group) return 1; /* cannot verify without group svc */
+        return miku_group_is_member(gc->group, conv + 3, uid);
+    }
+    if (gc && gc->conv) {
+        miku_conversation_t cv;
+        return miku_conv_get(gc->conv, uid, conv, &cv) == 0;
+    }
+    return 0;
+}
+
 static void fanout_one_member(const char *user_id, int role, void *v) {
     (void)role;
     fanout_ctx_t *f = (fanout_ctx_t *)v;
@@ -267,6 +285,11 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                 miku_json_destroy(j);
             }
         }
+        if (conv[0] && !ws_may_access_conv(gc, uid, conv)) {
+            reply_json(gc->gw, client_idx, opcode,
+                       "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+            break;
+        }
         int64_t seq = 0;
         miku_msggw_peek_max_seq(gc->gw, conv[0] ? conv : "default", &seq);
         char resp[256];
@@ -294,8 +317,13 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                 miku_json_destroy(j);
             }
         }
+        if (!conv[0] || !ws_may_access_conv(gc, uid, conv)) {
+            reply_json(gc->gw, client_idx, opcode,
+                       "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+            break;
+        }
         char *msgs = NULL;
-        if (gc->store && conv[0])
+        if (gc->store)
             miku_msg_store_find_by_conv(gc->store, conv, begin_seq, end_seq, &msgs);
         if (!msgs) msgs = strdup("[]");
         size_t need = strlen(msgs) + 64;
@@ -397,10 +425,15 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                 miku_json_destroy(j);
             }
         }
+        if (!conv[0] || !ws_may_access_conv(gc, uid, conv)) {
+            reply_json(gc->gw, client_idx, opcode,
+                       "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+            break;
+        }
         int64_t max_seq = 0;
-        miku_msggw_peek_max_seq(gc->gw, conv[0] ? conv : "default", &max_seq);
+        miku_msggw_peek_max_seq(gc->gw, conv, &max_seq);
         char *msgs = NULL;
-        if (gc->store && conv[0] && max_seq > 0)
+        if (gc->store && max_seq > 0)
             miku_msg_store_find_by_conv(gc->store, conv, max_seq, max_seq, &msgs);
         if (!msgs) msgs = strdup("[]");
         size_t need = strlen(msgs) + 64;
