@@ -199,6 +199,14 @@ int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *gc, miku_im_msg_t *im) {
         return -1;
     }
 
+    /* Group chat: sender must be a member when group svc is wired. */
+    if (gc->group && im->group_id[0] &&
+        !miku_group_is_member(gc->group, im->group_id, im->send_id)) {
+        MK_LOG_WARN("deliver_msg: non-member send=%s group=%s",
+                    im->send_id, im->group_id);
+        return -1;
+    }
+
     miku_im_msg_generate_id(im);
 
     int64_t seq = 0;
@@ -313,8 +321,11 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             has_read_seq = miku_json_int(miku_json_get(j, "hasReadSeq"));
             miku_json_destroy(j);
         }
-        if (!im.send_id[0] && uid[0])
+        /* Always bind sendID to the authenticated WS session user. */
+        if (uid[0]) {
             strncpy(im.send_id, uid, sizeof(im.send_id) - 1);
+            im.send_id[sizeof(im.send_id) - 1] = '\0';
+        }
 
         char conv[128];
         miku_msggw_ws_resolve_conv(conv, sizeof(conv),

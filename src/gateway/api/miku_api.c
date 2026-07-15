@@ -530,7 +530,8 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     if (strcmp(method, "createGroup") == 0) {
         if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "joinGroup") == 0 || strcmp(method, "quitGroup") == 0
-               || strcmp(method, "dismissGroup") == 0) {
+               || strcmp(method, "dismissGroup") == 0
+               || strcmp(method, "transferGroupOwner") == 0) {
         if (require_fields(j, resp, "userID", "groupID", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "inviteToGroup") == 0 || strcmp(method, "kickGroupMember") == 0) {
         if (require_fields(j, resp, "groupID", (const char *)NULL)) { miku_json_destroy(j); return; }
@@ -538,6 +539,13 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             !miku_json_get(j, "kickedUserIDs")) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":400,\"errMsg\":\"missing userID\"}");
+            return;
+        }
+        if (strcmp(method, "kickGroupMember") == 0 &&
+            !miku_json_get(j, "opUserID") && !miku_json_get(j, "fromUserID") &&
+            !miku_json_get(j, "ownerUserID")) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp, "{\"errCode\":400,\"errMsg\":\"missing opUserID\"}");
             return;
         }
     }
@@ -686,6 +694,17 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                 miku_json_destroy(j); miku_json_destroy(out);
                 miku_http_response_set_json(resp,
                     "{\"errCode\":6001,\"errMsg\":\"blocked by blacklist\"}");
+                resp->status = 403;
+                return;
+            }
+        }
+        /* Group chat: sender must be a member. */
+        if (gid && gid[0]) {
+            const char *sid = miku_json_str(miku_json_get(j, "sendID"));
+            if (!sid || !miku_group_is_member(c->group_svc, gid, sid)) {
+                miku_json_destroy(j); miku_json_destroy(out);
+                miku_http_response_set_json(resp,
+                    "{\"errCode\":3003,\"errMsg\":\"not a group member\"}");
                 resp->status = 403;
                 return;
             }

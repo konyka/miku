@@ -489,6 +489,16 @@ void test_group_foreach_beyond_get_members_cap(void) {
     mk_assert(im.seq > 0);
     mk_assert(im.conversation_id[0] == 's' && im.conversation_id[1] == 'g');
 
+    /* Non-member cannot deliver into the group. */
+    miku_im_msg_t outsider;
+    miku_im_msg_init(&outsider);
+    strncpy(outsider.send_id, "stranger", sizeof(outsider.send_id) - 1);
+    strncpy(outsider.group_id, g.group_id, sizeof(outsider.group_id) - 1);
+    strncpy(outsider.content, "nope", sizeof(outsider.content) - 1);
+    outsider.content_type = MK_IM_MSG_TYPE_TEXT;
+    outsider.conversation_type = MK_IM_CONV_GROUP;
+    mk_assert_int_eq(-1, miku_msggw_ws_deliver_msg(&ctx, &outsider));
+
     miku_msg_store_destroy(store);
     miku_msggw_destroy(gw);
     miku_group_service_destroy(svc);

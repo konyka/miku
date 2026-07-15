@@ -195,6 +195,19 @@ int miku_group_foreach_member(miku_group_service_t *svc, const char *group_id,
     return n;
 }
 
+int miku_group_is_member(miku_group_service_t *svc, const char *group_id,
+                         const char *user_id) {
+    if (!svc || !group_id || !user_id || !group_id[0] || !user_id[0]) return 0;
+    return member_index_find(svc, group_id, user_id) >= 0;
+}
+
+int miku_group_member_role(miku_group_service_t *svc, const char *group_id,
+                           const char *user_id) {
+    if (!svc || !group_id || !user_id || !group_id[0] || !user_id[0]) return -1;
+    int mi = member_index_find(svc, group_id, user_id);
+    return mi >= 0 ? svc->members[mi].role_level : -1;
+}
+
 
 enum {
     MK_GROUP_RPC_createGroup = 0,
@@ -420,9 +433,15 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_dismissGroup:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
         if (!g) {
             miku_ji(resp, "errCode", 3001);
+            break;
+        }
+        if (!op || !op[0] || strcmp(op, g->owner_user_id) != 0) {
+            miku_ji(resp, "errCode", 3003);
             break;
         }
         int w = 0;
@@ -444,17 +463,25 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_kickGroupMember:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        /* userID is the kicked member; operator is op/from/ownerUserID. */
+        const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        if (!gid || !op || !op[0] || miku_group_member_role(svc, gid, op) < 60) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
         int rc = -1;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        if (gid && uid)
+        if (uid && strcmp(uid, op) != 0)
             rc = miku_group_remove_member(svc, gid, uid);
         miku_json_val_t *ids = req ? miku_json_get(req, "kickedUserIDs") : NULL;
         if (!ids) ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
-        if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+        if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
             size_t n = miku_json_size(ids);
             for (size_t i = 0; i < n; i++) {
                 const char *u = miku_json_str(miku_json_at(ids, i));
-                if (u && miku_group_remove_member(svc, gid, u) == 0)
+                if (u && strcmp(u, op) != 0 && miku_group_remove_member(svc, gid, u) == 0)
                     rc = 0;
             }
         }
@@ -463,11 +490,18 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_transferGroupOwner:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
         const char *new_owner = req ? miku_json_str(miku_json_get(req, "newOwnerUserID")) : NULL;
         if (!new_owner) new_owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
         if (!g || !new_owner || !new_owner[0]) {
             miku_ji(resp, "errCode", 3001);
+            break;
+        }
+        if (!op || !op[0] || strcmp(op, g->owner_user_id) != 0) {
+            miku_ji(resp, "errCode", 3003);
             break;
         }
         int new_mi = member_index_find(svc, gid, new_owner);

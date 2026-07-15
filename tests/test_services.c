@@ -205,6 +205,7 @@ static void test_group_create_and_members(void) {
 
     miku_json_val_t *xfer = miku_json_create_object();
     miku_json_object_set(xfer, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(xfer, "userID", miku_json_create_str("owner1"));
     miku_json_object_set(xfer, "newOwnerUserID", miku_json_create_str("member1"));
     miku_json_val_t *xfer_resp = miku_json_create_object();
     miku_group_handle_rpc(svc, "transferGroupOwner", xfer, xfer_resp);
@@ -212,6 +213,17 @@ static void test_group_create_and_members(void) {
     mk_assert_str_eq("member1", miku_group_find(svc, g.group_id)->owner_user_id);
     miku_json_destroy(xfer);
     miku_json_destroy(xfer_resp);
+
+    /* Non-owner cannot transfer. */
+    miku_json_val_t *xfer_bad = miku_json_create_object();
+    miku_json_object_set(xfer_bad, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(xfer_bad, "userID", miku_json_create_str("owner1"));
+    miku_json_object_set(xfer_bad, "newOwnerUserID", miku_json_create_str("owner1"));
+    miku_json_val_t *xfer_bad_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "transferGroupOwner", xfer_bad, xfer_bad_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(xfer_bad_resp, "errCode")));
+    miku_json_destroy(xfer_bad);
+    miku_json_destroy(xfer_bad_resp);
 
     miku_group_member_t members[16];
     int n = miku_group_get_members(svc, g.group_id, members, 16);
@@ -228,9 +240,19 @@ static void test_group_create_and_members(void) {
     miku_json_destroy(req);
     miku_json_destroy(resp);
 
+    /* Former owner cannot dismiss; current owner can. */
+    miku_json_val_t *dis_bad = miku_json_create_object();
+    miku_json_object_set(dis_bad, "groupID", miku_json_create_str(g.group_id));
+    miku_json_object_set(dis_bad, "userID", miku_json_create_str("owner1"));
+    miku_json_val_t *dis_bad_resp = miku_json_create_object();
+    miku_group_handle_rpc(svc, "dismissGroup", dis_bad, dis_bad_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(dis_bad_resp, "errCode")));
+    miku_json_destroy(dis_bad);
+    miku_json_destroy(dis_bad_resp);
+
     miku_json_val_t *dis = miku_json_create_object();
     miku_json_object_set(dis, "groupID", miku_json_create_str(g.group_id));
-    miku_json_object_set(dis, "userID", miku_json_create_str("owner1"));
+    miku_json_object_set(dis, "userID", miku_json_create_str("member1"));
     miku_json_val_t *dis_resp = miku_json_create_object();
     miku_group_handle_rpc(svc, "dismissGroup", dis, dis_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(dis_resp, "errCode")));

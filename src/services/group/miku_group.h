@@ -22,6 +22,12 @@ MIKU_API int miku_group_get_members(miku_group_service_t *svc, const char *group
 typedef void (*miku_group_member_fn)(const char *user_id, int role, void *ctx);
 MIKU_API int miku_group_foreach_member(miku_group_service_t *svc, const char *group_id,
                                        miku_group_member_fn fn, void *ctx);
+/* 1 if user is in group, else 0. */
+MIKU_API int miku_group_is_member(miku_group_service_t *svc, const char *group_id,
+                                  const char *user_id);
+/* Member role_level, or -1 if not a member. Owner=100, admin>=60, member=20. */
+MIKU_API int miku_group_member_role(miku_group_service_t *svc, const char *group_id,
+                                    const char *user_id);
 
 MIKU_API void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
                                      const miku_json_val_t *req, miku_json_val_t *resp);
