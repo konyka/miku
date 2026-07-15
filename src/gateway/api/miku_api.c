@@ -887,8 +887,13 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             miku_jss(j, "userID", actor);
     }
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
-        || strcmp(method, "send") == 0) {
-        if (require_fields(j, resp, "sendID", "content", (const char *)NULL)) {
+        || strcmp(method, "send") == 0
+        || strcmp(method, "sendBusinessNotification") == 0) {
+        if (strcmp(method, "sendBusinessNotification") != 0) {
+            if (require_fields(j, resp, "sendID", "content", (const char *)NULL)) {
+                miku_json_destroy(j); return;
+            }
+        } else if (require_fields(j, resp, "sendID", (const char *)NULL)) {
             miku_json_destroy(j); return;
         }
         const char *rid = miku_json_str(miku_json_get(j, "recvID"));

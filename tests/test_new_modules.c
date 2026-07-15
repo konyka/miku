@@ -1917,6 +1917,16 @@ static void test_group_member_sync_callback(void) {
     mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(ri, "errCode")));
     miku_json_destroy(ri);
 
+    char biz_bad[8192] = {0};
+    snprintf(body, sizeof(body),
+             "{\"sendID\":\"forged\",\"groupID\":\"%s\",\"content\":\"biz\"}", gid);
+    http_post_with_token(19850, "/msg/send_business_notification", tok2, body,
+                         biz_bad, sizeof(biz_bad));
+    ri = miku_json_parse_str(extract_json_body(biz_bad));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    miku_json_destroy(ri);
+
     char join[8192] = {0};
     snprintf(body, sizeof(body), "{\"userID\":\"forged\",\"groupID\":\"%s\"}", gid);
     http_post_with_token(19850, "/group/join", tok2, body, join, sizeof(join));
