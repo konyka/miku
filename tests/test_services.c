@@ -509,6 +509,23 @@ static void test_msg_send_and_query(void) {
     mk_assert_int_eq(1, n);
     mk_assert_str_eq("alice", out[0].send_id);
 
+    /* Spoofed conversationID must not inject into another chat. */
+    miku_msg_t spoof;
+    memset(&spoof, 0, sizeof(spoof));
+    strncpy(spoof.send_id, "eve", sizeof(spoof.send_id) - 1);
+    strncpy(spoof.recv_id, "mallory", sizeof(spoof.recv_id) - 1);
+    strncpy(spoof.conversation_id, "si_5_alice_bob", sizeof(spoof.conversation_id) - 1);
+    strncpy(spoof.content, "injected", sizeof(spoof.content) - 1);
+    spoof.msg_type = MK_MSG_TYPE_TEXT;
+    mk_assert_int_eq(0, miku_msg_send(svc, &spoof));
+    mk_assert_str_eq("si_3_eve_mallory", spoof.conversation_id);
+    n = miku_msg_get_by_conv(svc, "si_5_alice_bob", 0, 0, 10, out, 4);
+    mk_assert_int_eq(1, n);
+    mk_assert(strcmp(out[0].content, "injected") != 0);
+    n = miku_msg_get_by_conv(svc, "si_3_eve_mallory", 0, 0, 10, out, 4);
+    mk_assert_int_eq(1, n);
+    mk_assert_str_eq("injected", out[0].content);
+
     miku_msg_t gm;
     memset(&gm, 0, sizeof(gm));
     strncpy(gm.send_id, "owner", sizeof(gm.send_id) - 1);

@@ -177,10 +177,9 @@ void miku_msg_service_destroy(miku_msg_service_t *svc) { free(svc); }
 
 int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m) {
     if (!svc || !m || svc->count >= MK_MAX_MSGS) return -1;
-    if (!m->conversation_id[0]) {
-        miku_conversation_id_resolve(m->conversation_id, sizeof(m->conversation_id),
-                                     NULL, m->group_id, m->send_id, m->recv_id);
-    }
+    /* Always canonical — never trust client conversationID (injection IDOR). */
+    miku_conversation_id_resolve(m->conversation_id, sizeof(m->conversation_id),
+                                 NULL, m->group_id, m->send_id, m->recv_id);
     miku_uuid_generate(m->server_msg_id);
     m->seq = ++svc->seq;
     m->send_time = miku_timestamp_ms();

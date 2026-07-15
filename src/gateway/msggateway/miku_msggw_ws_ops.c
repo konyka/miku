@@ -168,11 +168,12 @@ int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *gc, miku_im_msg_t *im) {
     if (!gc || !gc->gw || !im) return -1;
 
     char conv[128];
+    /* Always canonical — ignore client conversationID on send/store. */
     miku_msggw_ws_resolve_conv(conv, sizeof(conv),
-                               im->conversation_id, im->group_id,
+                               NULL, im->group_id,
                                im->send_id, im->recv_id);
-    if (!im->conversation_id[0])
-        strncpy(im->conversation_id, conv, sizeof(im->conversation_id) - 1);
+    strncpy(im->conversation_id, conv, sizeof(im->conversation_id) - 1);
+    im->conversation_id[sizeof(im->conversation_id) - 1] = '\0';
     if (!im->conversation_type) {
         if (im->group_id[0]) im->conversation_type = MK_IM_CONV_GROUP;
         else if (im->recv_id[0]) im->conversation_type = MK_IM_CONV_SINGLE;
@@ -334,11 +335,20 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         }
 
         char conv[128];
-        miku_msggw_ws_resolve_conv(conv, sizeof(conv),
-                                   im.conversation_id, im.group_id,
-                                   im.send_id, im.recv_id);
-        if (!im.conversation_id[0])
+        /* READ may use client conversationID; normal send re-resolves in deliver_msg. */
+        if (im.content_type == MK_IM_MSG_TYPE_READ) {
+            miku_msggw_ws_resolve_conv(conv, sizeof(conv),
+                                       im.conversation_id, im.group_id,
+                                       im.send_id, im.recv_id);
+            if (!im.conversation_id[0])
+                strncpy(im.conversation_id, conv, sizeof(im.conversation_id) - 1);
+        } else {
+            miku_msggw_ws_resolve_conv(conv, sizeof(conv),
+                                       NULL, im.group_id,
+                                       im.send_id, im.recv_id);
             strncpy(im.conversation_id, conv, sizeof(im.conversation_id) - 1);
+            im.conversation_id[sizeof(im.conversation_id) - 1] = '\0';
+        }
         if (!im.conversation_type) {
             if (im.group_id[0]) im.conversation_type = MK_IM_CONV_GROUP;
             else if (im.recv_id[0]) im.conversation_type = MK_IM_CONV_SINGLE;
