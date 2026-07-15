@@ -479,10 +479,10 @@ static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *c
     return 0;
 }
 
-/* Keep only owner + friends in createGroup member lists (block force-add strangers). */
-static void filter_group_create_member_ids(miku_api_ctx_t *c, const char *owner,
-                                          miku_json_val_t *j) {
-    if (!c || !owner || !owner[0] || !j) return;
+/* Keep only inviter + friends in invitee lists (block force-add strangers). */
+static void filter_group_invitee_ids(miku_api_ctx_t *c, const char *from,
+                                    miku_json_val_t *j) {
+    if (!c || !from || !from[0] || !j) return;
     static const char *keys[] = {"memberUserIDs", "invitedUserIDs"};
     for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
         miku_json_val_t *ids = miku_json_get(j, keys[k]);
@@ -492,12 +492,16 @@ static void filter_group_create_member_ids(miku_api_ctx_t *c, const char *owner,
         for (size_t i = 0; i < n; i++) {
             const char *u = miku_json_str(miku_json_at(ids, i));
             if (!u || !u[0]) continue;
-            if (strcmp(u, owner) == 0
-                || miku_friend_is_friend(c->friend_svc, owner, u))
+            if (strcmp(u, from) == 0
+                || miku_friend_is_friend(c->friend_svc, from, u))
                 miku_json_array_push(filtered, miku_json_create_str(u));
         }
         miku_json_object_set(j, keys[k], filtered);
     }
+    const char *uid = miku_json_str(miku_json_get(j, "userID"));
+    if (uid && uid[0] && strcmp(uid, from) != 0
+        && !miku_friend_is_friend(c->friend_svc, from, uid))
+        miku_jss(j, "userID", "");
 }
 
 static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
@@ -711,7 +715,7 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     if (strcmp(method, "createGroup") == 0) {
         if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { miku_json_destroy(j); return; }
         const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
-        if (owner && owner[0]) filter_group_create_member_ids(c, owner, j);
+        if (owner && owner[0]) filter_group_invitee_ids(c, owner, j);
     } else if (strcmp(method, "joinGroup") == 0 || strcmp(method, "quitGroup") == 0
                || strcmp(method, "dismissGroup") == 0
                || strcmp(method, "transferGroupOwner") == 0) {
@@ -724,6 +728,8 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             miku_http_response_set_json(resp, "{\"errCode\":400,\"errMsg\":\"missing userID\"}");
             return;
         }
+        if (strcmp(method, "inviteToGroup") == 0 && actor[0])
+            filter_group_invitee_ids(c, actor, j);
         if (strcmp(method, "kickGroupMember") == 0 &&
             !miku_json_get(j, "opUserID") && !miku_json_get(j, "fromUserID") &&
             !miku_json_get(j, "ownerUserID")) {

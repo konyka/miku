@@ -1936,6 +1936,16 @@ static void test_group_member_sync_callback(void) {
     mk_assert_int_eq(20, g_gm_last_role);
     mk_assert_int_eq(0, g_gm_last_remove);
 
+    char inv_stranger[8192] = {0};
+    snprintf(body, sizeof(body),
+             "{\"groupID\":\"%s\",\"fromUserID\":\"forged\",\"userID\":\"not_a_friend\"}", gid);
+    http_post_with_token(19850, "/group/invite", tok2, body, inv_stranger, sizeof(inv_stranger));
+    ri = miku_json_parse_str(extract_json_body(inv_stranger));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(3002, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    miku_json_destroy(ri);
+    mk_assert_int_eq(2, g_gm_sync_count); /* no new member sync */
+
     char info_ok[8192] = {0};
     snprintf(body, sizeof(body), "{\"groupID\":\"%s\"}", gid);
     http_post_with_token(19850, "/group/get_group_info", tok2, body, info_ok, sizeof(info_ok));
