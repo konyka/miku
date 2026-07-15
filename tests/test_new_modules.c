@@ -1831,14 +1831,30 @@ static void test_group_member_sync_callback(void) {
     const char *tok2 = ar2 ? miku_json_str(miku_json_get(ar2, "token")) : NULL;
     mk_assert(tok2 && tok2[0]);
 
-    char join[8192] = {0};
+    char info_bad[8192] = {0};
     char body[256];
+    snprintf(body, sizeof(body), "{\"groupID\":\"%s\"}", gid);
+    http_post_with_token(19850, "/group/get_group_info", tok2, body, info_bad, sizeof(info_bad));
+    miku_json_val_t *ri = miku_json_parse_str(extract_json_body(info_bad));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    miku_json_destroy(ri);
+
+    char join[8192] = {0};
     snprintf(body, sizeof(body), "{\"userID\":\"forged\",\"groupID\":\"%s\"}", gid);
     http_post_with_token(19850, "/group/join", tok2, body, join, sizeof(join));
     mk_assert_int_eq(2, g_gm_sync_count);
     mk_assert_str_eq("gm_u2", g_gm_last_uid);
     mk_assert_int_eq(20, g_gm_last_role);
     mk_assert_int_eq(0, g_gm_last_remove);
+
+    char info_ok[8192] = {0};
+    snprintf(body, sizeof(body), "{\"groupID\":\"%s\"}", gid);
+    http_post_with_token(19850, "/group/get_group_info", tok2, body, info_ok, sizeof(info_ok));
+    ri = miku_json_parse_str(extract_json_body(info_ok));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    miku_json_destroy(ri);
 
     char quit[8192] = {0};
     snprintf(body, sizeof(body), "{\"userID\":\"forged\",\"groupID\":\"%s\"}", gid);

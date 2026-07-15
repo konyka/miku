@@ -660,7 +660,8 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
         }
     } else if (strcmp(method, "getGroupMemberList") == 0
                || strcmp(method, "getGroupMemberUserID") == 0
-               || strcmp(method, "getFullGroupMemberUserIDs") == 0) {
+               || strcmp(method, "getFullGroupMemberUserIDs") == 0
+               || strcmp(method, "getGroupInfo") == 0) {
         const char *gid = miku_json_str(miku_json_get(j, "groupID"));
         if (!actor[0] || !gid || !gid[0]
             || !miku_group_is_member(c->group_svc, gid, actor)) {
@@ -758,6 +759,25 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             snprintf(payload, sizeof(payload), "{\"event\":\"groupJoined\",\"userID\":\"%s\",\"groupID\":\"%s\"}",
                      uid ? uid : "", gid ? gid : "");
             miku_webhook_fire(c->webhook, MK_WH_AFTER_JOIN_GROUP, payload);
+        }
+    }
+    if (actor[0] && strcmp(method, "getGroupsInfo") == 0) {
+        miku_json_val_t *data = miku_json_get(out, "data");
+        if (data && miku_json_type(data) == MK_JSON_ARRAY) {
+            miku_json_val_t *filtered = miku_json_create_array();
+            size_t n = miku_json_size(data);
+            for (size_t i = 0; i < n; i++) {
+                miku_json_val_t *g = miku_json_at(data, i);
+                const char *gid = miku_json_str(miku_json_get(g, "groupID"));
+                if (!gid || !miku_group_is_member(c->group_svc, gid, actor)) continue;
+                miku_string_t *ss = miku_json_stringify(g);
+                if (ss && ss->data) {
+                    miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
+                    if (copy) miku_json_array_push(filtered, copy);
+                }
+                miku_str_destroy(ss);
+            }
+            miku_json_object_set(out, "data", filtered);
         }
     }
         miku_json_destroy(j);
