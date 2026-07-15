@@ -4,6 +4,7 @@
 #include "miku_json_util.h"
 #include "miku_version.h"
 #include "miku_msggw_ws_ops.h"
+#include "miku_token.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -420,6 +421,21 @@ static int req_token_uid(miku_api_ctx_t *c, miku_http_request_t *req, char *uid,
     return miku_auth_parse_token(c->auth, token, uid, cap);
 }
 
+/* Return token platformID, or -1 on failure. Admin tokens use platform 5. */
+static int req_token_platform(miku_http_request_t *req) {
+    if (!req || !req->headers) return -1;
+    const char *token = (const char *)miku_hashmap_get(req->headers, "token");
+    if (!token) token = (const char *)miku_hashmap_get(req->headers, "authorization");
+    if (token && strncmp(token, "Bearer ", 7) == 0) token += 7;
+    if (!token || !token[0]) return -1;
+    char uid[128] = {0};
+    int plat = -1;
+    if (miku_token_verify_ex(token, MIKU_TOKEN_DEFAULT_SECRET, uid, sizeof(uid),
+                             &plat, NULL) != 0)
+        return -1;
+    return plat;
+}
+
 static int api_fill_peer_from_si_conv(const char *conv, const char *self,
                                       char *peer, size_t peer_sz) {
     if (!conv || !self || !self[0] || !peer || peer_sz == 0 ||
@@ -542,6 +558,14 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     if (strcmp(method, "registerUser") == 0 || strcmp(method, "updateUserInfo") == 0
         || strcmp(method, "updateUserInfoEx") == 0 || strcmp(method, "setGlobalRecvMessageOpt") == 0) {
         if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); return; }
+    } else if (strcmp(method, "getAllUsers") == 0 || strcmp(method, "getAllUsersUID") == 0) {
+        if (req_token_platform(req) != 5) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+            resp->status = 403;
+            return;
+        }
     }
     miku_user_handle_rpc(c->user, method, j, out);
     if (c->webhook && strcmp(method, "registerUser") == 0) {

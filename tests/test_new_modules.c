@@ -1429,6 +1429,29 @@ static void test_http_e2e_user_register_and_get(void) {
     mk_assert_str_eq("Bound Alice",
         miku_json_str(miku_json_get(miku_json_at(udata, 0), "nickname")));
     miku_json_destroy(r);
+
+    char all_bad[8192] = {0};
+    http_post_with_token(19777, "/user/get_all_users", token, "{}", all_bad, sizeof(all_bad));
+    r = miku_json_parse_str(extract_json_body(all_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char admin_auth[8192] = {0};
+    http_post_to(19777, "/auth/admin_token",
+        "{\"userID\":\"http_u1\",\"secret\":\"openIM123\"}", admin_auth, sizeof(admin_auth));
+    miku_json_val_t *admin_r = miku_json_parse_str(extract_json_body(admin_auth));
+    const char *admin_tok = admin_r ? miku_json_str(miku_json_get(admin_r, "token")) : NULL;
+    mk_assert(admin_tok && admin_tok[0]);
+    char all_ok[8192] = {0};
+    http_post_with_token(19777, "/user/get_all_users", admin_tok, "{}", all_ok, sizeof(all_ok));
+    r = miku_json_parse_str(extract_json_body(all_ok));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_val_t *all_data = miku_json_get(r, "data");
+    mk_assert_not_null(all_data);
+    mk_assert(miku_json_size(all_data) >= 1);
+    miku_json_destroy(r);
+    if (admin_r) miku_json_destroy(admin_r);
     if (auth_r) miku_json_destroy(auth_r);
 
     miku_http_server_stop(srv);
