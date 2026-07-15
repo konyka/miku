@@ -431,6 +431,22 @@ void test_msggw_ws_deliver_msg(void) {
     miku_im_msg_init(&bad);
     mk_assert_int_eq(-1, miku_msggw_ws_deliver_msg(&ctx, &bad));
 
+    /* Split-deploy style: friend_svc wired → blacklist blocks WS deliver. */
+    miku_friend_service_t *friends = miku_friend_service_create();
+    mk_assert_not_null(friends);
+    ctx.friend_svc = friends;
+    mk_assert_int_eq(0, miku_friend_add_black(friends, "bob", "alice"));
+    miku_im_msg_t blocked;
+    miku_im_msg_init(&blocked);
+    strncpy(blocked.send_id, "alice", sizeof(blocked.send_id) - 1);
+    strncpy(blocked.recv_id, "bob", sizeof(blocked.recv_id) - 1);
+    strncpy(blocked.content, "should fail", sizeof(blocked.content) - 1);
+    blocked.content_type = MK_IM_MSG_TYPE_TEXT;
+    mk_assert_int_eq(-1, miku_msggw_ws_deliver_msg(&ctx, &blocked));
+    mk_assert_int_eq(0, miku_friend_remove_black(friends, "bob", "alice"));
+    mk_assert_int_eq(0, miku_msggw_ws_deliver_msg(&ctx, &blocked));
+    miku_friend_service_destroy(friends);
+
     miku_conv_service_destroy(conv);
     miku_msg_store_destroy(store);
     miku_msggw_destroy(gw);

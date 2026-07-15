@@ -21,6 +21,9 @@ typedef int (*miku_api_msg_sent_fn)(miku_im_msg_t *msg, void *ctx);
 /* Sync a group member into msggateway (split deploy). remove!=0 deletes. */
 typedef void (*miku_api_group_member_fn)(const char *group_id, const char *user_id,
                                           int role, int remove, void *ctx);
+/* Sync blacklist into msggateway (split deploy). remove!=0 clears the block. */
+typedef void (*miku_api_blacklist_fn)(const char *owner, const char *blocked,
+                                       int remove, void *ctx);
 
 typedef struct {
     miku_auth_service_t       *auth;
@@ -42,6 +45,9 @@ typedef struct {
     /* Optional: sync members to msggateway for group PUSH fan-out */
     miku_api_group_member_fn   on_group_member;
     void                      *on_group_member_ctx;
+    /* Optional: sync blacklist to msggateway for WS single-chat gates */
+    miku_api_blacklist_fn      on_blacklist;
+    void                      *on_blacklist_ctx;
 } miku_api_ctx_t;
 
 MIKU_API miku_api_ctx_t *miku_api_ctx_create(void);

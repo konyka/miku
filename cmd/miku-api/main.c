@@ -19,6 +19,7 @@ static miku_graceful_t g_graceful;
 static char g_kick_url[128];
 static char g_push_url[128];
 static char g_group_member_url[128];
+static char g_blacklist_url[128];
 
 static void api_kick_user(const char *user_id, int platform, void *ctx) {
     (void)ctx;
@@ -51,6 +52,27 @@ static void api_group_member(const char *group_id, const char *user_id, int role
     else
         MK_LOG_WARN("group_member sync failed (%s) group=%s user=%s",
                     g_group_member_url, group_id, user_id);
+}
+
+static void api_blacklist(const char *owner, const char *blocked, int remove, void *ctx) {
+    (void)ctx;
+    if (!owner || !blocked || !g_blacklist_url[0]) return;
+    char body[288];
+    if (remove)
+        snprintf(body, sizeof(body),
+                 "{\"ownerUserID\":\"%s\",\"blockUserID\":\"%s\",\"action\":\"remove\"}",
+                 owner, blocked);
+    else
+        snprintf(body, sizeof(body),
+                 "{\"ownerUserID\":\"%s\",\"blockUserID\":\"%s\",\"action\":\"add\"}",
+                 owner, blocked);
+    int rc = miku_http_post_json(g_blacklist_url, body);
+    if (rc == 0)
+        MK_LOG_INFO("blacklist sync via %s owner=%s blocked=%s remove=%d",
+                    g_blacklist_url, owner, blocked, remove);
+    else
+        MK_LOG_WARN("blacklist sync failed (%s) owner=%s blocked=%s",
+                    g_blacklist_url, owner, blocked);
 }
 
 static int api_msg_sent(miku_im_msg_t *im, void *ctx) {
@@ -117,11 +139,13 @@ int main(int argc, char **argv) {
     snprintf(g_push_url, sizeof(g_push_url), "http://127.0.0.1:%d/internal/push_msg", sc.ws_port + 1);
     snprintf(g_group_member_url, sizeof(g_group_member_url),
              "http://127.0.0.1:%d/internal/group_member", sc.ws_port + 1);
+    snprintf(g_blacklist_url, sizeof(g_blacklist_url),
+             "http://127.0.0.1:%d/internal/blacklist", sc.ws_port + 1);
 
     miku_log_init(NULL, MK_LOG_DEBUG);
     miku_graceful_init(&g_graceful, 500);
-    MK_LOG_INFO("miku-api starting on %s:%d (kick→%s push→%s group→%s)",
-                listen_addr, port, g_kick_url, g_push_url, g_group_member_url);
+    MK_LOG_INFO("miku-api starting on %s:%d (kick→%s push→%s group→%s black→%s)",
+                listen_addr, port, g_kick_url, g_push_url, g_group_member_url, g_blacklist_url);
 
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     if (!ctx) { MK_LOG_ERROR("Failed to create API context"); return 1; }
@@ -132,6 +156,8 @@ int main(int argc, char **argv) {
     ctx->on_msg_sent_ctx = NULL;
     ctx->on_group_member = api_group_member;
     ctx->on_group_member_ctx = NULL;
+    ctx->on_blacklist = api_blacklist;
+    ctx->on_blacklist_ctx = NULL;
 
     miku_http_server_t *srv = miku_http_server_create(listen_addr, port);
     if (!srv) { MK_LOG_ERROR("Failed to create HTTP server on %s:%d", listen_addr, port); miku_api_ctx_destroy(ctx); return 1; }

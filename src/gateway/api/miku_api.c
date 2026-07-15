@@ -658,6 +658,18 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
         }
     }
     miku_friend_handle_rpc(c->friend_svc, method, j, out);
+    if (c->on_blacklist &&
+        (strcmp(method, "addBlack") == 0 || strcmp(method, "removeBlack") == 0)) {
+        int64_t err = miku_json_int(miku_json_get(out, "errCode"));
+        if (err == 0) {
+            const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
+            const char *uid = miku_json_str(miku_json_get(j, "friendUserID"));
+            if (!uid) uid = miku_json_str(miku_json_get(j, "userID"));
+            if (owner && owner[0] && uid && uid[0])
+                c->on_blacklist(owner, uid, strcmp(method, "removeBlack") == 0,
+                                c->on_blacklist_ctx);
+        }
+    }
     if (c->webhook && strcmp(method, "addFriend") == 0) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
         if (err == 0) {

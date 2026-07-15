@@ -8,6 +8,7 @@
 #include "miku_msggw_ws_ops.h"
 #include "miku_msg_store.h"
 #include "miku_group.h"
+#include "miku_friend.h"
 #include "miku_conversation.h"
 #include "miku_json.h"
 #include "miku_http_server.h"
@@ -23,6 +24,7 @@ static miku_http_server_t *g_admin;
 static miku_msggw_t *g_gw;
 static miku_msg_store_t *g_store;
 static miku_group_service_t *g_group;
+static miku_friend_service_t *g_friend;
 static miku_conv_service_t *g_conv;
 
 static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
@@ -87,6 +89,38 @@ static void handle_internal_group_member(miku_http_request_t *req, miku_http_res
     miku_http_response_set_json(resp, buf);
     MK_LOG_INFO("internal group_member action=%s group=%s user=%s rc=%d",
                 action, gid[0] ? gid : "(empty)", uid[0] ? uid : "(empty)", rc);
+}
+
+static void handle_internal_blacklist(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    miku_friend_service_t *friend_svc = (miku_friend_service_t *)ctx;
+    char owner[64] = {0}, blocked[64] = {0}, action[16] = "add";
+    if (req && req->body.data && req->body.len > 0) {
+        char *tmp = strndup(req->body.data, req->body.len);
+        miku_json_val_t *j = miku_json_parse_str(tmp);
+        free(tmp);
+        if (j) {
+            const char *o = miku_json_str(miku_json_get(j, "ownerUserID"));
+            const char *u = miku_json_str(miku_json_get(j, "blockUserID"));
+            if (!u) u = miku_json_str(miku_json_get(j, "friendUserID"));
+            const char *a = miku_json_str(miku_json_get(j, "action"));
+            if (o) strncpy(owner, o, sizeof(owner) - 1);
+            if (u) strncpy(blocked, u, sizeof(blocked) - 1);
+            if (a && a[0]) strncpy(action, a, sizeof(action) - 1);
+            miku_json_destroy(j);
+        }
+    }
+    int rc = -1;
+    if (friend_svc && owner[0] && blocked[0]) {
+        if (strcmp(action, "remove") == 0)
+            rc = miku_friend_remove_black(friend_svc, owner, blocked);
+        else
+            rc = miku_friend_add_black(friend_svc, owner, blocked);
+    }
+    char buf[128];
+    snprintf(buf, sizeof(buf), "{\"errCode\":%d,\"errMsg\":\"\"}", rc == 0 ? 0 : 500);
+    miku_http_response_set_json(resp, buf);
+    MK_LOG_INFO("internal blacklist action=%s owner=%s blocked=%s rc=%d",
+                action, owner[0] ? owner : "(empty)", blocked[0] ? blocked : "(empty)", rc);
 }
 
 static void handle_internal_push_msg(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
@@ -182,9 +216,19 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    g_friend = miku_friend_service_create();
+    if (!g_friend) {
+        MK_LOG_ERROR("Failed to create friend service");
+        miku_group_service_destroy(g_group);
+        miku_msg_store_destroy(g_store);
+        miku_msggw_destroy(g_gw);
+        return 1;
+    }
+
     g_conv = miku_conv_service_create();
     if (!g_conv) {
         MK_LOG_ERROR("Failed to create conversation service");
+        miku_friend_service_destroy(g_friend);
         miku_group_service_destroy(g_group);
         miku_msg_store_destroy(g_store);
         miku_msggw_destroy(g_gw);
@@ -195,6 +239,7 @@ int main(int argc, char **argv) {
     if (!sub) {
         MK_LOG_ERROR("Failed to create subscription manager");
         miku_conv_service_destroy(g_conv);
+        miku_friend_service_destroy(g_friend);
         miku_group_service_destroy(g_group);
         miku_msg_store_destroy(g_store);
         miku_msggw_destroy(g_gw);
@@ -206,6 +251,7 @@ int main(int argc, char **argv) {
     gctx.sub = sub;
     gctx.store = g_store;
     gctx.group = g_group;
+    gctx.friend_svc = g_friend;
     gctx.conv = g_conv;
 
     miku_ws_sub_set_notify(sub, miku_msggw_ws_sub_notify, g_gw);
@@ -218,6 +264,8 @@ int main(int argc, char **argv) {
         miku_http_server_route(g_admin, "POST", "/internal/kick", handle_internal_kick, g_gw);
         miku_http_server_route(g_admin, "POST", "/internal/group_member",
                                handle_internal_group_member, g_group);
+        miku_http_server_route(g_admin, "POST", "/internal/blacklist",
+                               handle_internal_blacklist, g_friend);
         miku_http_server_route(g_admin, "POST", "/internal/push_msg",
                                handle_internal_push_msg, &gctx);
         pthread_t th;
@@ -230,7 +278,7 @@ int main(int argc, char **argv) {
     }
 
     miku_msggw_start(g_gw);
-    MK_LOG_INFO("miku-msggateway ready (ws://0.0.0.0:%d, group fan-out wired)", port);
+    MK_LOG_INFO("miku-msggateway ready (ws://0.0.0.0:%d, group+blacklist wired)", port);
 
     while (miku_graceful_running(&g_graceful)) {
         miku_msggw_poll(g_gw, 100);
@@ -246,6 +294,7 @@ int main(int argc, char **argv) {
     miku_msggw_destroy(g_gw);
     miku_ws_sub_destroy(sub);
     miku_conv_service_destroy(g_conv);
+    miku_friend_service_destroy(g_friend);
     miku_group_service_destroy(g_group);
     miku_msg_store_destroy(g_store);
     miku_graceful_cleanup(&g_graceful);

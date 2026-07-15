@@ -260,6 +260,14 @@ bool miku_friend_is_black(miku_friend_service_t *svc, const char *owner, const c
     return black_pair_find(svc, owner, blocked_uid) >= 0;
 }
 
+int miku_friend_add_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid) {
+    return black_add(svc, owner, blocked_uid);
+}
+
+int miku_friend_remove_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid) {
+    return black_remove(svc, owner, blocked_uid);
+}
+
 
 enum {
     MK_FRIEND_RPC_addFriend = 0,
