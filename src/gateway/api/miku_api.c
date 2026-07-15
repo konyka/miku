@@ -521,7 +521,13 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
         if (strcmp(method, "addFriend") == 0 || strcmp(method, "addBlack") == 0
             || strcmp(method, "deleteFriend") == 0 || strcmp(method, "removeBlack") == 0
             || strcmp(method, "setFriendRemark") == 0 || strcmp(method, "getFriendList") == 0
-            || strcmp(method, "getBlackList") == 0)
+            || strcmp(method, "getBlackList") == 0
+            || strcmp(method, "importFriend") == 0
+            || strcmp(method, "respondFriendApply") == 0
+            || strcmp(method, "updateFriends") == 0
+            || strcmp(method, "acceptFriendApply") == 0
+            || strcmp(method, "refuseFriendApply") == 0
+            || strcmp(method, "getSpecifiedFriendsInfo") == 0)
             miku_jss(j, "ownerUserID", actor);
         if (strcmp(method, "isFriend") == 0)
             miku_jss(j, "userID", actor);
