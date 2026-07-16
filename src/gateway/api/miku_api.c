@@ -366,7 +366,6 @@ static int verify_token(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_r
         /* Public: token issuance + health/version/metrics scrape */
         if (req->path.len == 16 && strncmp(req->path.data, "/auth/user_token", 16) == 0) return 0;
         if (req->path.len == 17 && strncmp(req->path.data, "/auth/admin_token", 17) == 0) return 0;
-        if (req->path.len == 17 && strncmp(req->path.data, "/auth/parse_token", 17) == 0) return 0;
         if (req->path.len == 13 && strncmp(req->path.data, "/admin/health", 13) == 0) return 0;
         if (req->path.len == 8 && strncmp(req->path.data, "/version", 8) == 0) return 0;
     }
@@ -501,35 +500,54 @@ static void filter_conv_unread_count(miku_api_ctx_t *c, const char *actor, miku_
     miku_ji(out, "count", (int)total);
 }
 
+/* Compact data[] in place; keep_fn returns 1 to retain item (ownership stays in array). */
+static void filter_json_array_inplace(miku_json_val_t *arr,
+                                      int (*keep_fn)(miku_json_val_t *item, void *ctx),
+                                      void *ctx) {
+    if (!arr || miku_json_type(arr) != MK_JSON_ARRAY || !keep_fn) return;
+    size_t n = miku_json_size(arr);
+    size_t w = 0;
+    for (size_t i = 0; i < n; i++) {
+        miku_json_val_t *item = miku_json_at(arr, i);
+        if (!keep_fn(item, ctx)) {
+            miku_json_destroy(item);
+            arr->u.array.items[i] = NULL;
+            continue;
+        }
+        if (w != i) arr->u.array.items[w] = item;
+        w++;
+    }
+    arr->u.array.count = w;
+}
+
+typedef struct {
+    miku_api_ctx_t *c;
+    const char     *actor;
+} conv_filter_ctx_t;
+
+static int conv_filter_keep_object(miku_json_val_t *item, void *v) {
+    conv_filter_ctx_t *f = (conv_filter_ctx_t *)v;
+    const char *cid = miku_json_str(miku_json_get(item, "conversationID"));
+    return cid && api_may_access_conv(f->c, f->actor, cid);
+}
+
+static int conv_filter_keep_id_str(miku_json_val_t *item, void *v) {
+    conv_filter_ctx_t *f = (conv_filter_ctx_t *)v;
+    const char *cid = miku_json_str(item);
+    return cid && api_may_access_conv(f->c, f->actor, cid);
+}
+
 static void filter_conv_read_result(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
     if (!c || !actor || !actor[0] || !out) return;
     miku_json_val_t *data = miku_json_get(out, "data");
     if (!data) return;
+    conv_filter_ctx_t fctx = { .c = c, .actor = actor };
     if (miku_json_type(data) == MK_JSON_ARRAY) {
         size_t n = miku_json_size(data);
-        if (n > 0 && miku_json_type(miku_json_at(data, 0)) == MK_JSON_STRING) {
-            miku_json_val_t *filtered = miku_json_create_array();
-            for (size_t i = 0; i < n; i++) {
-                const char *cid = miku_json_str(miku_json_at(data, i));
-                if (cid && api_may_access_conv(c, actor, cid))
-                    miku_json_array_push(filtered, miku_json_create_str(cid));
-            }
-            miku_json_object_set(out, "data", filtered);
-            return;
-        }
-        miku_json_val_t *filtered = miku_json_create_array();
-        for (size_t i = 0; i < n; i++) {
-            miku_json_val_t *cv = miku_json_at(data, i);
-            const char *cid = miku_json_str(miku_json_get(cv, "conversationID"));
-            if (!cid || !api_may_access_conv(c, actor, cid)) continue;
-            miku_string_t *ss = miku_json_stringify(cv);
-            if (ss && ss->data) {
-                miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
-                if (copy) miku_json_array_push(filtered, copy);
-            }
-            miku_str_destroy(ss);
-        }
-        miku_json_object_set(out, "data", filtered);
+        if (n > 0 && miku_json_type(miku_json_at(data, 0)) == MK_JSON_STRING)
+            filter_json_array_inplace(data, conv_filter_keep_id_str, &fctx);
+        else
+            filter_json_array_inplace(data, conv_filter_keep_object, &fctx);
     } else if (miku_json_type(data) == MK_JSON_OBJECT) {
         const char *cid = miku_json_str(miku_json_get(data, "conversationID"));
         if (!cid || !api_may_access_conv(c, actor, cid)) {
@@ -606,8 +624,13 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
         if (rc == 0) { miku_jss(out, "token", token); miku_ji(out, "expireTimeSeconds", 86400); }
     } else if (strcmp(path, "/auth/parse_token") == 0) {
         const char *token = miku_json_str(miku_json_get(j, "token"));
+        char actor[128] = {0};
+        int plat = req_token_platform(req);
+        req_token_uid(c, req, actor, sizeof(actor));
         char uid[128] = {0};
         int rc = (token && token[0]) ? miku_auth_parse_token(c->auth, token, uid, sizeof(uid)) : -1;
+        if (rc == 0 && plat != 5 && (!actor[0] || strcmp(uid, actor) != 0))
+            rc = -1;
         miku_ji(out, "errCode", rc == 0 ? 0 : 401);
         if (rc == 0) {
             miku_jss(out, "userID", uid);

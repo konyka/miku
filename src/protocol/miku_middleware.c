@@ -70,8 +70,7 @@ static int path_equals(miku_http_request_t *req, const char *str) {
 
 static int is_public_auth_path(miku_http_request_t *req) {
     return path_equals(req, "/auth/user_token") ||
-           path_equals(req, "/auth/admin_token") ||
-           path_equals(req, "/auth/parse_token");
+           path_equals(req, "/auth/admin_token");
 }
 
 static void auth_reject(miku_http_response_t *resp, const char *msg) {

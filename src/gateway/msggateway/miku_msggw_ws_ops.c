@@ -363,7 +363,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         if (im.content_type == MK_IM_MSG_TYPE_READ) {
             if (!conv[0] || !ws_may_access_conv(gc, uid, conv)) {
                 reply_json(gc->gw, client_idx, opcode,
-                           "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+                           "{\"errCode\":0,\"conversationID\":\"\",\"hasReadSeq\":0}");
                 break;
             }
             int64_t rs = has_read_seq > 0 ? has_read_seq : im.seq;

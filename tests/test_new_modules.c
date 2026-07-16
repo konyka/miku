@@ -1634,7 +1634,45 @@ static void test_http_e2e_auth_token(void) {
     mk_assert_not_null(token);
     mk_assert(strncmp(token, "miku|alice|", 11) == 0);
     mk_assert(strchr(token + 5, '|') != NULL);
+    char token_copy[512];
+    strncpy(token_copy, token, sizeof(token_copy) - 1);
+    token_copy[sizeof(token_copy) - 1] = '\0';
     miku_json_destroy(r);
+
+    char parse_anon[8192] = {0};
+    http_post_to(19778, "/auth/parse_token",
+        "{\"token\":\"dummy\"}", parse_anon, sizeof(parse_anon));
+    r = miku_json_parse_str(extract_json_body(parse_anon));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(401, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char parse_body[1024];
+    snprintf(parse_body, sizeof(parse_body), "{\"token\":\"%s\"}", token_copy);
+    char parse_self[8192] = {0};
+    http_post_with_token(19778, "/auth/parse_token", token_copy, parse_body,
+                         parse_self, sizeof(parse_self));
+    r = miku_json_parse_str(extract_json_body(parse_self));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_str_eq("alice", miku_json_str(miku_json_get(r, "userID")));
+    miku_json_destroy(r);
+
+    char auth_bob[8192] = {0};
+    http_post_to(19778, "/auth/user_token",
+        "{\"userID\":\"bob\",\"secret\":\"openIM123\",\"platformID\":1}", auth_bob, sizeof(auth_bob));
+    miku_json_val_t *ar_bob = miku_json_parse_str(extract_json_body(auth_bob));
+    const char *tok_bob = ar_bob ? miku_json_str(miku_json_get(ar_bob, "token")) : NULL;
+    mk_assert(tok_bob && tok_bob[0]);
+    snprintf(parse_body, sizeof(parse_body), "{\"token\":\"%s\"}", tok_bob);
+    char parse_cross[8192] = {0};
+    http_post_with_token(19778, "/auth/parse_token", token_copy, parse_body,
+                         parse_cross, sizeof(parse_cross));
+    r = miku_json_parse_str(extract_json_body(parse_cross));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(401, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    if (ar_bob) miku_json_destroy(ar_bob);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);

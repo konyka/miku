@@ -1207,7 +1207,9 @@ static void test_msggateway_read_receipt_fanout(void) {
             if (dump[i] == '{') { ack = (const char *)(dump + i); break; }
         }
         mk_assert_not_null(ack);
-        mk_assert(strstr(ack, "3003") != NULL);
+        mk_assert(strstr(ack, "\"errCode\":0") != NULL);
+        mk_assert(strstr(ack, "\"hasReadSeq\":0") != NULL);
+        mk_assert(strstr(ack, "3003") == NULL);
     }
     mk_assert_long_eq(7, (long)miku_msggw_get_user_read(gw, "read_a", "si_6_read_a_read_b"));
     mk_assert_long_eq(0, (long)miku_msggw_get_user_read(gw, "read_x", "si_6_read_a_read_b"));
