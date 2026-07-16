@@ -982,9 +982,14 @@ static void test_msg_send_get_search_delete(void) {
     miku_json_destroy(rev_resp);
 
     miku_json_val_t *newest_resp = miku_json_create_object();
-    miku_json_val_t *empty = miku_json_create_object();
-    miku_msg_handle_rpc(svc, "getNewestSeq", empty, newest_resp);
+    miku_json_val_t *newest_req = miku_json_create_object();
+    miku_json_object_set(newest_req, "conversationID", miku_json_create_str("si_5_alice_bob"));
+    miku_msg_handle_rpc(svc, "getNewestSeq", newest_req, newest_resp);
     mk_assert_int_eq(seq2, miku_json_int(miku_json_get(newest_resp, "seq")));
+    miku_json_val_t *empty = miku_json_create_object();
+    miku_json_val_t *empty_resp = miku_json_create_object();
+    miku_msg_handle_rpc(svc, "getNewestSeq", empty, empty_resp);
+    mk_assert_int_eq(0, miku_json_int(miku_json_get(empty_resp, "seq")));
 
     miku_json_destroy(send_req); miku_json_destroy(send_resp);
     miku_json_destroy(send2_req); miku_json_destroy(send2_resp);
@@ -992,7 +997,8 @@ static void test_msg_send_get_search_delete(void) {
     miku_json_destroy(get2_resp);
     miku_json_destroy(search_req); miku_json_destroy(search_resp);
     miku_json_destroy(del_req); miku_json_destroy(del_resp);
-    miku_json_destroy(newest_resp); miku_json_destroy(empty);
+    miku_json_destroy(newest_resp); miku_json_destroy(newest_req);
+    miku_json_destroy(empty); miku_json_destroy(empty_resp);
     miku_msg_service_destroy(svc);
 }
 
