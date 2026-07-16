@@ -175,6 +175,10 @@ static int conv_delete(miku_conv_service_t *svc, const char *owner, const char *
     return 0;
 }
 
+int miku_conv_delete(miku_conv_service_t *svc, const char *owner, const char *conv_id) {
+    return conv_delete(svc, owner, conv_id);
+}
+
 /* API often sends userID as the conversation owner (not peer). */
 static void conv_normalize_owner(miku_conversation_t *c, const miku_json_val_t *req) {
     if (!c || c->owner_user_id[0]) return;

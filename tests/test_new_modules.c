@@ -435,6 +435,8 @@ void test_msggw_ws_deliver_msg(void) {
     miku_friend_service_t *friends = miku_friend_service_create();
     mk_assert_not_null(friends);
     ctx.friend_svc = friends;
+    mk_assert_int_eq(0, miku_friend_add(friends, "alice", "bob", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "bob", "alice", ""));
     mk_assert_int_eq(0, miku_friend_add_black(friends, "bob", "alice"));
     miku_im_msg_t blocked;
     miku_im_msg_init(&blocked);
@@ -445,6 +447,13 @@ void test_msggw_ws_deliver_msg(void) {
     mk_assert_int_eq(-1, miku_msggw_ws_deliver_msg(&ctx, &blocked));
     mk_assert_int_eq(0, miku_friend_remove_black(friends, "bob", "alice"));
     mk_assert_int_eq(0, miku_msggw_ws_deliver_msg(&ctx, &blocked));
+    miku_im_msg_t stranger;
+    miku_im_msg_init(&stranger);
+    strncpy(stranger.send_id, "alice", sizeof(stranger.send_id) - 1);
+    strncpy(stranger.recv_id, "carol", sizeof(stranger.recv_id) - 1);
+    strncpy(stranger.content, "no friendship", sizeof(stranger.content) - 1);
+    stranger.content_type = MK_IM_MSG_TYPE_TEXT;
+    mk_assert_int_eq(-1, miku_msggw_ws_deliver_msg(&ctx, &stranger));
     miku_friend_service_destroy(friends);
 
     miku_conv_service_destroy(conv);
@@ -1728,6 +1737,12 @@ static void test_http_e2e_msg_send_and_search(void) {
     const char *tok_r1 = ar_r1 ? miku_json_str(miku_json_get(ar_r1, "token")) : NULL;
     mk_assert(tok_r1 && tok_r1[0]);
 
+    char fri[8192] = {0};
+    http_post_with_token(19780, "/friend/add", token,
+        "{\"ownerUserID\":\"s1\",\"friendUserID\":\"r1\"}", fri, sizeof(fri));
+    http_post_with_token(19780, "/friend/add", tok_r1,
+        "{\"ownerUserID\":\"r1\",\"friendUserID\":\"s1\"}", fri, sizeof(fri));
+
     char resp[8192] = {0};
     http_post_with_token(19780, "/msg/send_msg", token,
         "{\"sendID\":\"forged\",\"recvID\":\"r1\",\"content\":\"e2e test message\",\"msgType\":101,\"clientMsgID\":\"cm_e2e_1\"}",
@@ -1808,6 +1823,14 @@ static void test_http_e2e_msg_send_and_search(void) {
     miku_json_val_t *ar_x = miku_json_parse_str(extract_json_body(auth_x));
     const char *tok_x = ar_x ? miku_json_str(miku_json_get(ar_x, "token")) : NULL;
     mk_assert(tok_x && tok_x[0]);
+    char send_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/send_msg", tok_x,
+        "{\"sendID\":\"x1\",\"recvID\":\"s1\",\"content\":\"stranger dm\",\"msgType\":101}",
+        send_bad, sizeof(send_bad));
+    r = miku_json_parse_str(extract_json_body(send_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(6002, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
     char pull_bad[8192] = {0};
     http_post_with_token(19780, "/msg/pull_msg_by_seq", tok_x,
         "{\"conversationID\":\"si_2_r1_s1\",\"beginSeq\":0,\"endSeq\":0}",
@@ -1947,6 +1970,21 @@ static void test_webhook_msg_send_trigger(void) {
     miku_json_val_t *ar1 = miku_json_parse_str(extract_json_body(auth1));
     const char *tok1 = ar1 ? miku_json_str(miku_json_get(ar1, "token")) : NULL;
 
+    char auth2[8192] = {0};
+    http_post_to(19781, "/auth/user_token",
+        "{\"userID\":\"wh_r1\",\"secret\":\"openIM123\",\"platformID\":1}", auth2, sizeof(auth2));
+    miku_json_val_t *ar2 = miku_json_parse_str(extract_json_body(auth2));
+    const char *tok2 = ar2 ? miku_json_str(miku_json_get(ar2, "token")) : NULL;
+
+    char fri[8192] = {0};
+    http_post_with_token(19781, "/friend/add", tok1,
+        "{\"ownerUserID\":\"wh_s1\",\"friendUserID\":\"wh_r1\"}", fri, sizeof(fri));
+    http_post_with_token(19781, "/friend/add", tok2,
+        "{\"ownerUserID\":\"wh_r1\",\"friendUserID\":\"wh_s1\"}", fri, sizeof(fri));
+
+    wh_trigger_count = 0;
+    wh_trigger_last_payload[0] = '\0';
+
     char resp[8192] = {0};
     http_post_with_token(19781, "/msg/send_msg", tok1,
         "{\"sendID\":\"wh_s1\",\"recvID\":\"wh_r1\",\"content\":\"wh test\",\"msgType\":101,\"clientMsgID\":\"wh_c1\"}",
@@ -1957,6 +1995,7 @@ static void test_webhook_msg_send_trigger(void) {
     mk_assert(strstr(wh_trigger_last_payload, "msgSent") != NULL);
     mk_assert(strstr(wh_trigger_last_payload, "wh_s1") != NULL);
     if (ar1) miku_json_destroy(ar1);
+    if (ar2) miku_json_destroy(ar2);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -2181,12 +2220,37 @@ static void test_group_member_sync_callback(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ri, "errCode")));
     miku_json_destroy(ri);
 
+    char gmsg[8192] = {0};
+    snprintf(body, sizeof(body),
+             "{\"sendID\":\"forged\",\"groupID\":\"%s\",\"content\":\"sync hi\",\"msgType\":101}",
+             gid);
+    http_post_with_token(19850, "/msg/send_msg", tok2, body, gmsg, sizeof(gmsg));
+    ri = miku_json_parse_str(extract_json_body(gmsg));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    miku_json_destroy(ri);
+    char convs[8192] = {0};
+    http_post_with_token(19850, "/conversation/get_all_conversations", tok2,
+        "{}", convs, sizeof(convs));
+    ri = miku_json_parse_str(extract_json_body(convs));
+    mk_assert_not_null(ri);
+    mk_assert(miku_json_size(miku_json_get(ri, "data")) >= 1);
+    miku_json_destroy(ri);
+
     char quit[8192] = {0};
     snprintf(body, sizeof(body), "{\"userID\":\"forged\",\"groupID\":\"%s\"}", gid);
     http_post_with_token(19850, "/group/quit", tok2, body, quit, sizeof(quit));
     mk_assert_int_eq(3, g_gm_sync_count);
     mk_assert_str_eq("gm_u2", g_gm_last_uid);
     mk_assert_int_eq(1, g_gm_last_remove);
+
+    char convs2[8192] = {0};
+    http_post_with_token(19850, "/conversation/get_all_conversations", tok2,
+        "{}", convs2, sizeof(convs2));
+    ri = miku_json_parse_str(extract_json_body(convs2));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(ri, "data")));
+    miku_json_destroy(ri);
 
     miku_group_service_t *gw_group = miku_group_service_create();
     mk_assert_int_eq(0, miku_group_add_member(gw_group, gid, "gm_owner", 100));
@@ -2366,6 +2430,18 @@ static void test_validation_missing_send_fields(void) {
     miku_json_val_t *arv2 = miku_json_parse_str(extract_json_body(auth_v2));
     const char *v2_tok = arv2 ? miku_json_str(miku_json_get(arv2, "token")) : NULL;
 
+    char auth_r1[8192] = {0};
+    http_post_to(19792, "/auth/user_token",
+        "{\"userID\":\"r1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_r1, sizeof(auth_r1));
+    miku_json_val_t *arr1 = miku_json_parse_str(extract_json_body(auth_r1));
+    const char *r1_tok = arr1 ? miku_json_str(miku_json_get(arr1, "token")) : NULL;
+
+    char fri[8192] = {0};
+    http_post_with_token(19792, "/friend/add", v2_tok,
+        "{\"ownerUserID\":\"s1\",\"friendUserID\":\"r1\"}", fri, sizeof(fri));
+    http_post_with_token(19792, "/friend/add", r1_tok,
+        "{\"ownerUserID\":\"r1\",\"friendUserID\":\"s1\"}", fri, sizeof(fri));
+
     char resp[8192] = {0};
     http_post_with_token(19792, "/msg/send_msg", v2_tok,
         "{\"sendID\":\"s1\"}", resp, sizeof(resp));
@@ -2397,6 +2473,7 @@ static void test_validation_missing_send_fields(void) {
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":400") == NULL);
     if (arv2) miku_json_destroy(arv2);
+    if (arr1) miku_json_destroy(arr1);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);

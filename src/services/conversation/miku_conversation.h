@@ -16,6 +16,7 @@ MIKU_API int miku_conv_create(miku_conv_service_t *svc, const miku_conversation_
 MIKU_API int miku_conv_get(miku_conv_service_t *svc, const char *owner, const char *conv_id, miku_conversation_t *out);
 MIKU_API int miku_conv_get_all(miku_conv_service_t *svc, const char *owner, miku_conversation_t *out, int max);
 MIKU_API int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c);
+MIKU_API int miku_conv_delete(miku_conv_service_t *svc, const char *owner, const char *conv_id);
 
 /* Upsert conversation metadata after a send; bump_unread increments unread_count. */
 MIKU_API void miku_conv_touch_on_send(miku_conv_service_t *svc, const char *owner,

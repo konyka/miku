@@ -535,6 +535,13 @@ static void filter_presence_user_id_list(miku_api_ctx_t *c, miku_http_request_t 
     miku_json_object_set(j, key, filtered);
 }
 
+static void api_drop_group_conv(miku_conv_service_t *conv, const char *uid, const char *gid) {
+    if (!conv || !uid || !uid[0] || !gid || !gid[0]) return;
+    char cid[MK_CONV_ID_LEN];
+    snprintf(cid, sizeof(cid), "sg_%s", gid);
+    miku_conv_delete(conv, uid, cid);
+}
+
 /* Keep only inviter + mutual friends in invitee lists (block force-add strangers). */
 static void filter_group_invitee_ids(miku_api_ctx_t *c, const char *from,
                                     miku_json_val_t *j) {
@@ -938,24 +945,35 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
         } else if (err == 0 && strcmp(method, "quitGroup") == 0) {
             const char *uid = miku_json_str(miku_json_get(j, "userID"));
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));
-            if (uid && gid) c->on_group_member(gid, uid, 0, 1, c->on_group_member_ctx);
+            if (uid && gid) {
+                c->on_group_member(gid, uid, 0, 1, c->on_group_member_ctx);
+                api_drop_group_conv(c->conv, uid, gid);
+            }
         } else if (err == 0 && strcmp(method, "kickGroupMember") == 0) {
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));
             const char *uid = miku_json_str(miku_json_get(j, "userID"));
-            if (gid && uid) c->on_group_member(gid, uid, 0, 1, c->on_group_member_ctx);
+            if (gid && uid) {
+                c->on_group_member(gid, uid, 0, 1, c->on_group_member_ctx);
+                api_drop_group_conv(c->conv, uid, gid);
+            }
             miku_json_val_t *ids = miku_json_get(j, "kickedUserIDs");
             if (!ids) ids = miku_json_get(j, "invitedUserIDs");
             if (gid && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
                 size_t n = miku_json_size(ids);
                 for (size_t i = 0; i < n; i++) {
                     const char *u = miku_json_str(miku_json_at(ids, i));
-                    if (u) c->on_group_member(gid, u, 0, 1, c->on_group_member_ctx);
+                    if (u) {
+                        c->on_group_member(gid, u, 0, 1, c->on_group_member_ctx);
+                        api_drop_group_conv(c->conv, u, gid);
+                    }
                 }
             }
         } else if (err == 0 && strcmp(method, "dismissGroup") == 0 && dismiss_gid) {
-            for (int i = 0; i < dismiss_n; i++)
+            for (int i = 0; i < dismiss_n; i++) {
                 c->on_group_member(dismiss_gid, dismiss_members[i].user_id, 0, 1,
                                    c->on_group_member_ctx);
+                api_drop_group_conv(c->conv, dismiss_members[i].user_id, dismiss_gid);
+            }
         }
     }
 
@@ -1089,9 +1107,17 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             resp->status = 400;
             return;
         }
-        /* Single chat: either side blacklisted blocks send. */
+        /* Single chat: mutual friends required; blacklist blocks either direction. */
         if (rid && rid[0] && (!gid || !gid[0])) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
+            if (sid && c->friend_svc &&
+                !miku_friend_is_mutual(c->friend_svc, sid, rid)) {
+                miku_json_destroy(j); miku_json_destroy(out);
+                miku_http_response_set_json(resp,
+                    "{\"errCode\":6002,\"errMsg\":\"not mutual friends\"}");
+                resp->status = 403;
+                return;
+            }
             if (sid && (miku_friend_is_black(c->friend_svc, sid, rid) ||
                         miku_friend_is_black(c->friend_svc, rid, sid))) {
                 miku_json_destroy(j); miku_json_destroy(out);

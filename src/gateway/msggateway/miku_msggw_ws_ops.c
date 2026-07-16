@@ -196,6 +196,14 @@ int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *gc, miku_im_msg_t *im) {
         return -1;
     }
 
+    /* Single chat: sender and receiver must be mutual friends. */
+    if (gc->friend_svc && im->recv_id[0] && !im->group_id[0] &&
+        !miku_friend_is_mutual(gc->friend_svc, im->send_id, im->recv_id)) {
+        MK_LOG_WARN("deliver_msg: not mutual friends send=%s recv=%s",
+                    im->send_id, im->recv_id);
+        return -1;
+    }
+
     /* Group chat: sender must be a member when group svc is wired. */
     if (gc->group && im->group_id[0] &&
         !miku_group_is_member(gc->group, im->group_id, im->send_id)) {
