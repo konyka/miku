@@ -1658,6 +1658,20 @@ static void test_http_e2e_friend_flow(void) {
     mk_assert_str_eq("test remark", miku_json_str(miku_json_get(miku_json_at(data, 0), "remark")));
     miku_json_destroy(r);
 
+    char auth_u2[8192] = {0};
+    http_post_to(19779, "/auth/user_token",
+        "{\"userID\":\"u2\",\"secret\":\"openIM123\",\"platformID\":1}", auth_u2, sizeof(auth_u2));
+    miku_json_val_t *ar_u2 = miku_json_parse_str(extract_json_body(auth_u2));
+    const char *tok_u2 = ar_u2 ? miku_json_str(miku_json_get(ar_u2, "token")) : NULL;
+    mk_assert(tok_u2 && tok_u2[0]);
+    char isf[8192] = {0};
+    http_post_with_token(19779, "/friend/is_friend", tok_u2,
+        "{\"userID\":\"u2\",\"friendUserID\":\"u1\"}", isf, sizeof(isf));
+    r = miku_json_parse_str(extract_json_body(isf));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "isFriend")));
+    miku_json_destroy(r);
+
     char imp_bad[8192] = {0};
     http_post_with_token(19779, "/friend/import_friend", token,
         "{\"ownerUserID\":\"u1\",\"friendList\":[\"u9\"]}", imp_bad, sizeof(imp_bad));
@@ -1680,6 +1694,7 @@ static void test_http_e2e_friend_flow(void) {
     mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(r, "imported")));
     miku_json_destroy(r);
     if (admin_r) miku_json_destroy(admin_r);
+    if (ar_u2) miku_json_destroy(ar_u2);
     if (ar) miku_json_destroy(ar);
 
     miku_http_server_stop(srv);
@@ -2251,6 +2266,28 @@ static void test_ratelimit_http_429(void) {
     if (ar_rl) miku_json_destroy(ar_rl);
     if (ar_other) miku_json_destroy(ar_other);
 
+    miku_ratelimit_reset(ctx->ratelimit);
+    char auth_v[8192] = {0};
+    http_post_to(19784, "/auth/user_token",
+        "{\"userID\":\"rl_victim\",\"secret\":\"openIM123\",\"platformID\":1}",
+        auth_v, sizeof(auth_v));
+    miku_json_val_t *ar_v = miku_json_parse_str(extract_json_body(auth_v));
+    const char *v_tok = ar_v ? miku_json_str(miku_json_get(ar_v, "token")) : NULL;
+    mk_assert(v_tok && v_tok[0]);
+    for (int i = 0; i < 2; i++) {
+        char spoof[8192] = {0};
+        http_post_to(19784, "/friend/add",
+            "{\"ownerUserID\":\"rl_victim\",\"friendUserID\":\"rl_spoof\"}",
+            spoof, sizeof(spoof));
+    }
+    char victim_ok[8192] = {0};
+    http_post_with_token(19784, "/friend/add", v_tok,
+        "{\"ownerUserID\":\"rl_victim\",\"friendUserID\":\"rl_f\"}",
+        victim_ok, sizeof(victim_ok));
+    mk_assert(strstr(extract_json_body(victim_ok), "429") == NULL);
+    mk_assert(strstr(extract_json_body(victim_ok), "\"errCode\":0") != NULL);
+    if (ar_v) miku_json_destroy(ar_v);
+
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
     miku_http_server_destroy(srv);
@@ -2515,6 +2552,13 @@ static void test_admin_stats(void) {
     char denied[8192] = {0};
     http_post_with_token(19798, "/admin/stats", user_tok, "{}", denied, sizeof(denied));
     miku_json_val_t *dr = miku_json_parse_str(extract_json_body(denied));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
+    char tok_detail_bad[8192] = {0};
+    http_post_with_token(19798, "/user/get_users_online_token_detail", user_tok,
+        "{}", tok_detail_bad, sizeof(tok_detail_bad));
+    dr = miku_json_parse_str(extract_json_body(tok_detail_bad));
     mk_assert_not_null(dr);
     mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
     miku_json_destroy(dr);
