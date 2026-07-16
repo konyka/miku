@@ -20,6 +20,9 @@ MIKU_API bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1
 MIKU_API bool miku_friend_is_mutual(miku_friend_service_t *svc, const char *uid1, const char *uid2);
 /* True if owner has blocked blocked_uid. */
 MIKU_API bool miku_friend_is_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid);
+/* 1 if uid may access si_ conv (peer parse; when svc set, mutual + no blacklist). */
+MIKU_API int miku_friend_may_access_si_conv(miku_friend_service_t *svc,
+                                            const char *uid, const char *conv);
 MIKU_API int miku_friend_add_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid);
 MIKU_API int miku_friend_remove_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid);
 

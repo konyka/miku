@@ -1052,11 +1052,26 @@ static void test_friend_remark_update_flow(void) {
     data = miku_json_get(list2_resp, "data");
     mk_assert_int_eq(2, (int)miku_json_size(data));
 
+    miku_json_val_t *refuse_req = miku_json_create_object();
+    miku_json_object_set(refuse_req, "ownerUserID", miku_json_create_str("u1"));
+    miku_json_object_set(refuse_req, "fromUserID", miku_json_create_str("u4"));
+    miku_json_object_set(refuse_req, "handleResult", miku_json_create_int(-1));
+    miku_json_val_t *refuse_resp = miku_json_create_object();
+    miku_friend_handle_rpc(svc, "respondFriendApply", refuse_req, refuse_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(refuse_resp, "errCode")));
+
+    miku_json_val_t *list3_resp = miku_json_create_object();
+    miku_friend_handle_rpc(svc, "getFriendList", list_req, list3_resp);
+    data = miku_json_get(list3_resp, "data");
+    mk_assert_int_eq(2, (int)miku_json_size(data));
+
     miku_json_destroy(add_req); miku_json_destroy(add_resp);
     miku_json_destroy(remark_req); miku_json_destroy(remark_resp);
     miku_json_destroy(list_req); miku_json_destroy(list_resp);
     miku_json_destroy(list2_resp);
     miku_json_destroy(respond_req); miku_json_destroy(respond_resp);
+    miku_json_destroy(refuse_req); miku_json_destroy(refuse_resp);
+    miku_json_destroy(list3_resp);
     miku_friend_service_destroy(svc);
 }
 
@@ -1838,7 +1853,8 @@ static void test_http_e2e_msg_send_and_search(void) {
     body = extract_json_body(pull_bad);
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);
-    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(r, "data")));
     miku_json_destroy(r);
 
     /* Existence oracle: unauthorized get-by-seq / get_msg must match "not found". */
@@ -1916,7 +1932,8 @@ static void test_http_e2e_msg_send_and_search(void) {
                          pull_collide, sizeof(pull_collide));
     r = miku_json_parse_str(extract_json_body(pull_collide));
     mk_assert_not_null(r);
-    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(r, "data")));
     miku_json_destroy(r);
     if (ar_ab) miku_json_destroy(ar_ab);
 
@@ -1930,6 +1947,19 @@ static void test_http_e2e_msg_send_and_search(void) {
     data = miku_json_get(r, "data");
     mk_assert_not_null(data);
     mk_assert_int_eq(1, (int)miku_json_size(data));
+    miku_json_destroy(r);
+
+    char del_fri[8192] = {0};
+    http_post_with_token(19780, "/friend/delete", token,
+        "{\"ownerUserID\":\"s1\",\"friendUserID\":\"r1\"}", del_fri, sizeof(del_fri));
+    char pull_after_del[8192] = {0};
+    http_post_with_token(19780, "/msg/pull_msg_by_seq", token,
+        "{\"conversationID\":\"si_2_r1_s1\",\"beginSeq\":0,\"endSeq\":0}",
+        pull_after_del, sizeof(pull_after_del));
+    r = miku_json_parse_str(extract_json_body(pull_after_del));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(r, "data")));
     miku_json_destroy(r);
     if (ar_x) miku_json_destroy(ar_x);
     if (ar) miku_json_destroy(ar);

@@ -422,18 +422,10 @@ static int req_token_platform(miku_http_request_t *req) {
     return plat;
 }
 
-static int api_fill_peer_from_si_conv(const char *conv, const char *self,
-                                      char *peer, size_t peer_sz) {
-    return miku_conversation_si_peer(conv, self, peer, peer_sz);
-}
-
-/* 1 if token user may read this conversation (mirrors WS ws_may_access_conv). */
 static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *conv) {
     if (!uid || !uid[0] || !conv || !conv[0]) return 0;
-    if (strncmp(conv, "si_", 3) == 0) {
-        char peer[64];
-        return api_fill_peer_from_si_conv(conv, uid, peer, sizeof(peer)) == 0;
-    }
+    if (strncmp(conv, "si_", 3) == 0)
+        return miku_friend_may_access_si_conv(c ? c->friend_svc : NULL, uid, conv);
     if (strncmp(conv, "sg_", 3) == 0) {
         if (!c || !c->group_svc) return 0;
         return miku_group_is_member(c->group_svc, conv + 3, uid);
@@ -488,7 +480,23 @@ static int conv_is_read(const char *method) {
         || strcmp(method, "getConversation") == 0
         || strcmp(method, "getConversationList") == 0
         || strcmp(method, "getConversations") == 0
-        || strcmp(method, "getActiveConversations") == 0;
+        || strcmp(method, "getActiveConversations") == 0
+        || strcmp(method, "getTotalUnreadMsgCount") == 0
+        || strcmp(method, "getSortedConversationList") == 0
+        || strcmp(method, "getFullConversationIDs") == 0
+        || strcmp(method, "getConversationsHasReadAndMaxSeq") == 0;
+}
+
+static void filter_conv_unread_count(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
+    if (!c || !c->conv || !actor || !actor[0] || !out) return;
+    miku_conversation_t convs[512];
+    int n = miku_conv_get_all(c->conv, actor, convs, 512);
+    int64_t total = 0;
+    for (int i = 0; i < n; i++) {
+        if (api_may_access_conv(c, actor, convs[i].conversation_id))
+            total += convs[i].unread_count;
+    }
+    miku_ji(out, "count", (int)total);
 }
 
 static void filter_conv_read_result(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
@@ -496,8 +504,18 @@ static void filter_conv_read_result(miku_api_ctx_t *c, const char *actor, miku_j
     miku_json_val_t *data = miku_json_get(out, "data");
     if (!data) return;
     if (miku_json_type(data) == MK_JSON_ARRAY) {
-        miku_json_val_t *filtered = miku_json_create_array();
         size_t n = miku_json_size(data);
+        if (n > 0 && miku_json_type(miku_json_at(data, 0)) == MK_JSON_STRING) {
+            miku_json_val_t *filtered = miku_json_create_array();
+            for (size_t i = 0; i < n; i++) {
+                const char *cid = miku_json_str(miku_json_at(data, i));
+                if (cid && api_may_access_conv(c, actor, cid))
+                    miku_json_array_push(filtered, miku_json_create_str(cid));
+            }
+            miku_json_object_set(out, "data", filtered);
+            return;
+        }
+        miku_json_val_t *filtered = miku_json_create_array();
         for (size_t i = 0; i < n; i++) {
             miku_json_val_t *cv = miku_json_at(data, i);
             const char *cid = miku_json_str(miku_json_get(cv, "conversationID"));
@@ -513,7 +531,7 @@ static void filter_conv_read_result(miku_api_ctx_t *c, const char *actor, miku_j
     } else if (miku_json_type(data) == MK_JSON_OBJECT) {
         const char *cid = miku_json_str(miku_json_get(data, "conversationID"));
         if (!cid || !api_may_access_conv(c, actor, cid)) {
-            miku_ji(out, "errCode", 4001);
+            miku_ji(out, "errCode", 0);
             miku_json_object_set(out, "data", miku_json_create_null());
         }
     }
@@ -845,7 +863,9 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
                  || strcmp(method, "setGroupInfo") == 0
                  || strcmp(method, "setGroupInfoEx") == 0
                  || strcmp(method, "muteGroup") == 0
+                 || strcmp(method, "cancelMuteGroup") == 0
                  || strcmp(method, "muteGroupMember") == 0
+                 || strcmp(method, "cancelMuteGroupMember") == 0
                  || strcmp(method, "setGroupMemberInfo") == 0)
             miku_jss(j, "opUserID", actor);
         else if (strcmp(method, "inviteToGroup") == 0)
@@ -1049,18 +1069,12 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
         resp->status = 403;
         return;
     }
-    if (strcmp(method, "getConversation") == 0) {
-        const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
-        if (actor[0] && cid && cid[0] && !api_may_access_conv(c, actor, cid)) {
-            miku_json_destroy(j);
-            miku_ji(out, "errCode", 4001);
-            json_resp(resp, out);
-            return;
-        }
-    }
     miku_conv_handle_rpc(c->conv, method, j, out);
-    if (conv_is_read(method) && actor[0])
+    if (conv_is_read(method) && actor[0]) {
         filter_conv_read_result(c, actor, out);
+        if (strcmp(method, "getTotalUnreadMsgCount") == 0)
+            filter_conv_unread_count(c, actor, out);
+    }
     miku_json_destroy(j);
     json_resp(resp, out);
 }
@@ -1146,9 +1160,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
             miku_json_destroy(j); miku_json_destroy(out);
-            miku_http_response_set_json(resp,
-                "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
-            resp->status = 403;
+            miku_http_response_set_json(resp, "{\"errCode\":0,\"data\":[]}");
             return;
         }
     } else if (strcmp(method, "getNewestSeq") == 0) {
@@ -1215,6 +1227,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             if (!ok) miku_ji(out, "status", 0);
         }
     }
+    if (actor[0] && strcmp(method, "getConversationsHasReadAndMaxSeq") == 0)
+        filter_conv_read_result(c, actor, out);
 
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
         || strcmp(method, "send") == 0) {

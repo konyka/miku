@@ -104,18 +104,10 @@ static void fill_read_seq_entry(miku_msggw_t *gw, const char *uid, const char *c
     miku_json_object_set(map, cid, entry);
 }
 
-static int fill_peer_from_si_conv(const char *conv, const char *self,
-                                  char *peer, size_t peer_sz) {
-    return miku_conversation_si_peer(conv, self, peer, peer_sz);
-}
-
-/* 1 if session user may pull/peek this conversation. */
 static int ws_may_access_conv(miku_msggw_ws_ctx_t *gc, const char *uid, const char *conv) {
     if (!uid || !uid[0] || !conv || !conv[0]) return 0;
-    if (strncmp(conv, "si_", 3) == 0) {
-        char peer[64];
-        return fill_peer_from_si_conv(conv, uid, peer, sizeof(peer)) == 0;
-    }
+    if (strncmp(conv, "si_", 3) == 0)
+        return miku_friend_may_access_si_conv(gc ? gc->friend_svc : NULL, uid, conv);
     if (strncmp(conv, "sg_", 3) == 0) {
         if (!gc || !gc->group) return 0;
         return miku_group_is_member(gc->group, conv + 3, uid);
@@ -311,7 +303,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         }
         if (!conv[0] || !ws_may_access_conv(gc, uid, conv)) {
             reply_json(gc->gw, client_idx, opcode,
-                       "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+                       "{\"errCode\":0,\"msgs\":[]}");
             break;
         }
         char *msgs = NULL;
@@ -386,7 +378,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             }
             if (!im.recv_id[0] && !im.group_id[0]) {
                 const char *self = uid[0] ? uid : im.send_id;
-                fill_peer_from_si_conv(conv, self, im.recv_id, sizeof(im.recv_id));
+                miku_conversation_si_peer(conv, self, im.recv_id, sizeof(im.recv_id));
             }
             if (!im.conversation_type) {
                 if (im.group_id[0]) im.conversation_type = MK_IM_CONV_GROUP;

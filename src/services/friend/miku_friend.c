@@ -3,6 +3,7 @@
 #include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 /* 2x max friends for open-addressing load factor ~0.5 */
 #define MK_FRIEND_HASH 16384
@@ -159,6 +160,18 @@ bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1, const c
 bool miku_friend_is_mutual(miku_friend_service_t *svc, const char *uid1, const char *uid2) {
     if (!svc || !uid1 || !uid2) return false;
     return pair_hash_find(svc, uid1, uid2) >= 0 && pair_hash_find(svc, uid2, uid1) >= 0;
+}
+
+int miku_friend_may_access_si_conv(miku_friend_service_t *svc, const char *uid,
+                                   const char *conv) {
+    if (!uid || !uid[0] || !conv || !conv[0]) return 0;
+    char peer[64];
+    if (miku_conversation_si_peer(conv, uid, peer, sizeof(peer)) != 0) return 0;
+    if (!svc) return 1;
+    if (!miku_friend_is_mutual(svc, uid, peer)) return 0;
+    if (miku_friend_is_black(svc, uid, peer) || miku_friend_is_black(svc, peer, uid))
+        return 0;
+    return 1;
 }
 
 static void black_pair_insert(miku_friend_service_t *svc, int bi) {
@@ -584,8 +597,13 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *fuid = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         const char *handle = req ? miku_json_str(miku_json_get(req, "handleMsg")) : NULL;
-        (void)handle;
-        if (owner && fuid) miku_friend_add(svc, owner, fuid, NULL);
+        int64_t handle_result = req ? miku_json_int(miku_json_get(req, "handleResult")) : 0;
+        int accept = 1;
+        if (handle_result == -1) accept = 0;
+        else if (handle && handle[0] &&
+                 (strcasecmp(handle, "refuse") == 0 || strcasecmp(handle, "reject") == 0))
+            accept = 0;
+        if (accept && owner && fuid) miku_friend_add(svc, owner, fuid, NULL);
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_FRIEND_RPC_setFriendRemark:
