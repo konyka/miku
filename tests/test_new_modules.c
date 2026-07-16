@@ -1537,6 +1537,15 @@ static void test_http_e2e_user_register_and_get(void) {
     mk_assert_not_null(udata);
     mk_assert_int_eq(1, (int)miku_json_size(udata));
     miku_json_destroy(r);
+    char get_stranger[8192] = {0};
+    http_post_with_token(19777, "/user/get_users_info", tok_rb,
+        "{\"userIDList\":[\"http_u1\"]}", get_stranger, sizeof(get_stranger));
+    r = miku_json_parse_str(extract_json_body(get_stranger));
+    mk_assert_not_null(r);
+    udata = miku_json_get(r, "data");
+    mk_assert_not_null(udata);
+    mk_assert_int_eq(0, (int)miku_json_size(udata));
+    miku_json_destroy(r);
     if (ar_rb) miku_json_destroy(ar_rb);
     if (auth_r) miku_json_destroy(auth_r);
 
@@ -1796,6 +1805,22 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "seq")));
+    miku_json_destroy(r);
+
+    char conv_set_bad[8192] = {0};
+    http_post_with_token(19780, "/conversation/set", tok_x,
+        "{\"ownerUserID\":\"x1\",\"conversationID\":\"si_2_r1_s1\",\"recvMsgOpt\":1}",
+        conv_set_bad, sizeof(conv_set_bad));
+    r = miku_json_parse_str(extract_json_body(conv_set_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char mark_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/mark_conversation_as_read", tok_x,
+        "{\"userID\":\"x1\",\"conversationID\":\"si_2_r1_s1\"}", mark_bad, sizeof(mark_bad));
+    r = miku_json_parse_str(extract_json_body(mark_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
     /* Underscore UIDs: length-prefix prevents si_ collision IDOR (a vs a_b). */

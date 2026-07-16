@@ -459,6 +459,44 @@ static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *c
     return 0;
 }
 
+/* Non-admin may only view self or mutual-friend profiles. */
+static int api_may_view_user(miku_api_ctx_t *c, miku_http_request_t *req,
+                             const char *actor, const char *uid) {
+    if (!uid || !uid[0]) return 0;
+    if (req_token_platform(req) == 5) return 1;
+    if (!actor || !actor[0]) return 0;
+    if (strcmp(actor, uid) == 0) return 1;
+    return miku_friend_is_mutual(c->friend_svc, actor, uid);
+}
+
+static int conv_mutates(const char *method) {
+    return strcmp(method, "setConversation") == 0
+        || strcmp(method, "setConversations") == 0
+        || strcmp(method, "deleteConversation") == 0
+        || strcmp(method, "deleteConversations") == 0
+        || strcmp(method, "pinConversation") == 0
+        || strcmp(method, "setConversationMinSeq") == 0
+        || strcmp(method, "markConversationMessageAsRead") == 0
+        || strcmp(method, "clearConversationMsg") == 0
+        || strcmp(method, "updateConversationsByUser") == 0;
+}
+
+static int api_conv_ids_denied(miku_api_ctx_t *c, const char *actor, miku_json_val_t *j) {
+    if (!actor || !actor[0] || !j) return 0;
+    const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
+    if (cid && cid[0] && !api_may_access_conv(c, actor, cid)) return 1;
+    miku_json_val_t *ids = miku_json_get(j, "conversationIDs");
+    if (!ids) ids = miku_json_get(j, "conversationIDList");
+    if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
+        size_t n = miku_json_size(ids);
+        for (size_t i = 0; i < n; i++) {
+            const char *cidi = miku_json_str(miku_json_at(ids, i));
+            if (cidi && cidi[0] && !api_may_access_conv(c, actor, cidi)) return 1;
+        }
+    }
+    return 0;
+}
+
 /* Keep only inviter + mutual friends in invitee lists (block force-add strangers). */
 static void filter_group_invitee_ids(miku_api_ctx_t *c, const char *from,
                                     miku_json_val_t *j) {
@@ -598,6 +636,34 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
             }
         }
         miku_json_object_set(out, "data", filtered);
+    }
+    if (req_token_platform(req) != 5 && actor[0]) {
+        if (strcmp(method, "getUserInfo") == 0) {
+            miku_json_val_t *data = miku_json_get(out, "data");
+            const char *uid = data ? miku_json_str(miku_json_get(data, "userID")) : NULL;
+            if (!uid || !api_may_view_user(c, req, actor, uid)) {
+                miku_ji(out, "errCode", 1001);
+                miku_json_object_set(out, "data", miku_json_create_null());
+            }
+        } else if (strcmp(method, "getUsersInfo") == 0) {
+            miku_json_val_t *data = miku_json_get(out, "data");
+            miku_json_val_t *filtered = miku_json_create_array();
+            if (data && miku_json_type(data) == MK_JSON_ARRAY) {
+                size_t n = miku_json_size(data);
+                for (size_t i = 0; i < n; i++) {
+                    miku_json_val_t *u = miku_json_at(data, i);
+                    const char *uid = miku_json_str(miku_json_get(u, "userID"));
+                    if (!api_may_view_user(c, req, actor, uid)) continue;
+                    miku_string_t *ss = miku_json_stringify(u);
+                    if (ss && ss->data) {
+                        miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
+                        if (copy) miku_json_array_push(filtered, copy);
+                    }
+                    miku_str_destroy(ss);
+                }
+            }
+            miku_json_object_set(out, "data", filtered);
+        }
     }
     if (c->webhook && strcmp(method, "registerUser") == 0) {
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
@@ -887,6 +953,13 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
             return;
         }
     }
+    if (conv_mutates(method) && api_conv_ids_denied(c, actor, j)) {
+        miku_json_destroy(j); miku_json_destroy(out);
+        miku_http_response_set_json(resp,
+            "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+        resp->status = 403;
+        return;
+    }
     miku_conv_handle_rpc(c->conv, method, j, out);
         miku_json_destroy(j);
     json_resp(resp, out);
@@ -975,6 +1048,18 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":0,\"seq\":0}");
+            return;
+        }
+    } else if (strcmp(method, "markConversationAsRead") == 0
+               || strcmp(method, "setConversationHasReadSeq") == 0
+               || strcmp(method, "markMsgsAsRead") == 0
+               || strcmp(method, "clearConversationMsg") == 0) {
+        const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
+        if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+            resp->status = 403;
             return;
         }
     }
@@ -1228,12 +1313,15 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
     char path[128];
     api_req_path(req, path, sizeof(path));
     if (strcmp(path, "/batch/get_users_info") == 0) {
+        char actor[128] = {0};
+        req_token_uid(c, req, actor, sizeof(actor));
         miku_json_val_t *uid_list = miku_json_get(j, "userIDList");
         miku_json_val_t *arr = miku_json_create_array();
         if (uid_list) {
             size_t n = miku_json_size(uid_list);
             for (size_t i = 0; i < n; i++) {
                 const char *uid = miku_json_str(miku_json_at(uid_list, i));
+                if (!api_may_view_user(c, req, actor, uid)) continue;
                 miku_json_val_t *get = miku_json_create_object();
                 miku_json_object_set(get, "userID", miku_json_create_str(uid ? uid : ""));
                 miku_json_val_t *r = miku_json_create_object();
