@@ -27,7 +27,21 @@ static miku_group_service_t *g_group;
 static miku_friend_service_t *g_friend;
 static miku_conv_service_t *g_conv;
 
+static int internal_req_authorized(miku_http_request_t *req) {
+    if (!req || !req->headers) return 0;
+    const char *s = (const char *)miku_hashmap_get(req->headers, MIKU_INTERNAL_SECRET_HEADER);
+    if (!s) s = (const char *)miku_hashmap_get(req->headers, "x-internal-secret");
+    return s && strcmp(s, MIKU_INTERNAL_SECRET) == 0;
+}
+
+static void internal_reject(miku_http_response_t *resp) {
+    miku_http_response_set_json(resp,
+        "{\"errCode\":403,\"errMsg\":\"internal secret required\"}");
+    resp->status = 403;
+}
+
 static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    if (!internal_req_authorized(req)) { internal_reject(resp); return; }
     miku_msggw_t *gw = (miku_msggw_t *)ctx;
     char uid[64] = {0};
     int platform = -1;
@@ -58,6 +72,7 @@ static void handle_internal_kick(miku_http_request_t *req, miku_http_response_t 
 }
 
 static void handle_internal_group_member(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    if (!internal_req_authorized(req)) { internal_reject(resp); return; }
     miku_group_service_t *group = (miku_group_service_t *)ctx;
     char gid[64] = {0}, uid[64] = {0}, action[16] = "add";
     int role = 20;
@@ -92,6 +107,7 @@ static void handle_internal_group_member(miku_http_request_t *req, miku_http_res
 }
 
 static void handle_internal_blacklist(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    if (!internal_req_authorized(req)) { internal_reject(resp); return; }
     miku_friend_service_t *friend_svc = (miku_friend_service_t *)ctx;
     char owner[64] = {0}, blocked[64] = {0}, action[16] = "add";
     if (req && req->body.data && req->body.len > 0) {
@@ -124,6 +140,7 @@ static void handle_internal_blacklist(miku_http_request_t *req, miku_http_respon
 }
 
 static void handle_internal_push_msg(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    if (!internal_req_authorized(req)) { internal_reject(resp); return; }
     miku_msggw_ws_ctx_t *ws = (miku_msggw_ws_ctx_t *)ctx;
     miku_im_msg_t im;
     miku_im_msg_init(&im);

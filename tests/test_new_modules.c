@@ -1356,6 +1356,38 @@ static int http_get_to(int port, const char *path, char *resp, int cap) {
     return total;
 }
 
+static int http_get_with_token(int port, const char *path, const char *token,
+                               char *resp, int cap) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    struct timeval tv = {2, 0};
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    int retries = 5;
+    while (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 && retries-- > 0) {
+        usleep(50000);
+    }
+    if (retries <= 0) { close(fd); return -1; }
+    char req[1024];
+    int len = snprintf(req, sizeof(req),
+        "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\ntoken: %s\r\n\r\n",
+        path, port, token ? token : "");
+    write(fd, req, (size_t)len);
+    int total = 0;
+    while (total < cap - 1) {
+        ssize_t n = read(fd, resp + total, (size_t)(cap - total - 1));
+        if (n <= 0) break;
+        total += (int)n;
+    }
+    resp[total] = '\0';
+    close(fd);
+    return total;
+}
+
 static char *extract_json_body(char *http_resp) {
     char *body = strstr(http_resp, "\r\n\r\n");
     return body ? body + 4 : http_resp;
@@ -2514,6 +2546,26 @@ static void test_admin_stats(void) {
     mk_assert_not_null(dr);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(dr, "errCode")));
     miku_json_destroy(dr);
+
+    char prom_anon[8192] = {0};
+    http_get_to(19798, "/prometheus_discovery/api", prom_anon, sizeof(prom_anon));
+    mk_assert(strstr(prom_anon, "401") != NULL);
+    char prom_user[8192] = {0};
+    http_get_with_token(19798, "/prometheus_discovery/api", user_tok,
+                        prom_user, sizeof(prom_user));
+    dr = miku_json_parse_str(extract_json_body(prom_user));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
+    char prom_admin[8192] = {0};
+    http_get_with_token(19798, "/prometheus_discovery/api", token,
+                        prom_admin, sizeof(prom_admin));
+    mk_assert(strstr(prom_admin, "200") != NULL);
+    dr = miku_json_parse_str(extract_json_body(prom_admin));
+    mk_assert_not_null(dr);
+    mk_assert_not_null(miku_json_get(dr, "targets"));
+    miku_json_destroy(dr);
+
     if (ur) miku_json_destroy(ur);
     if (ar) miku_json_destroy(ar);
 

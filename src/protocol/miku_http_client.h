@@ -11,4 +11,9 @@ MIKU_API int miku_http_post_json(const char *url, const char *payload);
 MIKU_API int miku_http_post_json_resp(const char *url, const char *payload,
                                       char *resp_body, size_t resp_cap);
 
+/* Split-deploy internal calls: adds X-Internal-Secret header. */
+MIKU_API int miku_http_post_json_internal(const char *url, const char *payload);
+MIKU_API int miku_http_post_json_internal_resp(const char *url, const char *payload,
+                                               char *resp_body, size_t resp_cap);
+
 #endif

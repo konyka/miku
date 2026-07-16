@@ -63,11 +63,6 @@ miku_mw_result_t miku_mw_stats(miku_http_request_t *req,
     return MK_MW_CONTINUE;
 }
 
-static int path_starts_with(miku_http_request_t *req, const char *prefix) {
-    size_t plen = strlen(prefix);
-    return req->path.len >= plen && strncmp(req->path.data, prefix, plen) == 0;
-}
-
 static int path_equals(miku_http_request_t *req, const char *str) {
     size_t slen = strlen(str);
     return req->path.len == slen && strncmp(req->path.data, str, slen) == 0;
@@ -103,7 +98,6 @@ miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
     if (path_equals(req, "/admin/health"))  return MK_MW_CONTINUE;
     if (path_equals(req, "/version"))       return MK_MW_CONTINUE;
     if (path_equals(req, "/admin/metrics")) return MK_MW_CONTINUE;
-    if (path_starts_with(req, "/prometheus")) return MK_MW_CONTINUE;
 
     const char *token = NULL;
     if (req->headers) {

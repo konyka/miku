@@ -383,7 +383,6 @@ static int verify_token(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_r
         if (req->path.len == 13 && strncmp(req->path.data, "/admin/health", 13) == 0) return 0;
         if (req->path.len == 8 && strncmp(req->path.data, "/version", 8) == 0) return 0;
         if (req->path.len == 14 && strncmp(req->path.data, "/admin/metrics", 14) == 0) return 0;
-        if (req->path.len >= 11 && strncmp(req->path.data, "/prometheus", 11) == 0) return 0;
     }
     const char *token = NULL;
     if (req->headers) token = (const char *)miku_hashmap_get(req->headers, "token");
@@ -1402,7 +1401,15 @@ static void handle_jssdk(miku_http_request_t *req, miku_http_response_t *resp, v
 }
 
 static void handle_prometheus_discovery(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
-    (void)req; (void)ctx;
+    miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
+    if (verify_token(c, req, resp)) return;
+    if (req_token_platform(req) != 5) {
+        miku_http_response_set_json(resp,
+            "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+        resp->status = 403;
+        return;
+    }
+    (void)req;
     miku_json_val_t *out = miku_json_create_object();
     miku_json_val_t *targets = miku_json_create_array();
     miku_json_val_t *item = miku_json_create_object();

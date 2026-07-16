@@ -26,7 +26,7 @@ static void api_kick_user(const char *user_id, int platform, void *ctx) {
     if (!user_id || !g_kick_url[0]) return;
     char body[192];
     snprintf(body, sizeof(body), "{\"userID\":\"%s\",\"platformID\":%d}", user_id, platform);
-    int rc = miku_http_post_json(g_kick_url, body);
+    int rc = miku_http_post_json_internal(g_kick_url, body);
     if (rc == 0)
         MK_LOG_INFO("force_logout: kicked via %s user=%s platform=%d",
                     g_kick_url, user_id, platform);
@@ -45,7 +45,7 @@ static void api_group_member(const char *group_id, const char *user_id, int role
         snprintf(body, sizeof(body),
                  "{\"groupID\":\"%s\",\"userID\":\"%s\",\"role\":%d,\"action\":\"add\"}",
                  group_id, user_id, role);
-    int rc = miku_http_post_json(g_group_member_url, body);
+    int rc = miku_http_post_json_internal(g_group_member_url, body);
     if (rc == 0)
         MK_LOG_INFO("group_member sync via %s group=%s user=%s remove=%d",
                     g_group_member_url, group_id, user_id, remove);
@@ -66,7 +66,7 @@ static void api_blacklist(const char *owner, const char *blocked, int remove, vo
         snprintf(body, sizeof(body),
                  "{\"ownerUserID\":\"%s\",\"blockUserID\":\"%s\",\"action\":\"add\"}",
                  owner, blocked);
-    int rc = miku_http_post_json(g_blacklist_url, body);
+    int rc = miku_http_post_json_internal(g_blacklist_url, body);
     if (rc == 0)
         MK_LOG_INFO("blacklist sync via %s owner=%s blocked=%s remove=%d",
                     g_blacklist_url, owner, blocked, remove);
@@ -87,7 +87,7 @@ static int api_msg_sent(miku_im_msg_t *im, void *ctx) {
         return -1;
     }
     char resp[512];
-    int rc = miku_http_post_json_resp(g_push_url, ps->data, resp, sizeof(resp));
+    int rc = miku_http_post_json_internal_resp(g_push_url, ps->data, resp, sizeof(resp));
     miku_str_destroy(ps);
     if (rc != 0) {
         MK_LOG_WARN("sendMsg: push POST failed (%s) send=%s", g_push_url, im->send_id);

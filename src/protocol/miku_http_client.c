@@ -1,4 +1,5 @@
 #include "miku_http_client.h"
+#include "miku_token.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -61,8 +62,9 @@ static int connect_timeout(int fd, const struct sockaddr *addr, socklen_t alen, 
     return 0;
 }
 
-int miku_http_post_json_resp(const char *url, const char *payload,
-                             char *resp_body, size_t resp_cap) {
+static int post_json_resp_impl(const char *url, const char *payload,
+                               char *resp_body, size_t resp_cap,
+                               int with_internal_secret) {
     if (resp_body && resp_cap > 0) resp_body[0] = '\0';
 
     char host[256], path[512];
@@ -91,16 +93,33 @@ int miku_http_post_json_resp(const char *url, const char *payload,
 
     size_t body_len = payload ? strlen(payload) : 0;
     char req[8192];
-    int n = snprintf(req, sizeof(req),
-        "POST %s HTTP/1.1\r\n"
-        "Host: %s:%d\r\n"
-        "Content-Type: application/json\r\n"
-        "Content-Length: %zu\r\n"
-        "Connection: close\r\n"
-        "User-Agent: miku-http-client/0.1\r\n"
-        "\r\n"
-        "%s",
-        path, host, port, body_len, payload ? payload : "");
+    int n;
+    if (with_internal_secret) {
+        n = snprintf(req, sizeof(req),
+            "POST %s HTTP/1.1\r\n"
+            "Host: %s:%d\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: %zu\r\n"
+            "%s: %s\r\n"
+            "Connection: close\r\n"
+            "User-Agent: miku-http-client/0.1\r\n"
+            "\r\n"
+            "%s",
+            path, host, port, body_len,
+            MIKU_INTERNAL_SECRET_HEADER, MIKU_INTERNAL_SECRET,
+            payload ? payload : "");
+    } else {
+        n = snprintf(req, sizeof(req),
+            "POST %s HTTP/1.1\r\n"
+            "Host: %s:%d\r\n"
+            "Content-Type: application/json\r\n"
+            "Content-Length: %zu\r\n"
+            "Connection: close\r\n"
+            "User-Agent: miku-http-client/0.1\r\n"
+            "\r\n"
+            "%s",
+            path, host, port, body_len, payload ? payload : "");
+    }
     if (n < 0 || (size_t)n >= sizeof(req)) {
         close(fd);
         return -1;
@@ -140,6 +159,20 @@ int miku_http_post_json_resp(const char *url, const char *payload,
     return 0;
 }
 
+int miku_http_post_json_resp(const char *url, const char *payload,
+                             char *resp_body, size_t resp_cap) {
+    return post_json_resp_impl(url, payload, resp_body, resp_cap, 0);
+}
+
+int miku_http_post_json_internal_resp(const char *url, const char *payload,
+                                      char *resp_body, size_t resp_cap) {
+    return post_json_resp_impl(url, payload, resp_body, resp_cap, 1);
+}
+
 int miku_http_post_json(const char *url, const char *payload) {
     return miku_http_post_json_resp(url, payload, NULL, 0);
+}
+
+int miku_http_post_json_internal(const char *url, const char *payload) {
+    return miku_http_post_json_internal_resp(url, payload, NULL, 0);
 }

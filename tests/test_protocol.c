@@ -213,6 +213,20 @@ static void push_echo_handler(miku_http_request_t *req, miku_http_response_t *re
         "{\"errCode\":0,\"serverMsgID\":\"gw_smid\",\"seq\":42,\"sendTime\":99}");
 }
 
+static void internal_auth_handler(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
+    (void)ctx;
+    const char *s = req && req->headers
+        ? (const char *)miku_hashmap_get(req->headers, MIKU_INTERNAL_SECRET_HEADER) : NULL;
+    if (!s) s = req && req->headers
+        ? (const char *)miku_hashmap_get(req->headers, "x-internal-secret") : NULL;
+    if (!s || strcmp(s, MIKU_INTERNAL_SECRET) != 0) {
+        miku_http_response_set_json(resp, "{\"errCode\":403}");
+        resp->status = 403;
+        return;
+    }
+    miku_http_response_set_json(resp, "{\"errCode\":0,\"ok\":1}");
+}
+
 void test_http_post_json_resp(void) {
     miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19877);
     mk_assert_not_null(srv);
@@ -234,6 +248,27 @@ void test_http_post_json_resp(void) {
     mk_assert_int_eq(42, (int)miku_json_int(miku_json_get(j, "seq")));
     mk_assert_str_eq("gw_smid", miku_json_str(miku_json_get(j, "serverMsgID")));
     miku_json_destroy(j);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+}
+
+void test_http_post_json_internal_resp(void) {
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19878);
+    mk_assert_not_null(srv);
+    miku_http_server_route(srv, "POST", "/internal/kick", internal_auth_handler, NULL);
+    pthread_t tid;
+    pthread_create(&tid, NULL, server_thread, srv);
+    usleep(100000);
+
+    char body[256] = {0};
+    mk_assert_int_eq(-1, miku_http_post_json_resp("http://127.0.0.1:19878/internal/kick",
+                                                  "{\"userID\":\"u1\"}", body, sizeof(body)));
+    mk_assert_int_eq(0, miku_http_post_json_internal_resp("http://127.0.0.1:19878/internal/kick",
+                                                          "{\"userID\":\"u1\"}",
+                                                          body, sizeof(body)));
+    mk_assert(strstr(body, "\"ok\":1") != NULL);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
@@ -675,6 +710,7 @@ void run_protocol_tests(void) {
     mk_run_test(test_http_method_name);
     mk_run_test(test_http_server_ping);
     mk_run_test(test_http_post_json_resp);
+    mk_run_test(test_http_post_json_internal_resp);
 
     printf("\n");
     mk_run_test(test_json_parse_object);
