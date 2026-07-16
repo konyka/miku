@@ -117,7 +117,7 @@ static int ws_may_access_conv(miku_msggw_ws_ctx_t *gc, const char *uid, const ch
         return fill_peer_from_si_conv(conv, uid, peer, sizeof(peer)) == 0;
     }
     if (strncmp(conv, "sg_", 3) == 0) {
-        if (!gc || !gc->group) return 1; /* cannot verify without group svc */
+        if (!gc || !gc->group) return 0;
         return miku_group_is_member(gc->group, conv + 3, uid);
     }
     if (gc && gc->conv) {
@@ -270,7 +270,12 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             break;
         }
         int64_t seq = 0;
-        miku_msggw_peek_max_seq(gc->gw, conv[0] ? conv : "default", &seq);
+        if (!conv[0]) {
+            reply_json(gc->gw, client_idx, opcode,
+                       "{\"errCode\":0,\"conversationID\":\"\",\"maxSeq\":0}");
+            break;
+        }
+        miku_msggw_peek_max_seq(gc->gw, conv, &seq);
         char resp[256];
         snprintf(resp, sizeof(resp),
                  "{\"errCode\":0,\"conversationID\":\"%s\",\"maxSeq\":%lld}",
@@ -518,7 +523,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             if (target && action) {
                 if (strcmp(action, "subscribe") == 0) {
                     if (gc->friend_svc && uid[0] && strcmp(uid, target) != 0
-                        && !miku_friend_is_friend(gc->friend_svc, uid, target)) {
+                        && !miku_friend_is_mutual(gc->friend_svc, uid, target)) {
                         miku_json_destroy(j);
                         reply_json(gc->gw, client_idx, opcode,
                                    "{\"errCode\":3003,\"errMsg\":\"not friends\"}");

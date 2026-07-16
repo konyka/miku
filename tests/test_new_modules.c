@@ -1535,7 +1535,7 @@ static void test_http_e2e_user_register_and_get(void) {
     mk_assert_not_null(r);
     udata = miku_json_get(r, "data");
     mk_assert_not_null(udata);
-    mk_assert_int_eq(1, (int)miku_json_size(udata));
+    mk_assert_int_eq(0, (int)miku_json_size(udata));
     miku_json_destroy(r);
     char get_stranger[8192] = {0};
     http_post_with_token(19777, "/user/get_users_info", tok_rb,

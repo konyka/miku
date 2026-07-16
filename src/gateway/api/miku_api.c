@@ -449,7 +449,7 @@ static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *c
         return api_fill_peer_from_si_conv(conv, uid, peer, sizeof(peer)) == 0;
     }
     if (strncmp(conv, "sg_", 3) == 0) {
-        if (!c || !c->group_svc) return 1;
+        if (!c || !c->group_svc) return 0;
         return miku_group_is_member(c->group_svc, conv + 3, uid);
     }
     if (c && c->conv) {
@@ -627,6 +627,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
                 miku_json_val_t *u = miku_json_at(data, i);
                 const char *uid = miku_json_str(miku_json_get(u, "userID"));
                 if (!uid || strcmp(uid, kw) != 0) continue;
+                if (!api_may_view_user(c, req, actor, uid)) continue;
                 miku_string_t *ss = miku_json_stringify(u);
                 if (ss && ss->data) {
                     miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
@@ -1414,6 +1415,12 @@ static void handle_prometheus_discovery(miku_http_request_t *req, miku_http_resp
 static void handle_config(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (verify_token(c, req, resp)) return;
+    if (req_token_platform(req) != 5) {
+        miku_http_response_set_json(resp,
+            "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+        resp->status = 403;
+        return;
+    }
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     char path[128];
@@ -1434,6 +1441,12 @@ static void handle_config(miku_http_request_t *req, miku_http_response_t *resp, 
 static void handle_restart(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
     if (verify_token(c, req, resp)) return;
+    if (req_token_platform(req) != 5) {
+        miku_http_response_set_json(resp,
+            "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+        resp->status = 403;
+        return;
+    }
     (void)req;
     miku_json_val_t *out = miku_json_create_object();
     miku_ji(out, "errCode", 0);
