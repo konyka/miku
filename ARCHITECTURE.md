@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 172 tests, 67 modules — si_ DM mutual+blacklist gate; pull/getConv empty oracle; getConversation null oracle; conv list/unread filtered; respondFriendApply refuse; cancelMute opUserID bind; DM mutual-friends; quit/kick drops sg_ conv; ratelimit token-only; presence HTTP gated; isFriend mutual; user profile gated; searchUser gated; conv write gated; sg_ fail-closed; prometheus_discovery admin-only; internal localhost secret; WS status sub mutual-only; split blacklist sync; canonical send convID; si_ length-prefix; invite-only join; admin gates; history gated; S3 stub.
+> **Status**: 203 API routes, 172 tests, 67 modules — admin secret split; /admin/metrics gated; internal secret split; conv ID lists filtered; WS seq/pull oracle; mute role≥60; getUserClientConfig actor bind; plat cache in handle_user; si_ DM mutual+blacklist gate; pull empty oracle; respondFriendApply refuse; DM mutual-friends; quit/kick drops sg_ conv; ratelimit token-only; presence HTTP gated; user profile gated; sg_ fail-closed; prometheus_discovery admin-only; WS status sub mutual-only; canonical send convID; si_ length-prefix; invite-only join; S3 stub.
 
 ## 1. Overview
 
@@ -628,7 +628,7 @@ Middleware executes in chain order before route handlers. Chain: **CORS → requ
 | `miku_mw_cors` | Sets `Access-Control-Allow-*` headers for cross-origin requests |
 | `miku_mw_request_id` | Generates unique `X-Request-ID` (UUID v4) per request, propagates to response |
 | `miku_mw_logging` | Access log: method, path, status code, latency, request ID |
-| `miku_mw_auth` | Cryptographic token validation (`miku\|uid\|platform\|ts\|nonce\|sig`, FNV-1a over secret), returns 401 on failure. Public: `/auth/user_token`, `/auth/admin_token`, `/auth/parse_token`, `/admin/health`, `/admin/metrics`, `/version`. `force_logout` requires auth; `/admin/stats`, `/admin/shutdown`, `/config/*`, `/restart`, `/prometheus_discovery/*` require admin token (platform 5). Split-deploy internal gateway HTTP (`/internal/*` on `ws_port+1`) requires `X-Internal-Secret` header. |
+| `miku_mw_auth` | Cryptographic token validation (`miku\|uid\|platform\|ts\|nonce\|sig`, FNV-1a over secret), returns 401 on failure. Public: `/auth/user_token`, `/auth/admin_token`, `/auth/parse_token`, `/admin/health`, `/version`. `force_logout` requires auth; `/admin/metrics`, `/admin/stats`, `/admin/shutdown`, `/config/*`, `/restart`, `/prometheus_discovery/*`, `/third/prometheus` require admin token (platform 5, issued via `openIMAdmin456`). User tokens cannot use platform 5. Split-deploy internal gateway HTTP (`/internal/*` on `ws_port+1`) requires `X-Internal-Secret` (`openIMInternal789`). |
 | `miku_mw_stats` | Increments request/error counters in `miku_stats_t` |
 
 ```c

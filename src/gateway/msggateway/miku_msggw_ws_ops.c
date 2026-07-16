@@ -266,7 +266,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         }
         if (conv[0] && !ws_may_access_conv(gc, uid, conv)) {
             reply_json(gc->gw, client_idx, opcode,
-                       "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+                       "{\"errCode\":0,\"conversationID\":\"\",\"maxSeq\":0}");
             break;
         }
         int64_t seq = 0;
@@ -425,7 +425,7 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         }
         if (!conv[0] || !ws_may_access_conv(gc, uid, conv)) {
             reply_json(gc->gw, client_idx, opcode,
-                       "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+                       "{\"errCode\":0,\"msgs\":[]}");
             break;
         }
         int64_t max_seq = 0;

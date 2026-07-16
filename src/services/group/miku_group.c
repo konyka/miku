@@ -438,6 +438,15 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     } break;
     case MK_GROUP_RPC_setGroupMemberInfo:
     {
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!gid || !gid[0] || !op || !op[0]
+            || miku_group_member_role(svc, gid, op) < 60) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_GROUP_RPC_joinGroup:
@@ -501,6 +510,19 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_muteGroup:
     case MK_GROUP_RPC_cancelMuteGroup:
     {
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        if (!g || g->status != 0) {
+            miku_ji(resp, "errCode", g ? 3003 : 3001);
+            break;
+        }
+        if (!op || !op[0] || miku_group_member_role(svc, gid, op) < 60) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_GROUP_RPC_kickGroupMember:
@@ -615,6 +637,16 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_muteGroupMember:
     case MK_GROUP_RPC_cancelMuteGroupMember:
     {
+        const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
+        const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
+        if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
+        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        int op_role = (gid && op && op[0]) ? miku_group_member_role(svc, gid, op) : -1;
+        if (!g || g->status != 0 || op_role < 60) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_GROUP_RPC_getFullJoinGroupIDs:

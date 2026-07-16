@@ -4,9 +4,10 @@
 #include "miku_common.h"
 
 #define MIKU_TOKEN_DEFAULT_SECRET "openIM123"
+#define MIKU_ADMIN_DEFAULT_SECRET "openIMAdmin456"
 #define MIKU_TOKEN_EXPIRY_SECONDS 86400
 #define MIKU_INTERNAL_SECRET_HEADER "X-Internal-Secret"
-#define MIKU_INTERNAL_SECRET MIKU_TOKEN_DEFAULT_SECRET
+#define MIKU_INTERNAL_SECRET "openIMInternal789"
 
 /* Create signed token: miku|<uid>|<platform>|<ts>|<nonce>|<sig>
  * Returns 0 on success, -1 on error. */

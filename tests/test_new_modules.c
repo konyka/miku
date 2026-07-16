@@ -1532,7 +1532,7 @@ static void test_http_e2e_user_register_and_get(void) {
     miku_json_destroy(r);
     char admin_auth[8192] = {0};
     http_post_to(19777, "/auth/admin_token",
-        "{\"userID\":\"http_u1\",\"secret\":\"openIM123\"}", admin_auth, sizeof(admin_auth));
+        "{\"userID\":\"http_u1\",\"secret\":\"openIMAdmin456\"}", admin_auth, sizeof(admin_auth));
     miku_json_val_t *admin_r = miku_json_parse_str(extract_json_body(admin_auth));
     const char *admin_tok = admin_r ? miku_json_str(miku_json_get(admin_r, "token")) : NULL;
     mk_assert(admin_tok && admin_tok[0]);
@@ -1705,7 +1705,7 @@ static void test_http_e2e_friend_flow(void) {
     miku_json_destroy(r);
     char admin_auth[8192] = {0};
     http_post_to(19779, "/auth/admin_token",
-        "{\"userID\":\"u1\",\"secret\":\"openIM123\"}", admin_auth, sizeof(admin_auth));
+        "{\"userID\":\"u1\",\"secret\":\"openIMAdmin456\"}", admin_auth, sizeof(admin_auth));
     miku_json_val_t *admin_r = miku_json_parse_str(extract_json_body(admin_auth));
     const char *admin_tok = admin_r ? miku_json_str(miku_json_get(admin_r, "token")) : NULL;
     mk_assert(admin_tok && admin_tok[0]);
@@ -2678,7 +2678,7 @@ static void test_admin_stats(void) {
 
     char auth_resp[8192] = {0};
     http_post_to(19798, "/auth/admin_token",
-        "{\"userID\":\"admin1\",\"secret\":\"openIM123\"}", auth_resp, sizeof(auth_resp));
+        "{\"userID\":\"admin1\",\"secret\":\"openIMAdmin456\"}", auth_resp, sizeof(auth_resp));
     miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth_resp));
     const char *token = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
     mk_assert(token && token[0]);
@@ -2734,12 +2734,25 @@ static void test_admin_metrics(void) {
     pthread_create(&tid, NULL, http_server_thread, srv);
     usleep(200000);
 
+    char denied[8192] = {0};
+    int n = http_get_to(19799, "/admin/metrics", denied, sizeof(denied));
+    mk_assert(n > 0);
+    mk_assert(strstr(denied, "401") != NULL || strstr(denied, "403") != NULL);
+
+    char auth_resp[8192] = {0};
+    http_post_to(19799, "/auth/admin_token",
+        "{\"userID\":\"metrics_admin\",\"secret\":\"openIMAdmin456\"}", auth_resp, sizeof(auth_resp));
+    miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth_resp));
+    const char *token = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
+    mk_assert(token && token[0]);
+
     char resp[8192] = {0};
-    int n = http_get_to(19799, "/admin/metrics", resp, sizeof(resp));
+    n = http_get_with_token(19799, "/admin/metrics", token, resp, sizeof(resp));
     mk_assert(n > 0);
     mk_assert(strstr(resp, "200") != NULL);
     mk_assert(strstr(resp, "miku_requests_total") != NULL);
     mk_assert(strstr(resp, "# TYPE") != NULL);
+    if (ar) miku_json_destroy(ar);
 
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);

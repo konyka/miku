@@ -25,11 +25,24 @@ int miku_auth_user_token(miku_auth_service_t *svc, const char *user_id,
                            char *token_out, size_t token_cap) {
     (void)svc;
     if (!user_id || !secret || !token_out) return -1;
+    if (platform == 5) return -1;
     if (secret[0] == '\0' || strcmp(secret, MIKU_TOKEN_DEFAULT_SECRET) != 0) {
         MK_LOG_WARN("Auth failed for user %s: bad secret", user_id);
         return -1;
     }
     return miku_token_create(user_id, platform, MIKU_TOKEN_DEFAULT_SECRET,
+                             token_out, token_cap);
+}
+
+int miku_auth_admin_token(miku_auth_service_t *svc, const char *user_id,
+                            const char *secret, char *token_out, size_t token_cap) {
+    (void)svc;
+    if (!user_id || !secret || !token_out) return -1;
+    if (secret[0] == '\0' || strcmp(secret, MIKU_ADMIN_DEFAULT_SECRET) != 0) {
+        MK_LOG_WARN("Admin auth failed for user %s: bad secret", user_id);
+        return -1;
+    }
+    return miku_token_create(user_id, 5, MIKU_TOKEN_DEFAULT_SECRET,
                              token_out, token_cap);
 }
 

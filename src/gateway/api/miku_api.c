@@ -369,7 +369,6 @@ static int verify_token(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_r
         if (req->path.len == 17 && strncmp(req->path.data, "/auth/parse_token", 17) == 0) return 0;
         if (req->path.len == 13 && strncmp(req->path.data, "/admin/health", 13) == 0) return 0;
         if (req->path.len == 8 && strncmp(req->path.data, "/version", 8) == 0) return 0;
-        if (req->path.len == 14 && strncmp(req->path.data, "/admin/metrics", 14) == 0) return 0;
     }
     const char *token = NULL;
     if (req->headers) token = (const char *)miku_hashmap_get(req->headers, "token");
@@ -437,11 +436,11 @@ static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *c
     return 0;
 }
 
-/* Non-admin may only view self or mutual-friend profiles. */
-static int api_may_view_user(miku_api_ctx_t *c, miku_http_request_t *req,
+/* Non-admin may only view self or mutual-friend profiles. plat: token platform (-1 unknown). */
+static int api_may_view_user(miku_api_ctx_t *c, int plat,
                              const char *actor, const char *uid) {
     if (!uid || !uid[0]) return 0;
-    if (req_token_platform(req) == 5) return 1;
+    if (plat == 5) return 1;
     if (!actor || !actor[0]) return 0;
     if (strcmp(actor, uid) == 0) return 1;
     return miku_friend_is_mutual(c->friend_svc, actor, uid);
@@ -484,7 +483,10 @@ static int conv_is_read(const char *method) {
         || strcmp(method, "getTotalUnreadMsgCount") == 0
         || strcmp(method, "getSortedConversationList") == 0
         || strcmp(method, "getFullConversationIDs") == 0
-        || strcmp(method, "getConversationsHasReadAndMaxSeq") == 0;
+        || strcmp(method, "getConversationsHasReadAndMaxSeq") == 0
+        || strcmp(method, "getOwnerConversation") == 0
+        || strcmp(method, "getPinnedConversationIDs") == 0
+        || strcmp(method, "getNotNotifyConversationIDs") == 0;
 }
 
 static void filter_conv_unread_count(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
@@ -537,17 +539,17 @@ static void filter_conv_read_result(miku_api_ctx_t *c, const char *actor, miku_j
     }
 }
 
-static void filter_presence_user_id_list(miku_api_ctx_t *c, miku_http_request_t *req,
+static void filter_presence_user_id_list(miku_api_ctx_t *c, int plat,
                                          const char *actor, miku_json_val_t *j,
                                          const char *key) {
-    if (!j || !key || req_token_platform(req) == 5) return;
+    if (!j || !key || plat == 5) return;
     miku_json_val_t *list = miku_json_get(j, key);
     if (!list || miku_json_type(list) != MK_JSON_ARRAY) return;
     miku_json_val_t *filtered = miku_json_create_array();
     size_t n = miku_json_size(list);
     for (size_t i = 0; i < n; i++) {
         const char *uid = miku_json_str(miku_json_at(list, i));
-        if (api_may_view_user(c, req, actor, uid))
+        if (api_may_view_user(c, plat, actor, uid))
             miku_json_array_push(filtered, miku_json_create_str(uid ? uid : ""));
     }
     miku_json_object_set(j, key, filtered);
@@ -618,7 +620,7 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         const char *secret = miku_json_str(miku_json_get(j, "secret"));
         char token[512] = {0};
-        int rc = miku_auth_user_token(c->auth, uid, secret, 5, token, sizeof(token));
+        int rc = miku_auth_admin_token(c->auth, uid, secret, token, sizeof(token));
         miku_ji(out, "errCode", rc == 0 ? 0 : 401);
         if (rc == 0) { miku_jss(out, "token", token); miku_ji(out, "expireTimeSeconds", 86400); }
     } else if (strcmp(path, "/auth/force_logout_all") == 0) {
@@ -657,13 +659,24 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getUserInfo");
     char actor[128] = {0};
+    int plat = req_token_platform(req);
     if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
         if (strcmp(method, "updateUserInfo") == 0 || strcmp(method, "updateUserInfoEx") == 0
             || strcmp(method, "setGlobalRecvMessageOpt") == 0
+            || strcmp(method, "getGlobalRecvMessageOpt") == 0
             || strcmp(method, "updateUserStatus") == 0 || strcmp(method, "setUserStatus") == 0
-            || strcmp(method, "setUserClientConfig") == 0)
+            || strcmp(method, "setUserClientConfig") == 0
+            || strcmp(method, "getUserClientConfig") == 0
+            || strcmp(method, "delUserClientConfig") == 0
+            || strcmp(method, "pageUserClientConfig") == 0
+            || strcmp(method, "processUserCommand") == 0
+            || strcmp(method, "processUserCommandAdd") == 0
+            || strcmp(method, "processUserCommandDelete") == 0
+            || strcmp(method, "processUserCommandUpdate") == 0
+            || strcmp(method, "processUserCommandGet") == 0
+            || strcmp(method, "processUserCommandGetAll") == 0)
             miku_jss(j, "userID", actor);
-        else if (strcmp(method, "registerUser") == 0 && req_token_platform(req) != 5)
+        else if (strcmp(method, "registerUser") == 0 && plat != 5)
             miku_jss(j, "userID", actor);
         else if (strcmp(method, "subscribeOrCancelUserStatus") == 0)
             miku_jss(j, "userID", actor);
@@ -674,7 +687,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     } else if (strcmp(method, "getAllUsers") == 0 || strcmp(method, "getAllUsersUID") == 0
                || strcmp(method, "getUserCount") == 0
                || strcmp(method, "getUsersOnlineTokenDetail") == 0) {
-        if (req_token_platform(req) != 5) {
+        if (plat != 5) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
                 "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
@@ -684,12 +697,12 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     } else if (strcmp(method, "searchUser") == 0) {
         if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
     }
-    if (req_token_platform(req) != 5 && actor[0]) {
+    if (plat != 5 && actor[0]) {
         if (strcmp(method, "getUsersOnlineStatus") == 0) {
-            filter_presence_user_id_list(c, req, actor, j, "userIDList");
+            filter_presence_user_id_list(c, plat, actor, j, "userIDList");
         } else if (strcmp(method, "getUserStatus") == 0 || strcmp(method, "getSubscribeUsersStatus") == 0) {
             const char *uid = miku_json_str(miku_json_get(j, "userID"));
-            if (uid && uid[0] && !api_may_view_user(c, req, actor, uid)) {
+            if (uid && uid[0] && !api_may_view_user(c, plat, actor, uid)) {
                 miku_json_destroy(j); miku_json_destroy(out);
                 miku_ji(out, "errCode", 0);
                 miku_json_object_set(out, "data", miku_json_create_null());
@@ -697,13 +710,13 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
                 return;
             }
         } else if (strcmp(method, "subscribeOrCancelUserStatus") == 0) {
-            filter_presence_user_id_list(c, req, actor, j, "userIDList");
-            filter_presence_user_id_list(c, req, actor, j, "subscribeUserIDList");
+            filter_presence_user_id_list(c, plat, actor, j, "userIDList");
+            filter_presence_user_id_list(c, plat, actor, j, "subscribeUserIDList");
         }
     }
     miku_user_handle_rpc(c->user, method, j, out);
     /* Non-admin search: exact userID only — block nickname/userID substring sweeps. */
-    if (strcmp(method, "searchUser") == 0 && req_token_platform(req) != 5) {
+    if (strcmp(method, "searchUser") == 0 && plat != 5) {
         const char *kw = miku_json_str(miku_json_get(j, "keyword"));
         miku_json_val_t *data = miku_json_get(out, "data");
         miku_json_val_t *filtered = miku_json_create_array();
@@ -713,7 +726,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
                 miku_json_val_t *u = miku_json_at(data, i);
                 const char *uid = miku_json_str(miku_json_get(u, "userID"));
                 if (!uid || strcmp(uid, kw) != 0) continue;
-                if (!api_may_view_user(c, req, actor, uid)) continue;
+                if (!api_may_view_user(c, plat, actor, uid)) continue;
                 miku_string_t *ss = miku_json_stringify(u);
                 if (ss && ss->data) {
                     miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
@@ -724,11 +737,11 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
         }
         miku_json_object_set(out, "data", filtered);
     }
-    if (req_token_platform(req) != 5 && actor[0]) {
+    if (plat != 5 && actor[0]) {
         if (strcmp(method, "getUserInfo") == 0) {
             miku_json_val_t *data = miku_json_get(out, "data");
             const char *uid = data ? miku_json_str(miku_json_get(data, "userID")) : NULL;
-            if (!uid || !api_may_view_user(c, req, actor, uid)) {
+            if (!uid || !api_may_view_user(c, plat, actor, uid)) {
                 miku_ji(out, "errCode", 1001);
                 miku_json_object_set(out, "data", miku_json_create_null());
             }
@@ -740,7 +753,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
                 for (size_t i = 0; i < n; i++) {
                     miku_json_val_t *u = miku_json_at(data, i);
                     const char *uid = miku_json_str(miku_json_get(u, "userID"));
-                    if (!api_may_view_user(c, req, actor, uid)) continue;
+                    if (!api_may_view_user(c, plat, actor, uid)) continue;
                     miku_string_t *ss = miku_json_stringify(u);
                     if (ss && ss->data) {
                         miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
@@ -787,7 +800,12 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
             || strcmp(method, "getFriendIDs") == 0
             || strcmp(method, "getFullFriendUserIDs") == 0
             || strcmp(method, "syncFriend") == 0
-            || strcmp(method, "getDesignatedFriends") == 0) {
+            || strcmp(method, "getDesignatedFriends") == 0
+            || strcmp(method, "getFriendApplyList") == 0
+            || strcmp(method, "getSelfApplyList") == 0
+            || strcmp(method, "getDesignatedFriendApply") == 0
+            || strcmp(method, "getSpecifiedBlacks") == 0
+            || strcmp(method, "getSelfUnhandledApplyCount") == 0) {
             miku_jss(j, "ownerUserID", actor);
             miku_jss(j, "userID", actor);
         }
@@ -1336,6 +1354,13 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
     miku_json_val_t *j = parse_body(req);
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getUploadToken");
+    if (strcmp(method, "getPrometheus") == 0 && req_token_platform(req) != 5) {
+        miku_json_destroy(j); miku_json_destroy(out);
+        miku_http_response_set_json(resp,
+            "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+        resp->status = 403;
+        return;
+    }
     char actor[128] = {0};
     if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
         if (strcmp(method, "fcmUpdateToken") == 0 || strcmp(method, "setAppBadge") == 0
@@ -1387,8 +1412,15 @@ static void handle_admin(miku_http_request_t *req, miku_http_response_t *resp, v
 }
 
 static void handle_metrics(miku_http_request_t *req, miku_http_response_t *resp, void *ctx) {
-    (void)req;
     miku_api_ctx_t *c = (miku_api_ctx_t *)ctx;
+    if (verify_token(c, req, resp)) return;
+    if (req_token_platform(req) != 5) {
+        miku_http_response_set_json(resp,
+            "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+        resp->status = 403;
+        return;
+    }
+    (void)req;
     miku_stats_snapshot_t snap;
     miku_stats_snapshot(&c->stats, &snap);
 
@@ -1442,6 +1474,7 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
     api_req_path(req, path, sizeof(path));
     if (strcmp(path, "/batch/get_users_info") == 0) {
         char actor[128] = {0};
+        int plat = req_token_platform(req);
         req_token_uid(c, req, actor, sizeof(actor));
         miku_json_val_t *uid_list = miku_json_get(j, "userIDList");
         miku_json_val_t *arr = miku_json_create_array();
@@ -1449,7 +1482,7 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
             size_t n = miku_json_size(uid_list);
             for (size_t i = 0; i < n; i++) {
                 const char *uid = miku_json_str(miku_json_at(uid_list, i));
-                if (!api_may_view_user(c, req, actor, uid)) continue;
+                if (!api_may_view_user(c, plat, actor, uid)) continue;
                 miku_json_val_t *get = miku_json_create_object();
                 miku_json_object_set(get, "userID", miku_json_create_str(uid ? uid : ""));
                 miku_json_val_t *r = miku_json_create_object();

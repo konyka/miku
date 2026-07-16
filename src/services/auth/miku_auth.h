@@ -13,6 +13,8 @@ MIKU_API void miku_auth_service_destroy(miku_auth_service_t *svc);
 MIKU_API int miku_auth_user_token(miku_auth_service_t *svc, const char *user_id,
                                    const char *secret, int platform,
                                    char *token_out, size_t token_cap);
+MIKU_API int miku_auth_admin_token(miku_auth_service_t *svc, const char *user_id,
+                                    const char *secret, char *token_out, size_t token_cap);
 MIKU_API int miku_auth_parse_token(miku_auth_service_t *svc, const char *token,
                                     char *user_id_out, size_t cap);
 MIKU_API int miku_auth_force_logout(miku_auth_service_t *svc, const char *user_id, int platform);

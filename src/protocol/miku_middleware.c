@@ -97,7 +97,6 @@ miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
     if (is_public_auth_path(req))      return MK_MW_CONTINUE;
     if (path_equals(req, "/admin/health"))  return MK_MW_CONTINUE;
     if (path_equals(req, "/version"))       return MK_MW_CONTINUE;
-    if (path_equals(req, "/admin/metrics")) return MK_MW_CONTINUE;
 
     const char *token = NULL;
     if (req->headers) {
