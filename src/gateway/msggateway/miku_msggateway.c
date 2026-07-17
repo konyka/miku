@@ -473,7 +473,7 @@ static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *pla
 
     char uid[64] = {0};
     int platform = 0;
-    if (miku_token_verify_ex(token, MIKU_TOKEN_DEFAULT_SECRET, uid, sizeof(uid),
+    if (miku_token_verify_ex(token, miku_token_default_secret(), uid, sizeof(uid),
                               &platform, NULL) != 0) {
         const char *deny =
             "HTTP/1.1 401 Unauthorized\r\n"

@@ -111,7 +111,7 @@ miku_mw_result_t miku_mw_auth(miku_http_request_t *req,
 
     if (strncmp(token, "Bearer ", 7) == 0) token += 7;
 
-    const char *secret = cfg->secret ? cfg->secret : MIKU_TOKEN_DEFAULT_SECRET;
+    const char *secret = cfg->secret ? cfg->secret : miku_token_default_secret();
     char uid[128] = {0};
     if (miku_token_verify(token, secret, uid, sizeof(uid)) != 0) {
         auth_reject(resp, "token is missing or invalid");

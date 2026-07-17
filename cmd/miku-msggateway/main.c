@@ -31,7 +31,7 @@ static int internal_req_authorized(miku_http_request_t *req) {
     if (!req || !req->headers) return 0;
     const char *s = (const char *)miku_hashmap_get(req->headers, MIKU_INTERNAL_SECRET_HEADER);
     if (!s) s = (const char *)miku_hashmap_get(req->headers, "x-internal-secret");
-    return s && strcmp(s, MIKU_INTERNAL_SECRET) == 0;
+    return s && strcmp(s, miku_internal_secret()) == 0;
 }
 
 static void internal_reject(miku_http_response_t *resp) {

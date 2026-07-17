@@ -9,6 +9,12 @@
 #define MIKU_INTERNAL_SECRET_HEADER "X-Internal-Secret"
 #define MIKU_INTERNAL_SECRET "openIMInternal789"
 
+/* Runtime secrets: env override (MIKU_TOKEN_SECRET / MIKU_ADMIN_SECRET /
+ * MIKU_INTERNAL_SECRET) with compile-time defaults above. */
+MIKU_API const char *miku_token_default_secret(void);
+MIKU_API const char *miku_admin_default_secret(void);
+MIKU_API const char *miku_internal_secret(void);
+
 /* Create signed token: miku|<uid>|<platform>|<ts>|<nonce>|<sig>
  * Returns 0 on success, -1 on error. */
 MIKU_API int miku_token_create(const char *user_id, int platform, const char *secret,

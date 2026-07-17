@@ -6,6 +6,23 @@
 #include <string.h>
 #include <stdlib.h>
 
+static const char *secret_from_env(const char *env_key, const char *fallback) {
+    const char *s = getenv(env_key);
+    return (s && s[0]) ? s : fallback;
+}
+
+const char *miku_token_default_secret(void) {
+    return secret_from_env("MIKU_TOKEN_SECRET", MIKU_TOKEN_DEFAULT_SECRET);
+}
+
+const char *miku_admin_default_secret(void) {
+    return secret_from_env("MIKU_ADMIN_SECRET", MIKU_ADMIN_DEFAULT_SECRET);
+}
+
+const char *miku_internal_secret(void) {
+    return secret_from_env("MIKU_INTERNAL_SECRET", MIKU_INTERNAL_SECRET);
+}
+
 #define MK_TOKEN_MAX_REVOKES 4096
 #define MK_TOKEN_REVOKE_HASH 8192
 

@@ -518,13 +518,6 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                 if (s >= begin && (end_seq == 0 || s <= end_seq))
                     miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
             }
-        } else {
-            int i = lower_bound_seq(svc, begin);
-            for (; i < svc->count; i++) {
-                int64_t s = svc->msgs[i].seq;
-                if (end_seq != 0 && s > end_seq) break;
-                miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[i]));
-            }
         }
         miku_json_object_set(resp, "data", arr);
     } break;

@@ -219,7 +219,7 @@ static void internal_auth_handler(miku_http_request_t *req, miku_http_response_t
         ? (const char *)miku_hashmap_get(req->headers, MIKU_INTERNAL_SECRET_HEADER) : NULL;
     if (!s) s = req && req->headers
         ? (const char *)miku_hashmap_get(req->headers, "x-internal-secret") : NULL;
-    if (!s || strcmp(s, MIKU_INTERNAL_SECRET) != 0) {
+    if (!s || strcmp(s, miku_internal_secret()) != 0) {
         miku_http_response_set_json(resp, "{\"errCode\":403}");
         resp->status = 403;
         return;

@@ -106,7 +106,7 @@ static int post_json_resp_impl(const char *url, const char *payload,
             "\r\n"
             "%s",
             path, host, port, body_len,
-            MIKU_INTERNAL_SECRET_HEADER, MIKU_INTERNAL_SECRET,
+            MIKU_INTERNAL_SECRET_HEADER, miku_internal_secret(),
             payload ? payload : "");
     } else {
         n = snprintf(req, sizeof(req),

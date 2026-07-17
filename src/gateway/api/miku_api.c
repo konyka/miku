@@ -414,7 +414,7 @@ static int req_token_platform(miku_http_request_t *req) {
     if (!token || !token[0]) return -1;
     char uid[128] = {0};
     int plat = -1;
-    if (miku_token_verify_ex(token, MIKU_TOKEN_DEFAULT_SECRET, uid, sizeof(uid),
+    if (miku_token_verify_ex(token, miku_token_default_secret(), uid, sizeof(uid),
                              &plat, NULL) != 0)
         return -1;
     return plat;
@@ -1401,6 +1401,46 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
     if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
         if (strcmp(method, "getPrometheus") != 0)
             miku_jss(j, "userID", actor);
+        /* Object ACL: path fields must be actor/... when present. */
+        static const char *path_keys[] = {"name", "key", "filePath", "objectName", NULL};
+        const char *obj_path = NULL;
+        for (int i = 0; path_keys[i] && !obj_path; i++)
+            obj_path = miku_json_str(miku_json_get(j, path_keys[i]));
+        static const char *acl_methods[] = {
+            "deleteObject", "accessURL", "getDownloadURL", "getObjectInfo",
+            "initiateMultipartUpload", "completeMultipartUpload",
+            "authSign", "completeFormData", "initiateFormData", NULL
+        };
+        int needs_acl = 0;
+        for (int i = 0; acl_methods[i]; i++) {
+            if (strcmp(method, acl_methods[i]) == 0) { needs_acl = 1; break; }
+        }
+        if (needs_acl) {
+            if (!obj_path || !obj_path[0]) {
+                miku_json_destroy(j); miku_json_destroy(out);
+                miku_http_response_set_json(resp,
+                    "{\"errCode\":3003,\"errMsg\":\"object path required\"}");
+                resp->status = 403;
+                return;
+            }
+            size_t alen = strlen(actor);
+            if (strncmp(obj_path, actor, alen) != 0 || obj_path[alen] != '/') {
+                miku_json_destroy(j); miku_json_destroy(out);
+                miku_http_response_set_json(resp,
+                    "{\"errCode\":3003,\"errMsg\":\"object access denied\"}");
+                resp->status = 403;
+                return;
+            }
+        } else if (obj_path && obj_path[0]) {
+            size_t alen = strlen(actor);
+            if (strncmp(obj_path, actor, alen) != 0 || obj_path[alen] != '/') {
+                miku_json_destroy(j); miku_json_destroy(out);
+                miku_http_response_set_json(resp,
+                    "{\"errCode\":3003,\"errMsg\":\"object access denied\"}");
+                resp->status = 403;
+                return;
+            }
+        }
     }
     miku_third_handle_rpc(c->third, method, j, out);
     miku_json_destroy(j);

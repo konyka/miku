@@ -1222,7 +1222,11 @@ static void test_msg_pull_by_seq_range(void) {
         miku_json_destroy(req); miku_json_destroy(resp);
     }
 
+    char conv_id[MK_CONV_ID_LEN];
+    miku_conversation_id_resolve(conv_id, sizeof(conv_id), NULL, NULL, "u1", "u2");
+
     miku_json_val_t *pull_req = miku_json_create_object();
+    miku_json_object_set(pull_req, "conversationID", miku_json_create_str(conv_id));
     miku_json_object_set(pull_req, "beginSeq", miku_json_create_int(2));
     miku_json_object_set(pull_req, "endSeq", miku_json_create_int(4));
     miku_json_val_t *pull_resp = miku_json_create_object();
@@ -1231,6 +1235,18 @@ static void test_msg_pull_by_seq_range(void) {
     miku_json_val_t *data = miku_json_get(pull_resp, "data");
     mk_assert_not_null(data);
     mk_assert_int_eq(3, (int)miku_json_size(data));
+
+    /* Without conversationID: no global seq scan (empty oracle). */
+    miku_json_val_t *pull_nocid = miku_json_create_object();
+    miku_json_object_set(pull_nocid, "beginSeq", miku_json_create_int(1));
+    miku_json_object_set(pull_nocid, "endSeq", miku_json_create_int(99));
+    miku_json_val_t *pull_nocid_resp = miku_json_create_object();
+    miku_msg_handle_rpc(svc, "pullMsgBySeq", pull_nocid, pull_nocid_resp);
+    data = miku_json_get(pull_nocid_resp, "data");
+    mk_assert_not_null(data);
+    mk_assert_int_eq(0, (int)miku_json_size(data));
+    miku_json_destroy(pull_nocid);
+    miku_json_destroy(pull_nocid_resp);
 
     miku_json_val_t *del_req = miku_json_create_object();
     miku_json_object_set(del_req, "userID", miku_json_create_str("u1"));
@@ -2683,6 +2699,60 @@ static void test_token_valid_passes(void) {
     miku_api_ctx_destroy(ctx);
 }
 
+static void test_third_object_acl(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19801);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char auth_a[8192] = {0};
+    http_post_to(19801, "/auth/user_token",
+        "{\"userID\":\"oss_a\",\"secret\":\"openIM123\",\"platformID\":1}", auth_a, sizeof(auth_a));
+    miku_json_val_t *ar = miku_json_parse_str(extract_json_body(auth_a));
+    const char *tok_a = ar ? miku_json_str(miku_json_get(ar, "token")) : NULL;
+    mk_assert(tok_a && tok_a[0]);
+
+    char auth_b[8192] = {0};
+    http_post_to(19801, "/auth/user_token",
+        "{\"userID\":\"oss_b\",\"secret\":\"openIM123\",\"platformID\":1}", auth_b, sizeof(auth_b));
+    miku_json_val_t *br = miku_json_parse_str(extract_json_body(auth_b));
+    const char *tok_b = br ? miku_json_str(miku_json_get(br, "token")) : NULL;
+    mk_assert(tok_b && tok_b[0]);
+
+    char ok_resp[8192] = {0};
+    http_post_with_token(19801, "/third/delete_object", tok_a,
+        "{\"name\":\"oss_a/photo.jpg\"}", ok_resp, sizeof(ok_resp));
+    miku_json_val_t *ok = miku_json_parse_str(extract_json_body(ok_resp));
+    mk_assert_not_null(ok);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ok, "errCode")));
+    miku_json_destroy(ok);
+
+    char deny_resp[8192] = {0};
+    http_post_with_token(19801, "/third/delete_object", tok_a,
+        "{\"name\":\"oss_b/photo.jpg\"}", deny_resp, sizeof(deny_resp));
+    miku_json_val_t *deny = miku_json_parse_str(extract_json_body(deny_resp));
+    mk_assert_not_null(deny);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(deny, "errCode")));
+    miku_json_destroy(deny);
+
+    char cross_resp[8192] = {0};
+    http_post_with_token(19801, "/object/access_url", tok_b,
+        "{\"name\":\"oss_a/secret.bin\"}", cross_resp, sizeof(cross_resp));
+    deny = miku_json_parse_str(extract_json_body(cross_resp));
+    mk_assert_not_null(deny);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(deny, "errCode")));
+    miku_json_destroy(deny);
+
+    if (ar) miku_json_destroy(ar);
+    if (br) miku_json_destroy(br);
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
 static void test_admin_health(void) {
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19797);
@@ -2912,6 +2982,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_token_invalid_rejected);
     mk_run_test(test_token_valid_passes);
 
+    mk_run_test(test_third_object_acl);
     mk_run_test(test_admin_health);
     mk_run_test(test_admin_stats);
     mk_run_test(test_admin_metrics);
