@@ -576,6 +576,35 @@ static void filter_users_read_result(miku_api_ctx_t *c, int plat, const char *ac
     filter_json_array_inplace(data, user_filter_keep, &fctx);
 }
 
+static int group_filter_keep_object(miku_json_val_t *item, void *v) {
+    conv_filter_ctx_t *f = (conv_filter_ctx_t *)v;
+    const char *gid = miku_json_str(miku_json_get(item, "groupID"));
+    return gid && f->actor && f->actor[0]
+        && miku_group_is_member(f->c->group_svc, gid, f->actor);
+}
+
+static void filter_group_id_list(miku_api_ctx_t *c, const char *actor, miku_json_val_t *j) {
+    if (!c || !actor || !actor[0] || !j) return;
+    miku_json_val_t *ids = miku_json_get(j, "groupIDList");
+    if (!ids || miku_json_type(ids) != MK_JSON_ARRAY) return;
+    miku_json_val_t *filtered = miku_json_create_array();
+    size_t n = miku_json_size(ids);
+    for (size_t i = 0; i < n; i++) {
+        const char *gid = miku_json_str(miku_json_at(ids, i));
+        if (gid && miku_group_is_member(c->group_svc, gid, actor))
+            miku_json_array_push(filtered, miku_json_create_str(gid));
+    }
+    miku_json_object_set(j, "groupIDList", filtered);
+}
+
+static void filter_groups_read_result(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
+    if (!c || !actor || !actor[0] || !out) return;
+    miku_json_val_t *data = miku_json_get(out, "data");
+    if (!data || miku_json_type(data) != MK_JSON_ARRAY) return;
+    conv_filter_ctx_t fctx = { .c = c, .actor = actor };
+    filter_json_array_inplace(data, group_filter_keep_object, &fctx);
+}
+
 static void filter_conv_read_result(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
     if (!c || !actor || !actor[0] || !out) return;
     miku_json_val_t *data = miku_json_get(out, "data");
@@ -952,7 +981,10 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     } else if (strcmp(method, "getGroupMemberList") == 0
                || strcmp(method, "getGroupMemberUserID") == 0
                || strcmp(method, "getFullGroupMemberUserIDs") == 0
-               || strcmp(method, "getGroupInfo") == 0) {
+               || strcmp(method, "getGroupInfo") == 0
+               || strcmp(method, "getGroupAbstractInfo") == 0
+               || strcmp(method, "getIncrementalGroupMembers") == 0
+               || strcmp(method, "getIncrementalGroupMemberBatch") == 0) {
         const char *gid = miku_json_str(miku_json_get(j, "groupID"));
         if (!actor[0] || !gid || !gid[0]
             || !miku_group_is_member(c->group_svc, gid, actor)) {
@@ -962,6 +994,8 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             resp->status = 403;
             return;
         }
+    } else if (strcmp(method, "getGroupsInfo") == 0 && actor[0]) {
+        filter_group_id_list(c, actor, j);
     }
 
     /* Snapshot members before dismiss clears them (for gateway sync). */
@@ -1063,26 +1097,9 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
             miku_webhook_fire(c->webhook, MK_WH_AFTER_JOIN_GROUP, payload);
         }
     }
-    if (actor[0] && strcmp(method, "getGroupsInfo") == 0) {
-        miku_json_val_t *data = miku_json_get(out, "data");
-        if (data && miku_json_type(data) == MK_JSON_ARRAY) {
-            miku_json_val_t *filtered = miku_json_create_array();
-            size_t n = miku_json_size(data);
-            for (size_t i = 0; i < n; i++) {
-                miku_json_val_t *g = miku_json_at(data, i);
-                const char *gid = miku_json_str(miku_json_get(g, "groupID"));
-                if (!gid || !miku_group_is_member(c->group_svc, gid, actor)) continue;
-                miku_string_t *ss = miku_json_stringify(g);
-                if (ss && ss->data) {
-                    miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
-                    if (copy) miku_json_array_push(filtered, copy);
-                }
-                miku_str_destroy(ss);
-            }
-            miku_json_object_set(out, "data", filtered);
-        }
-    }
-        miku_json_destroy(j);
+    if (actor[0] && strcmp(method, "getGroupsInfo") == 0)
+        filter_groups_read_result(c, actor, out);
+    miku_json_destroy(j);
     json_resp(resp, out);
 }
 

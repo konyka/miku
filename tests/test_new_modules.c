@@ -2230,6 +2230,23 @@ static void test_group_member_sync_callback(void) {
     mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(ri, "errCode")));
     miku_json_destroy(ri);
 
+    char groups_bad[8192] = {0};
+    snprintf(body, sizeof(body), "{\"groupIDList\":[\"%s\"]}", gid);
+    http_post_with_token(19850, "/group/get_groups_info", tok2, body, groups_bad, sizeof(groups_bad));
+    ri = miku_json_parse_str(extract_json_body(groups_bad));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(ri, "data")));
+    miku_json_destroy(ri);
+
+    char groups_ok[8192] = {0};
+    http_post_with_token(19850, "/group/get_groups_info", tok, body, groups_ok, sizeof(groups_ok));
+    ri = miku_json_parse_str(extract_json_body(groups_ok));
+    mk_assert_not_null(ri);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ri, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_size(miku_json_get(ri, "data")));
+    miku_json_destroy(ri);
+
     char biz_bad[8192] = {0};
     snprintf(body, sizeof(body),
              "{\"sendID\":\"forged\",\"groupID\":\"%s\",\"content\":\"biz\"}", gid);
