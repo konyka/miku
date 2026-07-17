@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 173 tests, 67 modules — searchMsg/getMsgBySeq conv-only; friend_svc fail-closed si_; WS DM requires friend_svc; RPC localhost bind; group app/incremental gates; third logs admin; pullMsgBySeq conv-only; object ACL actor/ prefix; secret env override; empty oracle reads; S3 stub.
+> **Status**: 203 API routes, 174 tests, 67 modules — getMsg/checkMsg userID gate; searchMsg conv-chain O(conv); WS unknown opcode 404; SUB_USER_STATUS auth+empty oracle; getUserInfo empty oracle; notification admin; RPC localhost; friend_svc fail-closed; object ACL; secret env override.
 
 ## 1. Overview
 

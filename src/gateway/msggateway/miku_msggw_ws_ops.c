@@ -518,31 +518,44 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         break;
     }
     case MK_WS_OP_SUB_USER_STATUS: {
-        miku_json_val_t *j = (payload && len > 0) ? miku_json_parse(payload, len) : NULL;
-        const char *subscriber = uid[0] ? uid : "anonymous";
-        if (j && gc->sub) {
-            const char *target = miku_json_str(miku_json_get(j, "userID"));
-            const char *action = miku_json_str(miku_json_get(j, "action"));
-            if (target && action) {
-                if (strcmp(action, "subscribe") == 0) {
-                    if (gc->friend_svc && uid[0] && strcmp(uid, target) != 0
-                        && !miku_friend_is_mutual(gc->friend_svc, uid, target)) {
-                        miku_json_destroy(j);
-                        reply_json(gc->gw, client_idx, opcode,
-                                   "{\"errCode\":3003,\"errMsg\":\"not friends\"}");
-                        break;
-                    }
-                    miku_ws_sub_subscribe(gc->sub, subscriber, target);
-                    MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS subscribe %s→%s",
-                                opcode, subscriber, target);
-                } else if (strcmp(action, "unsubscribe") == 0) {
-                    miku_ws_sub_unsubscribe(gc->sub, subscriber, target);
-                    MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS unsubscribe %s→%s",
-                                opcode, subscriber, target);
-                }
-            }
-            miku_json_destroy(j);
+        if (!uid[0]) {
+            reply_json(gc->gw, client_idx, opcode,
+                       "{\"errCode\":401,\"errMsg\":\"authentication required\"}");
+            break;
         }
+        miku_json_val_t *j = (payload && len > 0) ? miku_json_parse(payload, len) : NULL;
+        const char *target = j ? miku_json_str(miku_json_get(j, "userID")) : NULL;
+        const char *action = j ? miku_json_str(miku_json_get(j, "action")) : NULL;
+        if (!j || !target || !target[0] || !action || !action[0]) {
+            if (j) miku_json_destroy(j);
+            reply_json(gc->gw, client_idx, opcode,
+                       "{\"errCode\":400,\"errMsg\":\"missing userID or action\"}");
+            break;
+        }
+        if (gc->sub) {
+            if (strcmp(action, "subscribe") == 0) {
+                if (strcmp(uid, target) != 0
+                    && (!gc->friend_svc
+                        || !miku_friend_is_mutual(gc->friend_svc, uid, target))) {
+                    miku_json_destroy(j);
+                    reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
+                    break;
+                }
+                miku_ws_sub_subscribe(gc->sub, uid, target);
+                MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS subscribe %s→%s",
+                            opcode, uid, target);
+            } else if (strcmp(action, "unsubscribe") == 0) {
+                miku_ws_sub_unsubscribe(gc->sub, uid, target);
+                MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS unsubscribe %s→%s",
+                            opcode, uid, target);
+            } else {
+                miku_json_destroy(j);
+                reply_json(gc->gw, client_idx, opcode,
+                           "{\"errCode\":400,\"errMsg\":\"invalid action\"}");
+                break;
+            }
+        }
+        miku_json_destroy(j);
         reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         break;
     }
@@ -550,7 +563,8 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         MK_LOG_WARN("ws_op[%d]: DATA_ERROR client=%d", opcode, client_idx);
         break;
     default:
-        reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
+        reply_json(gc->gw, client_idx, opcode,
+                   "{\"errCode\":404,\"errMsg\":\"unknown opcode\"}");
         MK_LOG_DEBUG("ws_op: unknown opcode=%d client=%d", opcode, client_idx);
         break;
     }

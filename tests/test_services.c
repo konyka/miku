@@ -1146,6 +1146,32 @@ static int ws_connect_user(miku_msggw_t *gw, int port, const char *user, int *ou
     return 0;
 }
 
+static void test_msggateway_unknown_opcode(void) {
+    miku_msggw_t *gw = miku_msggw_create(19211);
+    mk_assert_not_null(gw);
+    mk_assert_int_eq(0, miku_msggw_start(gw));
+    miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = NULL, .sub = NULL, .group = NULL };
+    miku_msggw_on_opcode(gw, miku_msggw_ws_on_opcode, &ctx);
+
+    int fd = -1;
+    mk_assert_int_eq(0, ws_connect_user(gw, 19211, "bad_op_u", &fd));
+    const char *frame = "{\"reqIdentifier\":99999,\"data\":{}}";
+    mk_assert_int_eq(0, ws_client_send_text_masked(fd, frame));
+    miku_msggw_poll(gw, 500);
+
+    uint8_t rbuf[4096];
+    struct pollfd pfd = { .fd = fd, .events = POLLIN };
+    mk_assert(poll(&pfd, 1, 500) > 0);
+    ssize_t n = read(fd, rbuf, sizeof(rbuf) - 1);
+    mk_assert(n > 0);
+    rbuf[n] = '\0';
+    mk_assert(strstr((char *)rbuf, "\"errCode\":404") != NULL);
+
+    close(fd);
+    miku_msggw_stop(gw);
+    miku_msggw_destroy(gw);
+}
+
 static void test_msggateway_read_receipt_fanout(void) {
     miku_msggw_t *gw = miku_msggw_create(19225);
     miku_msg_store_t *store = miku_msg_store_create(NULL);
@@ -1440,6 +1466,7 @@ void run_service_tests(void) {
     mk_run_test(test_msggateway_kick_by_platform);
     mk_run_test(test_msggateway_seq_peek_vs_alloc);
     mk_run_test(test_msggateway_unwrap_op_data);
+    mk_run_test(test_msggateway_unknown_opcode);
     mk_run_test(test_msggateway_opcode_reply);
     mk_run_test(test_msggateway_send_op_to_user);
     mk_run_test(test_msggateway_read_receipt_fanout);

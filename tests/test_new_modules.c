@@ -943,12 +943,22 @@ static void test_msg_send_get_search_delete(void) {
 
     miku_json_val_t *get_req = miku_json_create_object();
     miku_json_object_set(get_req, "serverMsgID", miku_json_create_str(smid));
+    miku_json_object_set(get_req, "userID", miku_json_create_str("alice"));
     miku_json_val_t *get_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "getMsg", get_req, get_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(get_resp, "errCode")));
     miku_json_val_t *data = miku_json_get(get_resp, "data");
     mk_assert_not_null(data);
     mk_assert_int_eq(1, (int)miku_json_size(data));
+
+    miku_json_val_t *check_req = miku_json_create_object();
+    miku_json_object_set(check_req, "serverMsgID", miku_json_create_str(smid));
+    miku_json_object_set(check_req, "userID", miku_json_create_str("bob"));
+    miku_json_val_t *check_resp = miku_json_create_object();
+    miku_msg_handle_rpc(svc, "checkMsgIsSendSuccess", check_req, check_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(check_resp, "status")));
+    miku_json_destroy(check_req);
+    miku_json_destroy(check_resp);
 
     miku_json_val_t *search_req = miku_json_create_object();
     miku_json_object_set(search_req, "keyword", miku_json_create_str("second"));

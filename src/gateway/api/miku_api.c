@@ -777,7 +777,10 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
         if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "getAllUsers") == 0 || strcmp(method, "getAllUsersUID") == 0
                || strcmp(method, "getUserCount") == 0
-               || strcmp(method, "getUsersOnlineTokenDetail") == 0) {
+               || strcmp(method, "getUsersOnlineTokenDetail") == 0
+               || strcmp(method, "addNotificationAccount") == 0
+               || strcmp(method, "updateNotificationAccount") == 0
+               || strcmp(method, "searchNotificationAccount") == 0) {
         if (plat != 5) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
@@ -816,7 +819,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
             miku_json_val_t *data = miku_json_get(out, "data");
             const char *uid = data ? miku_json_str(miku_json_get(data, "userID")) : NULL;
             if (!uid || !api_may_view_user(c, plat, actor, uid)) {
-                miku_ji(out, "errCode", 1001);
+                miku_ji(out, "errCode", 0);
                 miku_json_object_set(out, "data", miku_json_create_null());
             }
         } else if (strcmp(method, "getUsersInfo") == 0) {
@@ -1185,7 +1188,9 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                  || strcmp(method, "clearConversationMsg") == 0
                  || strcmp(method, "markConversationAsRead") == 0
                  || strcmp(method, "setConversationHasReadSeq") == 0
-                 || strcmp(method, "markMsgsAsRead") == 0)
+                 || strcmp(method, "markMsgsAsRead") == 0
+                 || strcmp(method, "getMsg") == 0
+                 || strcmp(method, "checkMsgIsSendSuccess") == 0)
             miku_jss(j, "userID", actor);
     }
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
@@ -1287,27 +1292,6 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     if (actor[0] && (strcmp(method, "getMsg") == 0 || strcmp(method, "getMsgBySeq") == 0
                      || strcmp(method, "searchMsg") == 0 || strcmp(method, "getMsgByConv") == 0))
         filter_msg_read_result(c, actor, out);
-    if (actor[0] && strcmp(method, "checkMsgIsSendSuccess") == 0) {
-        int64_t st = miku_json_int(miku_json_get(out, "status"));
-        if (st != 0) {
-            const char *smid = miku_json_str(miku_json_get(j, "serverMsgID"));
-            int ok = 0;
-            if (smid && smid[0]) {
-                miku_json_val_t *gq = miku_json_create_object();
-                miku_jss(gq, "serverMsgID", smid);
-                miku_json_val_t *gr = miku_json_create_object();
-                miku_msg_handle_rpc(c->msg, "getMsg", gq, gr);
-                miku_json_val_t *data = miku_json_get(gr, "data");
-                if (data && miku_json_size(data) > 0) {
-                    const char *cid = miku_json_str(miku_json_get(miku_json_at(data, 0), "conversationID"));
-                    if (cid && api_may_access_conv(c, actor, cid)) ok = 1;
-                }
-                miku_json_destroy(gq);
-                miku_json_destroy(gr);
-            }
-            if (!ok) miku_ji(out, "status", 0);
-        }
-    }
     if (actor[0] && strcmp(method, "getConversationsHasReadAndMaxSeq") == 0)
         filter_conv_read_result(c, actor, out);
 
