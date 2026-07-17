@@ -444,12 +444,16 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_getMsgBySeq: {
         int64_t seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
+        const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (seq > 0) {
-            int i = lower_bound_seq(svc, seq);
-            if (i < svc->count && svc->msgs[i].seq == seq)
-                miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[i]));
+        if (seq > 0 && cid && cid[0]) {
+            for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
+                if (svc->msgs[mi].seq == seq) {
+                    miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
+                    break;
+                }
+            }
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -526,9 +530,9 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (keyword && keyword[0]) {
+        if (keyword && keyword[0] && cid && cid[0]) {
             for (int i = svc->count - 1; i >= 0; i--) {
-                if (cid && cid[0] && strcmp(svc->msgs[i].conversation_id, cid) != 0)
+                if (strcmp(svc->msgs[i].conversation_id, cid) != 0)
                     continue;
                 if (strstr(svc->msgs[i].content, keyword))
                     miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[i]));

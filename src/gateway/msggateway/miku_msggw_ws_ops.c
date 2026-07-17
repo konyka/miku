@@ -179,21 +179,24 @@ int miku_msggw_ws_deliver_msg(miku_msggw_ws_ctx_t *gc, miku_im_msg_t *im) {
         return -1;
     }
 
-    /* Single chat blacklist (either direction). */
-    if (gc->friend_svc && im->recv_id[0] && !im->group_id[0] &&
-        (miku_friend_is_black(gc->friend_svc, im->send_id, im->recv_id) ||
-         miku_friend_is_black(gc->friend_svc, im->recv_id, im->send_id))) {
-        MK_LOG_WARN("deliver_msg: blocked by blacklist send=%s recv=%s",
-                    im->send_id, im->recv_id);
-        return -1;
-    }
-
-    /* Single chat: sender and receiver must be mutual friends. */
-    if (gc->friend_svc && im->recv_id[0] && !im->group_id[0] &&
-        !miku_friend_is_mutual(gc->friend_svc, im->send_id, im->recv_id)) {
-        MK_LOG_WARN("deliver_msg: not mutual friends send=%s recv=%s",
-                    im->send_id, im->recv_id);
-        return -1;
+    /* Single chat requires friend service (mutual-friends + blacklist). */
+    if (im->recv_id[0] && !im->group_id[0]) {
+        if (!gc->friend_svc) {
+            MK_LOG_WARN("deliver_msg: friend_svc required for single chat send=%s recv=%s",
+                        im->send_id, im->recv_id);
+            return -1;
+        }
+        if (miku_friend_is_black(gc->friend_svc, im->send_id, im->recv_id) ||
+            miku_friend_is_black(gc->friend_svc, im->recv_id, im->send_id)) {
+            MK_LOG_WARN("deliver_msg: blocked by blacklist send=%s recv=%s",
+                        im->send_id, im->recv_id);
+            return -1;
+        }
+        if (!miku_friend_is_mutual(gc->friend_svc, im->send_id, im->recv_id)) {
+            MK_LOG_WARN("deliver_msg: not mutual friends send=%s recv=%s",
+                        im->send_id, im->recv_id);
+            return -1;
+        }
     }
 
     /* Group chat: sender must be a member when group svc is wired. */

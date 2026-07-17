@@ -167,7 +167,7 @@ int miku_friend_may_access_si_conv(miku_friend_service_t *svc, const char *uid,
     if (!uid || !uid[0] || !conv || !conv[0]) return 0;
     char peer[64];
     if (miku_conversation_si_peer(conv, uid, peer, sizeof(peer)) != 0) return 0;
-    if (!svc) return 1;
+    if (!svc) return 0;
     if (!miku_friend_is_mutual(svc, uid, peer)) return 0;
     if (miku_friend_is_black(svc, uid, peer) || miku_friend_is_black(svc, peer, uid))
         return 0;

@@ -984,13 +984,34 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
                || strcmp(method, "getGroupInfo") == 0
                || strcmp(method, "getGroupAbstractInfo") == 0
                || strcmp(method, "getIncrementalGroupMembers") == 0
-               || strcmp(method, "getIncrementalGroupMemberBatch") == 0) {
+               || strcmp(method, "getIncrementalGroupMemberBatch") == 0
+               || strcmp(method, "getGroupApplicationList") == 0
+               || strcmp(method, "getRecvGroupApplicationList") == 0
+               || strcmp(method, "getGroupApplicationUnhandledCount") == 0) {
         const char *gid = miku_json_str(miku_json_get(j, "groupID"));
         if (!actor[0] || !gid || !gid[0]
             || !miku_group_is_member(c->group_svc, gid, actor)) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
                 "{\"errCode\":3003,\"errMsg\":\"not a group member\"}");
+            resp->status = 403;
+            return;
+        }
+    } else if (strcmp(method, "getIncrementalJoinGroups") == 0 && actor[0]) {
+        const char *uid = miku_json_str(miku_json_get(j, "userID"));
+        if (!uid || strcmp(uid, actor) != 0) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"userID mismatch\"}");
+            resp->status = 403;
+            return;
+        }
+    } else if (strcmp(method, "getUserReqGroupApplicationList") == 0 && actor[0]) {
+        const char *uid = miku_json_str(miku_json_get(j, "userID"));
+        if (!uid || strcmp(uid, actor) != 0) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"userID mismatch\"}");
             resp->status = 403;
             return;
         }
@@ -1222,12 +1243,18 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     } else if (strcmp(method, "searchMsg") == 0) {
         if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
+        if (req_token_platform(req) != 5 && (!cid || !cid[0])) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp, "{\"errCode\":0,\"data\":[]}");
+            return;
+        }
         if (cid && cid[0] && (!actor[0] || !api_may_access_conv(c, actor, cid))) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":0,\"data\":[]}");
             return;
         }
-    } else if (strcmp(method, "getMsgByConv") == 0 || strcmp(method, "pullMsgBySeq") == 0) {
+    } else if (strcmp(method, "getMsgByConv") == 0 || strcmp(method, "pullMsgBySeq") == 0
+               || strcmp(method, "getMsgBySeq") == 0) {
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
             miku_json_destroy(j); miku_json_destroy(out);
@@ -1391,6 +1418,15 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getUploadToken");
     if (strcmp(method, "getPrometheus") == 0 && req_token_platform(req) != 5) {
+        miku_json_destroy(j); miku_json_destroy(out);
+        miku_http_response_set_json(resp,
+            "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+        resp->status = 403;
+        return;
+    }
+    if ((strcmp(method, "searchLogs") == 0 || strcmp(method, "deleteLogs") == 0
+         || strcmp(method, "uploadLogs") == 0)
+        && req_token_platform(req) != 5) {
         miku_json_destroy(j); miku_json_destroy(out);
         miku_http_response_set_json(resp,
             "{\"errCode\":403,\"errMsg\":\"admin token required\"}");

@@ -386,6 +386,12 @@ void test_msggw_ws_deliver_msg(void) {
     mk_assert_not_null(conv);
 
     miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = store, .sub = NULL, .group = NULL, .conv = conv };
+    miku_friend_service_t *friends = miku_friend_service_create();
+    mk_assert_not_null(friends);
+    ctx.friend_svc = friends;
+    mk_assert_int_eq(0, miku_friend_add(friends, "alice", "bob", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "bob", "alice", ""));
+
     miku_im_msg_t im;
     miku_im_msg_init(&im);
     strncpy(im.send_id, "alice", sizeof(im.send_id) - 1);
@@ -431,12 +437,7 @@ void test_msggw_ws_deliver_msg(void) {
     miku_im_msg_init(&bad);
     mk_assert_int_eq(-1, miku_msggw_ws_deliver_msg(&ctx, &bad));
 
-    /* Split-deploy style: friend_svc wired → blacklist blocks WS deliver. */
-    miku_friend_service_t *friends = miku_friend_service_create();
-    mk_assert_not_null(friends);
-    ctx.friend_svc = friends;
-    mk_assert_int_eq(0, miku_friend_add(friends, "alice", "bob", ""));
-    mk_assert_int_eq(0, miku_friend_add(friends, "bob", "alice", ""));
+    /* Split-deploy style: blacklist blocks WS deliver. */
     mk_assert_int_eq(0, miku_friend_add_black(friends, "bob", "alice"));
     miku_im_msg_t blocked;
     miku_im_msg_init(&blocked);
@@ -951,6 +952,7 @@ static void test_msg_send_get_search_delete(void) {
 
     miku_json_val_t *search_req = miku_json_create_object();
     miku_json_object_set(search_req, "keyword", miku_json_create_str("second"));
+    miku_json_object_set(search_req, "conversationID", miku_json_create_str("si_5_alice_bob"));
     miku_json_val_t *search_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "searchMsg", search_req, search_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(search_resp, "errCode")));
@@ -1876,7 +1878,7 @@ static void test_http_e2e_msg_send_and_search(void) {
 
     char resp2[8192] = {0};
     http_post_with_token(19780, "/msg/search_msg", token,
-        "{\"keyword\":\"e2e test\"}", resp2, sizeof(resp2));
+        "{\"keyword\":\"e2e test\",\"conversationID\":\"si_2_r1_s1\"}", resp2, sizeof(resp2));
     body = extract_json_body(resp2);
     r = miku_json_parse_str(body);
     mk_assert_not_null(r);
@@ -1951,6 +1953,14 @@ static void test_http_e2e_msg_send_and_search(void) {
         "{\"keyword\":\"e2e test\",\"conversationID\":\"si_2_r1_s1\"}",
         search_cid_bad, sizeof(search_cid_bad));
     r = miku_json_parse_str(extract_json_body(search_cid_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(r, "data")));
+    miku_json_destroy(r);
+    char search_nocid[8192] = {0};
+    http_post_with_token(19780, "/msg/search_msg", tok_x,
+        "{\"keyword\":\"e2e test\"}", search_nocid, sizeof(search_nocid));
+    r = miku_json_parse_str(extract_json_body(search_nocid));
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(r, "data")));
