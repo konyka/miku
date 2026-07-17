@@ -11,6 +11,7 @@
 #include "miku_api.h"
 #include "miku_http_server.h"
 #include "miku_rpc_server.h"
+#include "miku_token.h"
 #include "miku_msggateway.h"
 #include "miku_msggw_ws_ops.h"
 #include "miku_im_message.h"
@@ -731,6 +732,76 @@ static void test_rpc_server_e2e(void) {
     mk_assert_not_null(r);
     int64_t err = miku_json_int(miku_json_get(r, "errCode"));
     mk_assert_int_eq(0, (int)err);
+    miku_json_destroy(r);
+
+    miku_rpc_server_stop(srv);
+    miku_rpc_server_destroy(srv);
+    miku_user_service_destroy(svc);
+}
+
+static int rpc_call(miku_rpc_server_t *srv, int port, const char *payload,
+                    char *resp_buf, size_t resp_cap) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    struct sockaddr_in addr = {0};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons((uint16_t)port);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) { close(fd); return -1; }
+
+    uint32_t plen = (uint32_t)strlen(payload);
+    uint8_t hdr[16] = {0};
+    hdr[0] = 0x4D; hdr[1] = 0x4B;
+    hdr[4] = 1;
+    write(fd, hdr, 16);
+    uint8_t len_buf[4] = {
+        (uint8_t)(plen >> 24), (uint8_t)(plen >> 16),
+        (uint8_t)(plen >> 8),  (uint8_t)plen
+    };
+    write(fd, len_buf, 4);
+    write(fd, payload, plen);
+
+    if (srv) miku_rpc_server_poll(srv, 1000);
+
+    uint8_t resp_len_buf[4] = {0};
+    if (read(fd, resp_len_buf, 4) != 4) { close(fd); return -1; }
+    uint32_t rlen = ((uint32_t)resp_len_buf[0] << 24) | ((uint32_t)resp_len_buf[1] << 16) |
+                    ((uint32_t)resp_len_buf[2] << 8)  | (uint32_t)resp_len_buf[3];
+    if (rlen == 0 || rlen >= resp_cap) { close(fd); return -1; }
+    ssize_t n = read(fd, resp_buf, rlen);
+    close(fd);
+    if (n <= 0) return -1;
+    resp_buf[n] = '\0';
+    return 0;
+}
+
+static void test_rpc_internal_token(void) {
+    miku_user_service_t *svc = miku_user_service_create();
+    mk_assert_not_null(svc);
+    miku_rpc_server_t *srv = miku_rpc_server_create(svc,
+        (miku_rpc_dispatch_fn)miku_user_handle_rpc, 19091);
+    mk_assert_not_null(srv);
+    miku_rpc_server_enable_internal_auth(srv);
+    mk_assert_int_eq(0, miku_rpc_server_start(srv));
+
+    char resp[4096] = {0};
+    mk_assert_int_eq(0, rpc_call(srv, 19091,
+        "{\"method\":\"registerUser\",\"userID\":\"u99\",\"nickname\":\"no token\"}",
+        resp, sizeof(resp)));
+    miku_json_val_t *r = miku_json_parse_str(resp);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(401, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char payload[512];
+    snprintf(payload, sizeof(payload),
+        "{\"method\":\"registerUser\",\"userID\":\"u99\",\"nickname\":\"ok\","
+        "\"internalToken\":\"%s\"}", miku_internal_secret());
+    resp[0] = '\0';
+    mk_assert_int_eq(0, rpc_call(srv, 19091, payload, resp, sizeof(resp)));
+    r = miku_json_parse_str(resp);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
     miku_rpc_server_stop(srv);
@@ -1461,6 +1532,7 @@ void run_service_tests(void) {
     mk_run_test(test_third_rpc);
     mk_run_test(test_api_gateway_e2e);
     mk_run_test(test_rpc_server_e2e);
+    mk_run_test(test_rpc_internal_token);
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
     mk_run_test(test_msggateway_kick_by_platform);

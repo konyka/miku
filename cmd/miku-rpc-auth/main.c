@@ -41,8 +41,11 @@ int main(int argc, char **argv) {
 
 
     #pragma GCC diagnostic pop
-    if (!srv || miku_rpc_server_start(srv) != 0) {
+    if (!srv) { MK_LOG_ERROR("Failed to create RPC server"); miku_auth_service_destroy(svc); return 1; }
+    miku_rpc_server_enable_internal_auth(srv);
+    if (miku_rpc_server_start(srv) != 0) {
         MK_LOG_ERROR("Failed to start RPC server");
+        miku_rpc_server_destroy(srv);
         miku_auth_service_destroy(svc); return 1;
     }
 

@@ -1,6 +1,8 @@
 #include "miku_rpc_server.h"
 #include "miku_log.h"
 #include "miku_json.h"
+#include "miku_json_util.h"
+#include "miku_token.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -8,6 +10,33 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+
+static void rpc_write_json_response(int fd, miku_json_val_t *resp, miku_stats_t *stats) {
+    miku_string_t *resp_str = miku_json_stringify(resp);
+    if (!resp_str) return;
+    uint32_t resp_len = (uint32_t)resp_str->len;
+    uint8_t resp_len_buf[4] = {
+        (uint8_t)(resp_len >> 24), (uint8_t)(resp_len >> 16),
+        (uint8_t)(resp_len >> 8),  (uint8_t)resp_len
+    };
+    write(fd, resp_len_buf, 4);
+    write(fd, resp_str->data, resp_str->len);
+    if (stats) {
+        miku_stats_bytes_sent(stats, (int64_t)resp_str->len);
+        miku_stats_conn_close(stats);
+    }
+    miku_str_destroy(resp_str);
+}
+
+static int rpc_internal_authorized(miku_rpc_server_t *srv, const miku_json_val_t *req,
+                                   miku_json_val_t *resp) {
+    if (!srv || !srv->internal_token || !srv->internal_token[0]) return 1;
+    const char *tok = req ? miku_json_str(miku_json_get(req, "internalToken")) : NULL;
+    if (tok && strcmp(tok, srv->internal_token) == 0) return 1;
+    miku_ji(resp, "errCode", 401);
+    miku_jss(resp, "errMsg", "internal token required");
+    return 0;
+}
 
 miku_rpc_server_t *miku_rpc_server_create(void *svc, miku_rpc_dispatch_fn dispatch, int port) {
     miku_rpc_server_t *srv = (miku_rpc_server_t *)calloc(1, sizeof(*srv));
@@ -22,6 +51,7 @@ miku_rpc_server_t *miku_rpc_server_create(void *svc, miku_rpc_dispatch_fn dispat
 void miku_rpc_server_destroy(miku_rpc_server_t *srv) {
     if (!srv) return;
     if (srv->listen_fd >= 0) close(srv->listen_fd);
+    free(srv->internal_token);
     free(srv);
 }
 
@@ -121,29 +151,27 @@ int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
         if (m) method = miku_json_str(m);
     }
 
-    srv->dispatch(srv->svc, method, req, resp);
+    if (rpc_internal_authorized(srv, req, resp))
+        srv->dispatch(srv->svc, method, req, resp);
     if (srv->stats) miku_stats_request_inc(srv->stats);
 
-    miku_string_t *resp_str = miku_json_stringify(resp);
-    uint32_t resp_len = (uint32_t)resp_str->len;
-    uint8_t resp_len_buf[4] = {
-        (uint8_t)(resp_len >> 24), (uint8_t)(resp_len >> 16),
-        (uint8_t)(resp_len >> 8),  (uint8_t)resp_len
-    };
-    write(fd, resp_len_buf, 4);
-    write(fd, resp_str->data, resp_str->len);
+    rpc_write_json_response(fd, resp, srv->stats);
 
-    if (srv->stats) {
-        miku_stats_bytes_sent(srv->stats, (int64_t)resp_str->len);
-        miku_stats_conn_close(srv->stats);
-    }
-
-    miku_str_destroy(resp_str);
     miku_json_destroy(resp);
     miku_json_destroy(req);
     free(payload);
     close(fd);
     return 1;
+}
+
+void miku_rpc_server_set_internal_token(miku_rpc_server_t *srv, const char *token) {
+    if (!srv) return;
+    free(srv->internal_token);
+    srv->internal_token = (token && token[0]) ? strdup(token) : NULL;
+}
+
+void miku_rpc_server_enable_internal_auth(miku_rpc_server_t *srv) {
+    miku_rpc_server_set_internal_token(srv, miku_internal_secret());
 }
 
 void miku_rpc_server_set_stats(miku_rpc_server_t *srv, miku_stats_t *stats) {

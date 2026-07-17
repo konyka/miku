@@ -17,6 +17,7 @@ typedef struct {
     int                  port;
     volatile int         running;
     miku_stats_t        *stats;
+    char                *internal_token;
 } miku_rpc_server_t;
 
 MIKU_API miku_rpc_server_t *miku_rpc_server_create(void *svc, miku_rpc_dispatch_fn dispatch, int port);
@@ -25,5 +26,9 @@ MIKU_API int                miku_rpc_server_start(miku_rpc_server_t *srv);
 MIKU_API void               miku_rpc_server_stop(miku_rpc_server_t *srv);
 MIKU_API int                miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms);
 MIKU_API void               miku_rpc_server_set_stats(miku_rpc_server_t *srv, miku_stats_t *stats);
+/* When set, JSON body must include matching internalToken. NULL = open (tests). */
+MIKU_API void               miku_rpc_server_set_internal_token(miku_rpc_server_t *srv,
+                                                                  const char *token);
+MIKU_API void               miku_rpc_server_enable_internal_auth(miku_rpc_server_t *srv);
 
 #endif

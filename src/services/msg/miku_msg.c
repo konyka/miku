@@ -596,13 +596,13 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             char peer[MK_USER_ID_LEN];
             if (miku_conversation_si_peer(cid, uid, peer, sizeof(peer)) == 0)
                 participant = 1;
-        }
-        for (int i = 0; i < svc->count; i++) {
-            miku_msg_t *m = &svc->msgs[i];
-            if (strcmp(m->conversation_id, cid) != 0) continue;
-            if (m->group_id[0]) has_group = 1;
-            if (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0)
-                participant = 1;
+        } else {
+            for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
+                if (svc->msgs[mi].group_id[0]) { has_group = 1; break; }
+                if (strcmp(svc->msgs[mi].send_id, uid) == 0 ||
+                    strcmp(svc->msgs[mi].recv_id, uid) == 0)
+                    participant = 1;
+            }
         }
         if (has_group || !participant) {
             miku_ji(resp, "errCode", 3003);

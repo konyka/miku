@@ -30,6 +30,7 @@ int main(int argc, char **argv) { \
 \
     miku_rpc_server_t *srv = miku_rpc_server_create(svc, (miku_rpc_dispatch_fn)handle_rpc_fn, port); \
     if (!srv) { MK_LOG_ERROR("Failed to create RPC server"); destroy_fn(svc); return 1; } \
+    miku_rpc_server_enable_internal_auth(srv); \
 \
     if (miku_rpc_server_start(srv) != 0) { \
         miku_rpc_server_destroy(srv); \
