@@ -552,6 +552,30 @@ static void filter_msg_read_result(miku_api_ctx_t *c, const char *actor, miku_js
     filter_json_array_inplace(data, msg_filter_keep, &fctx);
 }
 
+typedef struct {
+    miku_api_ctx_t *c;
+    int             plat;
+    const char     *actor;
+    const char     *keyword; /* searchUser: exact userID match */
+} user_filter_ctx_t;
+
+static int user_filter_keep(miku_json_val_t *item, void *v) {
+    user_filter_ctx_t *f = (user_filter_ctx_t *)v;
+    const char *uid = miku_json_str(miku_json_get(item, "userID"));
+    if (!uid || !api_may_view_user(f->c, f->plat, f->actor, uid)) return 0;
+    if (f->keyword && strcmp(uid, f->keyword) != 0) return 0;
+    return 1;
+}
+
+static void filter_users_read_result(miku_api_ctx_t *c, int plat, const char *actor,
+                                     const char *keyword, miku_json_val_t *out) {
+    if (!c || !actor || !actor[0] || !out) return;
+    miku_json_val_t *data = miku_json_get(out, "data");
+    if (!data || miku_json_type(data) != MK_JSON_ARRAY) return;
+    user_filter_ctx_t fctx = { .c = c, .plat = plat, .actor = actor, .keyword = keyword };
+    filter_json_array_inplace(data, user_filter_keep, &fctx);
+}
+
 static void filter_conv_read_result(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
     if (!c || !actor || !actor[0] || !out) return;
     miku_json_val_t *data = miku_json_get(out, "data");
@@ -756,24 +780,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     /* Non-admin search: exact userID only — block nickname/userID substring sweeps. */
     if (strcmp(method, "searchUser") == 0 && plat != 5) {
         const char *kw = miku_json_str(miku_json_get(j, "keyword"));
-        miku_json_val_t *data = miku_json_get(out, "data");
-        miku_json_val_t *filtered = miku_json_create_array();
-        if (kw && kw[0] && data && miku_json_type(data) == MK_JSON_ARRAY) {
-            size_t n = miku_json_size(data);
-            for (size_t i = 0; i < n; i++) {
-                miku_json_val_t *u = miku_json_at(data, i);
-                const char *uid = miku_json_str(miku_json_get(u, "userID"));
-                if (!uid || strcmp(uid, kw) != 0) continue;
-                if (!api_may_view_user(c, plat, actor, uid)) continue;
-                miku_string_t *ss = miku_json_stringify(u);
-                if (ss && ss->data) {
-                    miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
-                    if (copy) miku_json_array_push(filtered, copy);
-                }
-                miku_str_destroy(ss);
-            }
-        }
-        miku_json_object_set(out, "data", filtered);
+        filter_users_read_result(c, plat, actor, kw, out);
     }
     if (plat != 5 && actor[0]) {
         if (strcmp(method, "getUserInfo") == 0) {
@@ -784,23 +791,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
                 miku_json_object_set(out, "data", miku_json_create_null());
             }
         } else if (strcmp(method, "getUsersInfo") == 0) {
-            miku_json_val_t *data = miku_json_get(out, "data");
-            miku_json_val_t *filtered = miku_json_create_array();
-            if (data && miku_json_type(data) == MK_JSON_ARRAY) {
-                size_t n = miku_json_size(data);
-                for (size_t i = 0; i < n; i++) {
-                    miku_json_val_t *u = miku_json_at(data, i);
-                    const char *uid = miku_json_str(miku_json_get(u, "userID"));
-                    if (!api_may_view_user(c, plat, actor, uid)) continue;
-                    miku_string_t *ss = miku_json_stringify(u);
-                    if (ss && ss->data) {
-                        miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
-                        if (copy) miku_json_array_push(filtered, copy);
-                    }
-                    miku_str_destroy(ss);
-                }
-            }
-            miku_json_object_set(out, "data", filtered);
+            filter_users_read_result(c, plat, actor, NULL, out);
         }
     }
     if (c->webhook && strcmp(method, "registerUser") == 0) {
@@ -824,6 +815,7 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
     miku_json_val_t *out = miku_json_create_object();
     const char *method = api_rpc_method(req, "getFriendList");
     char actor[128] = {0};
+    int plat = req_token_platform(req);
     if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
         if (strcmp(method, "addFriend") == 0 || strcmp(method, "addBlack") == 0
             || strcmp(method, "deleteFriend") == 0 || strcmp(method, "removeBlack") == 0
@@ -858,7 +850,7 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
     } else if (strcmp(method, "isFriend") == 0) {
         if (require_fields(j, resp, "userID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "importFriend") == 0) {
-        if (req_token_platform(req) != 5) {
+        if (plat != 5) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
                 "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
@@ -867,7 +859,7 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
         }
     }
     miku_friend_handle_rpc(c->friend_svc, method, j, out);
-    if (strcmp(method, "isFriend") == 0 && req_token_platform(req) != 5 && actor[0]) {
+    if (strcmp(method, "isFriend") == 0 && plat != 5 && actor[0]) {
         const char *fuid = miku_json_str(miku_json_get(j, "friendUserID"));
         if (!fuid) fuid = miku_json_str(miku_json_get(j, "userID2"));
         int mutual = fuid && miku_friend_is_mutual(c->friend_svc, actor, fuid);
@@ -1249,7 +1241,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
 
     /* getMsg / getMsgBySeq / searchMsg: drop non-participant results (no 3003 oracle). */
     if (actor[0] && (strcmp(method, "getMsg") == 0 || strcmp(method, "getMsgBySeq") == 0
-                     || strcmp(method, "searchMsg") == 0))
+                     || strcmp(method, "searchMsg") == 0 || strcmp(method, "getMsgByConv") == 0))
         filter_msg_read_result(c, actor, out);
     if (actor[0] && strcmp(method, "checkMsgIsSendSuccess") == 0) {
         int64_t st = miku_json_int(miku_json_get(out, "status"));
