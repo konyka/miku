@@ -236,6 +236,7 @@ miku_api_ctx_t *miku_api_ctx_create(void) {
     ctx->conv = miku_conv_service_create();
     ctx->msg = miku_msg_service_create();
     miku_msg_service_set_group_svc(ctx->msg, ctx->group_svc);
+    miku_msg_service_set_friend_svc(ctx->msg, ctx->friend_svc);
     ctx->third = miku_third_service_create();
     ctx->ratelimit = miku_ratelimit_create(60000, 100);
     ctx->webhook = miku_webhook_create();
@@ -1191,7 +1192,12 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                  || strcmp(method, "setConversationHasReadSeq") == 0
                  || strcmp(method, "markMsgsAsRead") == 0
                  || strcmp(method, "getMsg") == 0
-                 || strcmp(method, "checkMsgIsSendSuccess") == 0)
+                 || strcmp(method, "checkMsgIsSendSuccess") == 0
+                 || strcmp(method, "getMsgByConv") == 0
+                 || strcmp(method, "pullMsgBySeq") == 0
+                 || strcmp(method, "getMsgBySeq") == 0
+                 || strcmp(method, "searchMsg") == 0
+                 || strcmp(method, "getNewestSeq") == 0)
             miku_jss(j, "userID", actor);
     }
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0

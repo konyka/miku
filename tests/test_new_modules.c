@@ -914,6 +914,11 @@ static void test_rpc_third_dispatch(void) {
 
 static void test_msg_send_get_search_delete(void) {
     miku_msg_service_t *svc = miku_msg_service_create();
+    miku_friend_service_t *friends = miku_friend_service_create();
+    mk_assert_not_null(friends);
+    miku_msg_service_set_friend_svc(svc, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "alice", "bob", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "bob", "alice", ""));
 
     miku_json_val_t *send_req = miku_json_create_object();
     miku_json_object_set(send_req, "sendID", miku_json_create_str("alice"));
@@ -963,6 +968,7 @@ static void test_msg_send_get_search_delete(void) {
     miku_json_val_t *search_req = miku_json_create_object();
     miku_json_object_set(search_req, "keyword", miku_json_create_str("second"));
     miku_json_object_set(search_req, "conversationID", miku_json_create_str("si_5_alice_bob"));
+    miku_json_object_set(search_req, "userID", miku_json_create_str("alice"));
     miku_json_val_t *search_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "searchMsg", search_req, search_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(search_resp, "errCode")));
@@ -1005,6 +1011,7 @@ static void test_msg_send_get_search_delete(void) {
     miku_json_val_t *newest_resp = miku_json_create_object();
     miku_json_val_t *newest_req = miku_json_create_object();
     miku_json_object_set(newest_req, "conversationID", miku_json_create_str("si_5_alice_bob"));
+    miku_json_object_set(newest_req, "userID", miku_json_create_str("alice"));
     miku_msg_handle_rpc(svc, "getNewestSeq", newest_req, newest_resp);
     mk_assert_int_eq(seq2, miku_json_int(miku_json_get(newest_resp, "seq")));
     miku_json_val_t *empty = miku_json_create_object();
@@ -1020,6 +1027,7 @@ static void test_msg_send_get_search_delete(void) {
     miku_json_destroy(del_req); miku_json_destroy(del_resp);
     miku_json_destroy(newest_resp); miku_json_destroy(newest_req);
     miku_json_destroy(empty); miku_json_destroy(empty_resp);
+    miku_friend_service_destroy(friends);
     miku_msg_service_destroy(svc);
 }
 
@@ -1216,6 +1224,11 @@ static void test_conv_set_update_flow(void) {
 
 static void test_msg_pull_by_seq_range(void) {
     miku_msg_service_t *svc = miku_msg_service_create();
+    miku_friend_service_t *friends = miku_friend_service_create();
+    mk_assert_not_null(friends);
+    miku_msg_service_set_friend_svc(svc, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "u1", "u2", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "u2", "u1", ""));
 
     for (int i = 0; i < 5; i++) {
         miku_json_val_t *req = miku_json_create_object();
@@ -1239,6 +1252,7 @@ static void test_msg_pull_by_seq_range(void) {
 
     miku_json_val_t *pull_req = miku_json_create_object();
     miku_json_object_set(pull_req, "conversationID", miku_json_create_str(conv_id));
+    miku_json_object_set(pull_req, "userID", miku_json_create_str("u1"));
     miku_json_object_set(pull_req, "beginSeq", miku_json_create_int(2));
     miku_json_object_set(pull_req, "endSeq", miku_json_create_int(4));
     miku_json_val_t *pull_resp = miku_json_create_object();
@@ -1288,6 +1302,7 @@ static void test_msg_pull_by_seq_range(void) {
     miku_json_destroy(pull_req); miku_json_destroy(pull_resp);
     miku_json_destroy(pull2_resp);
     miku_json_destroy(del_req); miku_json_destroy(del_resp);
+    miku_friend_service_destroy(friends);
     miku_msg_service_destroy(svc);
 }
 

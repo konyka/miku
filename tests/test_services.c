@@ -648,6 +648,47 @@ static void test_msg_get_group_member_gate(void) {
     miku_group_service_destroy(group);
 }
 
+static void test_msg_conv_read_gate(void) {
+    miku_friend_service_t *friends = miku_friend_service_create();
+    miku_msg_service_t *msg = miku_msg_service_create();
+    mk_assert_not_null(friends);
+    mk_assert_not_null(msg);
+    miku_msg_service_set_friend_svc(msg, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "alice", "bob", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "bob", "alice", ""));
+
+    miku_msg_t m;
+    memset(&m, 0, sizeof(m));
+    strncpy(m.send_id, "alice", sizeof(m.send_id) - 1);
+    strncpy(m.recv_id, "bob", sizeof(m.recv_id) - 1);
+    strncpy(m.content, "secret dm", sizeof(m.content) - 1);
+    m.msg_type = MK_MSG_TYPE_TEXT;
+    mk_assert_int_eq(0, miku_msg_send(msg, &m));
+
+    miku_json_val_t *pull_ok = miku_json_create_object();
+    miku_json_object_set(pull_ok, "conversationID", miku_json_create_str(m.conversation_id));
+    miku_json_object_set(pull_ok, "userID", miku_json_create_str("bob"));
+    miku_json_object_set(pull_ok, "beginSeq", miku_json_create_int(1));
+    miku_json_val_t *pull_ok_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "pullMsgBySeq", pull_ok, pull_ok_resp);
+    mk_assert_int_eq(1, (int)miku_json_size(miku_json_get(pull_ok_resp, "data")));
+
+    miku_json_val_t *pull_bad = miku_json_create_object();
+    miku_json_object_set(pull_bad, "conversationID", miku_json_create_str(m.conversation_id));
+    miku_json_object_set(pull_bad, "userID", miku_json_create_str("eve"));
+    miku_json_object_set(pull_bad, "beginSeq", miku_json_create_int(1));
+    miku_json_val_t *pull_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "pullMsgBySeq", pull_bad, pull_bad_resp);
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(pull_bad_resp, "data")));
+
+    miku_json_destroy(pull_ok);
+    miku_json_destroy(pull_ok_resp);
+    miku_json_destroy(pull_bad);
+    miku_json_destroy(pull_bad_resp);
+    miku_msg_service_destroy(msg);
+    miku_friend_service_destroy(friends);
+}
+
 static void test_third_rpc(void) {
     miku_third_service_t *svc = miku_third_service_create();
     mk_assert_not_null(svc);
@@ -1592,6 +1633,7 @@ void run_service_tests(void) {
     mk_run_test(test_conv_create_and_get);
     mk_run_test(test_msg_send_and_query);
     mk_run_test(test_msg_get_group_member_gate);
+    mk_run_test(test_msg_conv_read_gate);
     mk_run_test(test_third_rpc);
     mk_run_test(test_api_gateway_e2e);
     mk_run_test(test_rpc_server_e2e);

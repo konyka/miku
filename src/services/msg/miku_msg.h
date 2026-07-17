@@ -9,12 +9,15 @@
 
 typedef struct miku_msg_service_s miku_msg_service_t;
 typedef struct miku_group_service_s miku_group_service_t;
+typedef struct miku_friend_service_s miku_friend_service_t;
 
 MIKU_API miku_msg_service_t *miku_msg_service_create(void);
 MIKU_API void miku_msg_service_destroy(miku_msg_service_t *svc);
 /* Optional group service for getMsg membership checks (non-owning). */
 MIKU_API void miku_msg_service_set_group_svc(miku_msg_service_t *svc,
                                               miku_group_service_t *group);
+MIKU_API void miku_msg_service_set_friend_svc(miku_msg_service_t *svc,
+                                               miku_friend_service_t *friend);
 
 MIKU_API int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m);
 MIKU_API int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,

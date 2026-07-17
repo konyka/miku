@@ -3,6 +3,7 @@
 #include "miku_uuid.h"
 #include "miku_json_util.h"
 #include "miku_group.h"
+#include "miku_friend.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -18,6 +19,7 @@ struct miku_msg_service_s {
     int32_t conv_hash[MK_MSG_HASH];  /* conversation_id → head msg index */
     int32_t conv_next[MK_MAX_MSGS];  /* intrusive list within a conversation */
     miku_group_service_t *group_svc; /* non-owning; for getMsg group membership gate */
+    miku_friend_service_t *friend_svc; /* non-owning; for si_ conv read gates */
 };
 
 static uint32_t str_slot(const char *s) {
@@ -157,6 +159,10 @@ void miku_msg_service_set_group_svc(miku_msg_service_t *svc, miku_group_service_
     if (svc) svc->group_svc = group;
 }
 
+void miku_msg_service_set_friend_svc(miku_msg_service_t *svc, miku_friend_service_t *friend) {
+    if (svc) svc->friend_svc = friend;
+}
+
 miku_msg_service_t *miku_msg_service_create(void) {
     miku_msg_service_t *svc = (miku_msg_service_t *)calloc(1, sizeof(*svc));
     if (svc) {
@@ -250,6 +256,22 @@ static int msg_user_may_read(miku_msg_service_t *svc, const miku_msg_t *m, const
     if (strncmp(m->conversation_id, "si_", 3) == 0) {
         char peer[MK_USER_ID_LEN];
         return miku_conversation_si_peer(m->conversation_id, uid, peer, sizeof(peer)) == 0;
+    }
+    return 0;
+}
+
+static int msg_user_may_access_conv(miku_msg_service_t *svc, const char *uid, const char *cid) {
+    if (!svc || !uid || !uid[0] || !cid || !cid[0]) return 0;
+    if (strncmp(cid, "si_", 3) == 0)
+        return miku_friend_may_access_si_conv(svc->friend_svc, uid, cid);
+    if (strncmp(cid, "sg_", 3) == 0) {
+        if (!svc->group_svc) return 0;
+        return miku_group_is_member(svc->group_svc, cid + 3, uid);
+    }
+    for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
+        if (strcmp(svc->msgs[mi].send_id, uid) == 0 ||
+            strcmp(svc->msgs[mi].recv_id, uid) == 0)
+            return 1;
     }
     return 0;
 }
@@ -370,6 +392,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_getMsgByConv: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         int64_t start = req ? miku_json_int(miku_json_get(req, "startTime")) : 0;
         int64_t end = req ? miku_json_int(miku_json_get(req, "endTime")) : 0;
         int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 20;
@@ -377,7 +400,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         int n = 0;
-        if (cid) {
+        if (cid && cid[0] && uid && uid[0] && msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0 && n < max; mi = svc->conv_next[mi]) {
                 miku_msg_t *m = &svc->msgs[mi];
                 if (m->send_time >= start && (end == 0 || m->send_time <= end)) {
@@ -428,9 +451,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     case MK_MSG_RPC_getMsgBySeq: {
         int64_t seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (seq > 0 && cid && cid[0]) {
+        if (seq > 0 && cid && cid[0] && uid && uid[0] &&
+            msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 if (svc->msgs[mi].seq == seq) {
                     miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
@@ -485,8 +510,9 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_getNewestSeq: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         int64_t max = 0;
-        if (cid && cid[0]) {
+        if (cid && cid[0] && uid && uid[0] && msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 if (svc->msgs[mi].seq > max) max = svc->msgs[mi].seq;
             }
@@ -498,9 +524,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int64_t begin = req ? miku_json_int(miku_json_get(req, "beginSeq")) : 0;
         int64_t end_seq = req ? miku_json_int(miku_json_get(req, "endSeq")) : 0;
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (cid && cid[0]) {
+        if (cid && cid[0] && uid && uid[0] && msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 int64_t s = svc->msgs[mi].seq;
                 if (s >= begin && (end_seq == 0 || s <= end_seq))
@@ -512,9 +539,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     case MK_MSG_RPC_searchMsg: {
         const char *keyword = req ? miku_json_str(miku_json_get(req, "keyword")) : NULL;
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (keyword && keyword[0] && cid && cid[0]) {
+        if (keyword && keyword[0] && cid && cid[0] && uid && uid[0] &&
+            msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 if (strstr(svc->msgs[mi].content, keyword))
                     miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
