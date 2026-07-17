@@ -485,7 +485,8 @@ static int conv_is_read(const char *method) {
         || strcmp(method, "getConversationsHasReadAndMaxSeq") == 0
         || strcmp(method, "getOwnerConversation") == 0
         || strcmp(method, "getPinnedConversationIDs") == 0
-        || strcmp(method, "getNotNotifyConversationIDs") == 0;
+        || strcmp(method, "getNotNotifyConversationIDs") == 0
+        || strcmp(method, "getIncrementalConversation") == 0;
 }
 
 static void filter_conv_unread_count(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
@@ -535,6 +536,20 @@ static int conv_filter_keep_id_str(miku_json_val_t *item, void *v) {
     conv_filter_ctx_t *f = (conv_filter_ctx_t *)v;
     const char *cid = miku_json_str(item);
     return cid && api_may_access_conv(f->c, f->actor, cid);
+}
+
+static int msg_filter_keep(miku_json_val_t *item, void *v) {
+    conv_filter_ctx_t *f = (conv_filter_ctx_t *)v;
+    const char *cid = miku_json_str(miku_json_get(item, "conversationID"));
+    return cid && api_may_access_conv(f->c, f->actor, cid);
+}
+
+static void filter_msg_read_result(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
+    if (!c || !actor || !actor[0] || !out) return;
+    miku_json_val_t *data = miku_json_get(out, "data");
+    if (!data || miku_json_type(data) != MK_JSON_ARRAY) return;
+    conv_filter_ctx_t fctx = { .c = c, .actor = actor };
+    filter_json_array_inplace(data, msg_filter_keep, &fctx);
 }
 
 static void filter_conv_read_result(miku_api_ctx_t *c, const char *actor, miku_json_val_t *out) {
@@ -1197,6 +1212,12 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) { miku_json_destroy(j); return; }
     } else if (strcmp(method, "searchMsg") == 0) {
         if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
+        const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
+        if (cid && cid[0] && (!actor[0] || !api_may_access_conv(c, actor, cid))) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp, "{\"errCode\":0,\"data\":[]}");
+            return;
+        }
     } else if (strcmp(method, "getMsgByConv") == 0 || strcmp(method, "pullMsgBySeq") == 0) {
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
@@ -1228,25 +1249,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
 
     /* getMsg / getMsgBySeq / searchMsg: drop non-participant results (no 3003 oracle). */
     if (actor[0] && (strcmp(method, "getMsg") == 0 || strcmp(method, "getMsgBySeq") == 0
-                     || strcmp(method, "searchMsg") == 0)) {
-        miku_json_val_t *data = miku_json_get(out, "data");
-        if (data && miku_json_size(data) > 0) {
-            miku_json_val_t *filtered = miku_json_create_array();
-            size_t n = miku_json_size(data);
-            for (size_t i = 0; i < n; i++) {
-                miku_json_val_t *msg = miku_json_at(data, i);
-                const char *cid = miku_json_str(miku_json_get(msg, "conversationID"));
-                if (!cid || !api_may_access_conv(c, actor, cid)) continue;
-                miku_string_t *ss = miku_json_stringify(msg);
-                if (ss && ss->data) {
-                    miku_json_val_t *copy = miku_json_parse(ss->data, ss->len);
-                    if (copy) miku_json_array_push(filtered, copy);
-                }
-                miku_str_destroy(ss);
-            }
-            miku_json_object_set(out, "data", filtered);
-        }
-    }
+                     || strcmp(method, "searchMsg") == 0))
+        filter_msg_read_result(c, actor, out);
     if (actor[0] && strcmp(method, "checkMsgIsSendSuccess") == 0) {
         int64_t st = miku_json_int(miku_json_get(out, "status"));
         if (st != 0) {
@@ -1386,8 +1390,7 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
     }
     char actor[128] = {0};
     if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0]) {
-        if (strcmp(method, "fcmUpdateToken") == 0 || strcmp(method, "setAppBadge") == 0
-            || strcmp(method, "uploadLogs") == 0 || strcmp(method, "deleteLogs") == 0)
+        if (strcmp(method, "getPrometheus") != 0)
             miku_jss(j, "userID", actor);
     }
     miku_third_handle_rpc(c->third, method, j, out);

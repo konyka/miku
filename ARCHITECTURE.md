@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 172 tests, 67 modules — parse_token auth+self-only; conv filter in-place; WS read oracle; admin secret split; /admin/metrics gated; internal secret split; si_ DM gate; pull empty oracle; mute role≥60; getUserClientConfig actor bind; plat cache; DM mutual-friends; quit/kick drops sg_ conv; ratelimit token-only; presence HTTP gated; user profile gated; sg_ fail-closed; prometheus_discovery admin-only; WS status sub mutual-only; si_ length-prefix; invite-only join; S3 stub.
+> **Status**: 203 API routes, 172 tests, 67 modules — searchMsg conv gate+scan; msg filter in-place; getIncrementalConversation filtered; third userID bind; parse_token auth; conv filter in-place; WS read oracle; admin/internal secret split; si_ DM gate; pull empty oracle; mute role≥60; DM mutual-friends; ratelimit token-only; presence/profile gated; sg_ fail-closed; S3 stub.
 
 ## 1. Overview
 

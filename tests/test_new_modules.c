@@ -1930,6 +1930,15 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "seq")));
     miku_json_destroy(r);
+    char search_cid_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/search_msg", tok_x,
+        "{\"keyword\":\"e2e test\",\"conversationID\":\"si_2_r1_s1\"}",
+        search_cid_bad, sizeof(search_cid_bad));
+    r = miku_json_parse_str(extract_json_body(search_cid_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(r, "data")));
+    miku_json_destroy(r);
 
     char conv_set_bad[8192] = {0};
     http_post_with_token(19780, "/conversation/set", tok_x,
