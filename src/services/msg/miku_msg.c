@@ -2,6 +2,7 @@
 #include "miku_hash.h"
 #include "miku_uuid.h"
 #include "miku_json_util.h"
+#include "miku_group.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -16,6 +17,7 @@ struct miku_msg_service_s {
     int32_t cid_hash[MK_MSG_HASH];   /* client_msg_id → msgs[] index */
     int32_t conv_hash[MK_MSG_HASH];  /* conversation_id → head msg index */
     int32_t conv_next[MK_MAX_MSGS];  /* intrusive list within a conversation */
+    miku_group_service_t *group_svc; /* non-owning; for getMsg group membership gate */
 };
 
 static uint32_t str_slot(const char *s) {
@@ -123,16 +125,6 @@ static void hash_del_sid(miku_msg_service_t *svc, const char *sid) {
     }
 }
 
-static int lower_bound_seq(miku_msg_service_t *svc, int64_t begin) {
-    /* msgs[] stays sorted by seq (append-only + memmove deletes). */
-    int lo = 0, hi = svc->count;
-    while (lo < hi) {
-        int mid = lo + (hi - lo) / 2;
-        if (svc->msgs[mid].seq < begin) lo = mid + 1;
-        else hi = mid;
-    }
-    return lo;
-}
 
 static void rebuild_indexes(miku_msg_service_t *svc);
 
@@ -159,6 +151,10 @@ static void rebuild_indexes(miku_msg_service_t *svc) {
             hash_insert_key(svc->cid_hash, svc->msgs[mi].client_msg_id, mi, svc->msgs, 1);
         conv_link(svc, mi);
     }
+}
+
+void miku_msg_service_set_group_svc(miku_msg_service_t *svc, miku_group_service_t *group) {
+    if (svc) svc->group_svc = group;
 }
 
 miku_msg_service_t *miku_msg_service_create(void) {
@@ -217,14 +213,6 @@ int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *cl
         svc->msgs[mi].status = 2;
         return 0;
     }
-    /* Fallback: older duplicate client IDs may not be the hashed slot. */
-    for (int i = 0; i < svc->count; i++) {
-        if (strcmp(svc->msgs[i].client_msg_id, client_msg_id) == 0 &&
-            strcmp(svc->msgs[i].send_id, user_id) == 0) {
-            svc->msgs[i].status = 2;
-            return 0;
-        }
-    }
     return -2;
 }
 
@@ -232,14 +220,6 @@ int miku_msg_update_delivery(miku_msg_service_t *svc, const char *client_msg_id,
                              int64_t seq, const char *server_msg_id, int64_t send_time) {
     if (!svc || !client_msg_id || !client_msg_id[0]) return -1;
     int mi = hash_find_cid(svc, client_msg_id);
-    if (mi < 0) {
-        for (int i = svc->count - 1; i >= 0; i--) {
-            if (strcmp(svc->msgs[i].client_msg_id, client_msg_id) == 0) {
-                mi = i;
-                break;
-            }
-        }
-    }
     if (mi < 0) return -1;
     if (seq > 0) svc->msgs[mi].seq = seq;
     if (server_msg_id && server_msg_id[0]) {
@@ -260,9 +240,12 @@ int miku_msg_update_delivery(miku_msg_service_t *svc, const char *client_msg_id,
     return 0;
 }
 
-static int msg_user_may_read(const miku_msg_t *m, const char *uid) {
+static int msg_user_may_read(miku_msg_service_t *svc, const miku_msg_t *m, const char *uid) {
     if (!m || !uid || !uid[0]) return 0;
-    if (m->group_id[0]) return 1; /* group membership enforced at API/WS */
+    if (m->group_id[0]) {
+        if (!svc || !svc->group_svc) return 0;
+        return miku_group_is_member(svc->group_svc, m->group_id, uid);
+    }
     if (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0) return 1;
     if (strncmp(m->conversation_id, "si_", 3) == 0) {
         char peer[MK_USER_ID_LEN];
@@ -495,7 +478,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         if (smid && uid && uid[0]) {
             int mi = hash_find_sid(svc, smid);
-            if (mi >= 0 && msg_user_may_read(&svc->msgs[mi], uid))
+            if (mi >= 0 && msg_user_may_read(svc, &svc->msgs[mi], uid))
                 miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
         }
         miku_json_object_set(resp, "data", arr);

@@ -594,6 +594,60 @@ static void test_msg_send_and_query(void) {
     miku_msg_service_destroy(svc);
 }
 
+static void test_msg_get_group_member_gate(void) {
+    miku_group_service_t *group = miku_group_service_create();
+    miku_msg_service_t *msg = miku_msg_service_create();
+    mk_assert_not_null(group);
+    mk_assert_not_null(msg);
+    miku_msg_service_set_group_svc(msg, group);
+
+    miku_group_t g;
+    memset(&g, 0, sizeof(g));
+    strncpy(g.group_name, "gate", sizeof(g.group_name) - 1);
+    mk_assert_int_eq(0, miku_group_create(group, &g, "owner"));
+    mk_assert_int_eq(0, miku_group_add_member(group, g.group_id, "member1", 20));
+
+    miku_msg_t m;
+    memset(&m, 0, sizeof(m));
+    strncpy(m.send_id, "owner", sizeof(m.send_id) - 1);
+    strncpy(m.group_id, g.group_id, sizeof(m.group_id) - 1);
+    strncpy(m.content, "group secret", sizeof(m.content) - 1);
+    m.msg_type = MK_MSG_TYPE_TEXT;
+    mk_assert_int_eq(0, miku_msg_send(msg, &m));
+
+    miku_json_val_t *get_req = miku_json_create_object();
+    miku_json_object_set(get_req, "serverMsgID", miku_json_create_str(m.server_msg_id));
+    miku_json_object_set(get_req, "userID", miku_json_create_str("member1"));
+    miku_json_val_t *get_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getMsg", get_req, get_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(get_resp, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_size(miku_json_get(get_resp, "data")));
+
+    miku_json_val_t *get_stranger = miku_json_create_object();
+    miku_json_object_set(get_stranger, "serverMsgID", miku_json_create_str(m.server_msg_id));
+    miku_json_object_set(get_stranger, "userID", miku_json_create_str("stranger"));
+    miku_json_val_t *stranger_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getMsg", get_stranger, stranger_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(stranger_resp, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(stranger_resp, "data")));
+
+    /* Without group_svc wired, getMsg fails closed even for members. */
+    miku_msg_service_t *bare = miku_msg_service_create();
+    miku_json_val_t *bare_resp = miku_json_create_object();
+    miku_msg_handle_rpc(bare, "getMsg", get_req, bare_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(bare_resp, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(bare_resp, "data")));
+
+    miku_json_destroy(get_req);
+    miku_json_destroy(get_resp);
+    miku_json_destroy(get_stranger);
+    miku_json_destroy(stranger_resp);
+    miku_json_destroy(bare_resp);
+    miku_msg_service_destroy(bare);
+    miku_msg_service_destroy(msg);
+    miku_group_service_destroy(group);
+}
+
 static void test_third_rpc(void) {
     miku_third_service_t *svc = miku_third_service_create();
     mk_assert_not_null(svc);
@@ -1537,6 +1591,7 @@ void run_service_tests(void) {
     mk_run_test(test_group_create_and_members);
     mk_run_test(test_conv_create_and_get);
     mk_run_test(test_msg_send_and_query);
+    mk_run_test(test_msg_get_group_member_gate);
     mk_run_test(test_third_rpc);
     mk_run_test(test_api_gateway_e2e);
     mk_run_test(test_rpc_server_e2e);

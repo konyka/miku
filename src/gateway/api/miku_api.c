@@ -235,6 +235,7 @@ miku_api_ctx_t *miku_api_ctx_create(void) {
     ctx->group_svc = miku_group_service_create();
     ctx->conv = miku_conv_service_create();
     ctx->msg = miku_msg_service_create();
+    miku_msg_service_set_group_svc(ctx->msg, ctx->group_svc);
     ctx->third = miku_third_service_create();
     ctx->ratelimit = miku_ratelimit_create(60000, 100);
     ctx->webhook = miku_webhook_create();
