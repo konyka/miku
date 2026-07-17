@@ -5,6 +5,7 @@
 #include "miku_json.h"
 #include "miku_websocket.h"
 #include "miku_rpc.h"
+#include "miku_rpc_client.h"
 #include "miku_pb.h"
 #include "miku_sha1.h"
 #include "miku_middleware.h"
@@ -561,6 +562,18 @@ void test_rpc_header_codec(void) {
     mk_assert_int_eq(7, (int)hdr2.method);
 }
 
+void test_rpc_json_internal_token(void) {
+    char out[512];
+    mk_assert_int_eq(0, miku_rpc_json_add_internal_token(
+        "{\"method\":\"ping\"}", out, sizeof(out)));
+    miku_json_val_t *j = miku_json_parse_str(out);
+    mk_assert_not_null(j);
+    mk_assert_str_eq(miku_internal_secret(),
+        miku_json_str(miku_json_get(j, "internalToken")));
+    mk_assert_str_eq("ping", miku_json_str(miku_json_get(j, "method")));
+    miku_json_destroy(j);
+}
+
 void test_rpc_message_roundtrip(void) {
     miku_rpc_message_t *msg = miku_rpc_message_create(MK_RPC_CALL, 1, 100, 5);
     mk_assert_not_null(msg);
@@ -729,6 +742,7 @@ void run_protocol_tests(void) {
     mk_run_test(test_ws_frame_masked);
     mk_run_test(test_ws_handshake);
     mk_run_test(test_rpc_header_codec);
+    mk_run_test(test_rpc_json_internal_token);
     mk_run_test(test_rpc_message_roundtrip);
     mk_run_test(test_pb_varint_roundtrip);
     mk_run_test(test_pb_svarint_roundtrip);

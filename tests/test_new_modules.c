@@ -1262,6 +1262,7 @@ static void test_msg_pull_by_seq_range(void) {
 
     miku_json_val_t *del_req = miku_json_create_object();
     miku_json_object_set(del_req, "userID", miku_json_create_str("u1"));
+    miku_json_object_set(del_req, "conversationID", miku_json_create_str(conv_id));
     miku_json_object_set(del_req, "seq", miku_json_create_int(3));
     miku_json_val_t *del_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "deleteMsgPhysicalBySeq", del_req, del_resp);
@@ -1270,6 +1271,7 @@ static void test_msg_pull_by_seq_range(void) {
     /* Non-sender cannot physically delete by seq. */
     miku_json_val_t *del_bad = miku_json_create_object();
     miku_json_object_set(del_bad, "userID", miku_json_create_str("u2"));
+    miku_json_object_set(del_bad, "conversationID", miku_json_create_str(conv_id));
     miku_json_object_set(del_bad, "seq", miku_json_create_int(2));
     miku_json_val_t *del_bad_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "deleteMsgPhysicalBySeq", del_bad, del_bad_resp);

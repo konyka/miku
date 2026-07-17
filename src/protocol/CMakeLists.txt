@@ -7,6 +7,7 @@ set(MIKU_PROTOCOL_SOURCES
     miku_websocket.c
     miku_rpc.c
     miku_rpc_server.c
+    miku_rpc_client.c
     miku_middleware.c
     miku_pb.c
     miku_webhook.c

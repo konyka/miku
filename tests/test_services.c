@@ -11,6 +11,7 @@
 #include "miku_api.h"
 #include "miku_http_server.h"
 #include "miku_rpc_server.h"
+#include "miku_rpc_client.h"
 #include "miku_token.h"
 #include "miku_msggateway.h"
 #include "miku_msggw_ws_ops.h"
@@ -793,12 +794,13 @@ static void test_rpc_internal_token(void) {
     mk_assert_int_eq(401, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
-    char payload[512];
-    snprintf(payload, sizeof(payload),
-        "{\"method\":\"registerUser\",\"userID\":\"u99\",\"nickname\":\"ok\","
-        "\"internalToken\":\"%s\"}", miku_internal_secret());
+    char with_tok[512];
+    mk_assert_int_eq(0, miku_rpc_json_add_internal_token(
+        "{\"method\":\"registerUser\",\"userID\":\"u99\",\"nickname\":\"ok\"}",
+        with_tok, sizeof(with_tok)));
+    mk_assert(strstr(with_tok, "internalToken") != NULL);
     resp[0] = '\0';
-    mk_assert_int_eq(0, rpc_call(srv, 19091, payload, resp, sizeof(resp)));
+    mk_assert_int_eq(0, rpc_call(srv, 19091, with_tok, resp, sizeof(resp)));
     r = miku_json_parse_str(resp);
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
@@ -1246,10 +1248,15 @@ static void test_msggateway_unknown_opcode(void) {
 static void test_msggateway_read_receipt_fanout(void) {
     miku_msggw_t *gw = miku_msggw_create(19225);
     miku_msg_store_t *store = miku_msg_store_create(NULL);
+    miku_friend_service_t *friends = miku_friend_service_create();
     mk_assert_not_null(gw);
     mk_assert_not_null(store);
+    mk_assert_not_null(friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "read_a", "read_b", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "read_b", "read_a", ""));
     mk_assert_int_eq(0, miku_msggw_start(gw));
-    miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = store, .sub = NULL, .group = NULL };
+    miku_msggw_ws_ctx_t ctx = { .gw = gw, .store = store, .sub = NULL,
+                                  .group = NULL, .friend_svc = friends };
     miku_msggw_on_opcode(gw, miku_msggw_ws_on_opcode, &ctx);
 
     int fd_a = -1, fd_b = -1;
@@ -1316,6 +1323,7 @@ static void test_msggateway_read_receipt_fanout(void) {
     close(fd_b);
     miku_msggw_stop(gw);
     miku_msg_store_destroy(store);
+    miku_friend_service_destroy(friends);
     miku_msggw_destroy(gw);
 }
 
