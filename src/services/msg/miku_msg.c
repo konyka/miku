@@ -279,6 +279,25 @@ static int msg_user_may_access_conv(miku_msg_service_t *svc, const char *uid, co
     return 0;
 }
 
+/* 0 = allowed; otherwise OpenIM-style errCode for RPC response. */
+static int msg_send_gate(miku_msg_service_t *svc, const miku_msg_t *m) {
+    if (!m || !m->send_id[0]) return 400;
+    if (m->group_id[0]) {
+        if (!svc || !svc->group_svc ||
+            !miku_group_is_member(svc->group_svc, m->group_id, m->send_id))
+            return 3003;
+        return 0;
+    }
+    if (!m->recv_id[0]) return 400;
+    if (!svc || !svc->friend_svc) return 6002;
+    if (miku_friend_is_black(svc->friend_svc, m->send_id, m->recv_id) ||
+        miku_friend_is_black(svc->friend_svc, m->recv_id, m->send_id))
+        return 6001;
+    if (!miku_friend_is_mutual(svc->friend_svc, m->send_id, m->recv_id))
+        return 6002;
+    return 0;
+}
+
 enum {
     MK_MSG_RPC_sendMsg = 0,
     MK_MSG_RPC_getMsgByConv = 1,
@@ -385,6 +404,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
+        int gate = msg_send_gate(svc, &m);
+        if (gate != 0) {
+            miku_ji(resp, "errCode", gate);
+            break;
+        }
         int rc = miku_msg_send(svc, &m);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
         if (rc == 0) {
@@ -489,6 +513,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
+        int gate = msg_send_gate(svc, &m);
+        if (gate != 0) {
+            miku_ji(resp, "errCode", gate);
+            break;
+        }
         int rc = miku_msg_send(svc, &m);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
         if (rc == 0) {
@@ -501,6 +530,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
+        int gate = msg_send_gate(svc, &m);
+        if (gate != 0) {
+            miku_ji(resp, "errCode", gate);
+            break;
+        }
         int rc = miku_msg_send(svc, &m);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
         if (rc == 0) {
@@ -513,6 +547,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
+        int gate = msg_send_gate(svc, &m);
+        if (gate != 0) {
+            miku_ji(resp, "errCode", gate);
+            break;
+        }
         int rc = miku_msg_send(svc, &m);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
     } break;
