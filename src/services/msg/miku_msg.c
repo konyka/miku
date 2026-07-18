@@ -81,6 +81,8 @@ static int conv_head(miku_msg_service_t *svc, const char *conv_id) {
     return -1;
 }
 
+static int msg_user_may_access_conv(miku_msg_service_t *svc, const char *uid, const char *cid);
+
 static void conv_link(miku_msg_service_t *svc, int mi) {
     const char *cid = svc->msgs[mi].conversation_id;
     if (!cid[0]) {
@@ -215,7 +217,8 @@ int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,
 int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *client_msg_id) {
     if (!svc || !user_id || !client_msg_id) return -1;
     int mi = hash_find_cid(svc, client_msg_id);
-    if (mi >= 0 && strcmp(svc->msgs[mi].send_id, user_id) == 0) {
+    if (mi >= 0 && strcmp(svc->msgs[mi].send_id, user_id) == 0 &&
+        msg_user_may_access_conv(svc, user_id, svc->msgs[mi].conversation_id)) {
         svc->msgs[mi].status = 2;
         return 0;
     }
@@ -445,7 +448,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int deleted = 0;
         if (uid && uid[0] && cmid && cmid[0]) {
             int mi = hash_find_cid(svc, cmid);
-            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0) {
+            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
+                msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id)) {
                 msg_remove_at(svc, mi);
                 deleted = 1;
             }
@@ -592,9 +596,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", 0);
     } break;
     case MK_MSG_RPC_getConversationsHasReadAndMaxSeq: {
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
+        (void)uid; /* API/conv service owns data; fail-closed without userID at gateway */
     } break;
     case MK_MSG_RPC_checkMsgIsSendSuccess: {
         const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;
@@ -659,7 +665,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         for (int i = 0; i < svc->count; i++) {
             miku_msg_t *m = &svc->msgs[i];
             if (!m->group_id[0] &&
-                (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0))
+                (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0) &&
+                msg_user_may_access_conv(svc, uid, m->conversation_id))
                 continue;
             svc->msgs[w++] = *m;
         }

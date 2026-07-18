@@ -1199,7 +1199,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                  || strcmp(method, "pullMsgBySeq") == 0
                  || strcmp(method, "getMsgBySeq") == 0
                  || strcmp(method, "searchMsg") == 0
-                 || strcmp(method, "getNewestSeq") == 0)
+                 || strcmp(method, "getNewestSeq") == 0
+                 || strcmp(method, "getConversationsHasReadAndMaxSeq") == 0)
             miku_jss(j, "userID", actor);
     }
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
@@ -1292,6 +1293,17 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
                 "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+            resp->status = 403;
+            return;
+        }
+    } else if (strcmp(method, "userClearAllMsg") == 0) {
+        if (require_fields(j, resp, "userID", (const char *)NULL)) {
+            miku_json_destroy(j); return;
+        }
+        if (!actor[0]) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"unauthorized\"}");
             resp->status = 403;
             return;
         }

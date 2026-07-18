@@ -464,7 +464,14 @@ static void test_conv_create_and_get(void) {
 
 static void test_msg_send_and_query(void) {
     miku_msg_service_t *svc = miku_msg_service_create();
+    miku_friend_service_t *friends = miku_friend_service_create();
     mk_assert_not_null(svc);
+    mk_assert_not_null(friends);
+    miku_msg_service_set_friend_svc(svc, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "s1", "r1", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "r1", "s1", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "alice", "bob", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "bob", "alice", ""));
 
     miku_msg_t m;
     memset(&m, 0, sizeof(m));
@@ -592,6 +599,7 @@ static void test_msg_send_and_query(void) {
     miku_json_destroy(uclr);
     miku_json_destroy(uclr_resp);
 
+    miku_friend_service_destroy(friends);
     miku_msg_service_destroy(svc);
 }
 
@@ -781,6 +789,51 @@ static void test_msg_mark_read_gate(void) {
     miku_json_destroy(ok_resp);
     miku_json_destroy(bad);
     miku_json_destroy(bad_resp);
+    miku_msg_service_destroy(msg);
+    miku_friend_service_destroy(friends);
+}
+
+static void test_msg_delete_revoke_conv_gate(void) {
+    miku_friend_service_t *friends = miku_friend_service_create();
+    miku_msg_service_t *msg = miku_msg_service_create();
+    mk_assert_not_null(friends);
+    mk_assert_not_null(msg);
+    miku_msg_service_set_friend_svc(msg, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "a", "b", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "b", "a", ""));
+
+    miku_json_val_t *send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("delme"));
+    miku_json_object_set(send_req, "clientMsgID", miku_json_create_str("c_del_gate"));
+    miku_json_val_t *send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+
+    /* Without friend_svc wired, sender cannot delete/revoke (fail-closed). */
+    miku_msg_service_t *bare = miku_msg_service_create();
+    miku_json_val_t *del_req = miku_json_create_object();
+    miku_json_object_set(del_req, "userID", miku_json_create_str("a"));
+    miku_json_object_set(del_req, "clientMsgID", miku_json_create_str("c_del_gate"));
+    miku_json_val_t *del_resp = miku_json_create_object();
+    miku_msg_handle_rpc(bare, "deleteMsg", del_req, del_resp);
+    mk_assert_int_eq(5001, (int)miku_json_int(miku_json_get(del_resp, "errCode")));
+
+    miku_json_val_t *rev_req = miku_json_create_object();
+    miku_json_object_set(rev_req, "userID", miku_json_create_str("a"));
+    miku_json_object_set(rev_req, "clientMsgID", miku_json_create_str("c_del_gate"));
+    miku_json_val_t *rev_resp = miku_json_create_object();
+    miku_msg_handle_rpc(bare, "revokeMsg", rev_req, rev_resp);
+    mk_assert_int_eq(5001, (int)miku_json_int(miku_json_get(rev_resp, "errCode")));
+
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+    miku_json_destroy(del_req);
+    miku_json_destroy(del_resp);
+    miku_json_destroy(rev_req);
+    miku_json_destroy(rev_resp);
+    miku_msg_service_destroy(bare);
     miku_msg_service_destroy(msg);
     miku_friend_service_destroy(friends);
 }
@@ -1773,6 +1826,7 @@ void run_service_tests(void) {
     mk_run_test(test_msg_conv_read_gate);
     mk_run_test(test_msg_get_send_status_gate);
     mk_run_test(test_msg_mark_read_gate);
+    mk_run_test(test_msg_delete_revoke_conv_gate);
     mk_run_test(test_third_rpc);
     mk_run_test(test_api_gateway_e2e);
     mk_run_test(test_rpc_server_e2e);
