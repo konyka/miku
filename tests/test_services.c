@@ -33,6 +33,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <poll.h>
+#include <pthread.h>
 
 static void test_model_user_json_roundtrip(void) {
     miku_user_t u;
@@ -765,6 +766,15 @@ static void test_msg_mark_read_gate(void) {
     miku_msg_handle_rpc(msg, "markConversationAsRead", bad, bad_resp);
     mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(bad_resp, "errCode")));
 
+    miku_json_val_t *mark_msg = miku_json_create_object();
+    miku_json_object_set(mark_msg, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(mark_msg, "userID", miku_json_create_str("b"));
+    miku_json_val_t *mark_msg_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "markMsgAsRead", mark_msg, mark_msg_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(mark_msg_resp, "errCode")));
+
+    miku_json_destroy(mark_msg);
+    miku_json_destroy(mark_msg_resp);
     miku_json_destroy(send_req);
     miku_json_destroy(send_resp);
     miku_json_destroy(ok);
@@ -987,6 +997,47 @@ static void test_rpc_internal_token(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
+    miku_rpc_server_stop(srv);
+    miku_rpc_server_destroy(srv);
+    miku_user_service_destroy(svc);
+}
+
+typedef struct {
+    miku_rpc_server_t *srv;
+    volatile int       stop;
+} rpc_poll_ctx_t;
+
+static void *rpc_poll_thread(void *v) {
+    rpc_poll_ctx_t *ctx = (rpc_poll_ctx_t *)v;
+    while (!ctx->stop)
+        miku_rpc_server_poll(ctx->srv, 50);
+    return NULL;
+}
+
+static void test_rpc_client_call(void) {
+    miku_user_service_t *svc = miku_user_service_create();
+    mk_assert_not_null(svc);
+    miku_rpc_server_t *srv = miku_rpc_server_create(svc,
+        (miku_rpc_dispatch_fn)miku_user_handle_rpc, 19092);
+    mk_assert_not_null(srv);
+    miku_rpc_server_enable_internal_auth(srv);
+    mk_assert_int_eq(0, miku_rpc_server_start(srv));
+
+    rpc_poll_ctx_t pctx = { .srv = srv, .stop = 0 };
+    pthread_t tid;
+    mk_assert_int_eq(0, pthread_create(&tid, NULL, rpc_poll_thread, &pctx));
+
+    char resp[4096] = {0};
+    mk_assert_int_eq(0, miku_rpc_call("127.0.0.1", 19092,
+        "{\"method\":\"registerUser\",\"userID\":\"rc1\",\"nickname\":\"via client\"}",
+        resp, sizeof(resp), 1));
+    miku_json_val_t *r = miku_json_parse_str(resp);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    pctx.stop = 1;
+    pthread_join(tid, NULL);
     miku_rpc_server_stop(srv);
     miku_rpc_server_destroy(srv);
     miku_user_service_destroy(svc);
@@ -1726,6 +1777,7 @@ void run_service_tests(void) {
     mk_run_test(test_api_gateway_e2e);
     mk_run_test(test_rpc_server_e2e);
     mk_run_test(test_rpc_internal_token);
+    mk_run_test(test_rpc_client_call);
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
     mk_run_test(test_msggateway_kick_by_platform);

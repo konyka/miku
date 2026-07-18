@@ -1191,6 +1191,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                  || strcmp(method, "markConversationAsRead") == 0
                  || strcmp(method, "setConversationHasReadSeq") == 0
                  || strcmp(method, "markMsgsAsRead") == 0
+                 || strcmp(method, "markMsgAsRead") == 0
                  || strcmp(method, "getMsg") == 0
                  || strcmp(method, "checkMsgIsSendSuccess") == 0
                  || strcmp(method, "getSendMsgStatus") == 0
@@ -1284,6 +1285,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     } else if (strcmp(method, "markConversationAsRead") == 0
                || strcmp(method, "setConversationHasReadSeq") == 0
                || strcmp(method, "markMsgsAsRead") == 0
+               || strcmp(method, "markMsgAsRead") == 0
                || strcmp(method, "clearConversationMsg") == 0) {
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
@@ -1292,6 +1294,10 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                 "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
             resp->status = 403;
             return;
+        }
+    } else if (strcmp(method, "deleteMsgPhysical") == 0) {
+        if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) {
+            miku_json_destroy(j); return;
         }
     } else if (strcmp(method, "deleteMsgPhysicalBySeq") == 0) {
         if (require_fields(j, resp, "userID", "conversationID", "seq", (const char *)NULL)) {
