@@ -422,8 +422,19 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "serverTime", miku_timestamp_ms());
     } break;
     case MK_MSG_RPC_getSendMsgStatus: {
+        const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;
+        const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        int status = 0;
+        if (uid && uid[0]) {
+            int mi = -1;
+            if (smid && smid[0]) mi = hash_find_sid(svc, smid);
+            else if (cmid && cmid[0]) mi = hash_find_cid(svc, cmid);
+            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0)
+                status = 1;
+        }
         miku_ji(resp, "errCode", 0);
-        miku_ji(resp, "status", 1);
+        miku_ji(resp, "status", status);
     } break;
     case MK_MSG_RPC_cleanUpMsg: {
         miku_ji(resp, "errCode", 0);
@@ -553,16 +564,27 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_markMsgsAsRead: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
-        (void)cid;
-        miku_ji(resp, "errCode", 0);
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!cid || !cid[0] || !uid || !uid[0] || !msg_user_may_access_conv(svc, uid, cid))
+            miku_ji(resp, "errCode", 3003);
+        else
+            miku_ji(resp, "errCode", 0);
     } break;
     case MK_MSG_RPC_markConversationAsRead: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
-        (void)cid;
-        miku_ji(resp, "errCode", 0);
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!cid || !cid[0] || !uid || !uid[0] || !msg_user_may_access_conv(svc, uid, cid))
+            miku_ji(resp, "errCode", 3003);
+        else
+            miku_ji(resp, "errCode", 0);
     } break;
     case MK_MSG_RPC_setConversationHasReadSeq: {
-        miku_ji(resp, "errCode", 0);
+        const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+        const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!cid || !cid[0] || !uid || !uid[0] || !msg_user_may_access_conv(svc, uid, cid))
+            miku_ji(resp, "errCode", 3003);
+        else
+            miku_ji(resp, "errCode", 0);
     } break;
     case MK_MSG_RPC_getConversationsHasReadAndMaxSeq: {
         miku_ji(resp, "errCode", 0);
@@ -660,7 +682,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         int64_t del_seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
         int deleted = 0;
-        if (uid && uid[0] && cid && cid[0] && del_seq > 0) {
+        if (uid && uid[0] && cid && cid[0] && del_seq > 0 &&
+            msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 if (svc->msgs[mi].seq == del_seq &&
                     strcmp(svc->msgs[mi].send_id, uid) == 0) {

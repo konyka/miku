@@ -1193,6 +1193,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                  || strcmp(method, "markMsgsAsRead") == 0
                  || strcmp(method, "getMsg") == 0
                  || strcmp(method, "checkMsgIsSendSuccess") == 0
+                 || strcmp(method, "getSendMsgStatus") == 0
                  || strcmp(method, "getMsgByConv") == 0
                  || strcmp(method, "pullMsgBySeq") == 0
                  || strcmp(method, "getMsgBySeq") == 0
