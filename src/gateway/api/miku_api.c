@@ -1225,16 +1225,22 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         /* Single chat: mutual friends required; blacklist blocks either direction. */
         if (rid && rid[0] && (!gid || !gid[0])) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
-            if (sid && c->friend_svc &&
-                !miku_friend_is_mutual(c->friend_svc, sid, rid)) {
+            if (!sid || !sid[0] || !c->friend_svc) {
                 miku_json_destroy(j); miku_json_destroy(out);
                 miku_http_response_set_json(resp,
                     "{\"errCode\":6002,\"errMsg\":\"not mutual friends\"}");
                 resp->status = 403;
                 return;
             }
-            if (sid && (miku_friend_is_black(c->friend_svc, sid, rid) ||
-                        miku_friend_is_black(c->friend_svc, rid, sid))) {
+            if (!miku_friend_is_mutual(c->friend_svc, sid, rid)) {
+                miku_json_destroy(j); miku_json_destroy(out);
+                miku_http_response_set_json(resp,
+                    "{\"errCode\":6002,\"errMsg\":\"not mutual friends\"}");
+                resp->status = 403;
+                return;
+            }
+            if (miku_friend_is_black(c->friend_svc, sid, rid) ||
+                miku_friend_is_black(c->friend_svc, rid, sid)) {
                 miku_json_destroy(j); miku_json_destroy(out);
                 miku_http_response_set_json(resp,
                     "{\"errCode\":6001,\"errMsg\":\"blocked by blacklist\"}");
@@ -1245,7 +1251,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         /* Group chat: sender must be a member. */
         if (gid && gid[0]) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
-            if (!sid || !miku_group_is_member(c->group_svc, gid, sid)) {
+            if (!sid || !sid[0] || !c->group_svc ||
+                !miku_group_is_member(c->group_svc, gid, sid)) {
                 miku_json_destroy(j); miku_json_destroy(out);
                 miku_http_response_set_json(resp,
                     "{\"errCode\":3003,\"errMsg\":\"not a group member\"}");
