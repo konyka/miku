@@ -527,16 +527,19 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     case MK_MSG_RPC_deleteMsg: {
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
+        if (!uid || !uid[0] || !cmid || !cmid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         int deleted = 0;
-        if (uid && uid[0] && cmid && cmid[0] &&
-            msg_may_delete_physical(svc, uid, cmid)) {
+        if (msg_may_delete_physical(svc, uid, cmid)) {
             int mi = hash_find_cid(svc, cmid);
             if (mi >= 0) {
                 msg_remove_at(svc, mi);
                 deleted = 1;
             }
         }
-        miku_ji(resp, "errCode", deleted ? 0 : ((uid && uid[0] && cmid && cmid[0]) ? 5001 : 400));
+        miku_ji(resp, "errCode", deleted ? 0 : 5001);
     } break;
     case MK_MSG_RPC_batchSendMsg: {
         if (!msg_rpc_admin_platform(req)) {
@@ -818,24 +821,30 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     case MK_MSG_RPC_deleteMsgPhysical: {
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
+        if (!uid || !uid[0] || !cmid || !cmid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         int deleted = 0;
-        if (uid && uid[0] && cmid && cmid[0] &&
-            msg_may_delete_physical(svc, uid, cmid)) {
+        if (msg_may_delete_physical(svc, uid, cmid)) {
             int mi = hash_find_cid(svc, cmid);
             if (mi >= 0) {
                 msg_remove_at(svc, mi);
                 deleted = 1;
             }
         }
-        miku_ji(resp, "errCode", deleted ? 0 : ((uid && uid[0] && cmid && cmid[0]) ? 5001 : 400));
+        miku_ji(resp, "errCode", deleted ? 0 : 5001);
     } break;
     case MK_MSG_RPC_deleteMsgPhysicalBySeq: {
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         int64_t del_seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
+        if (!uid || !uid[0] || !cid || !cid[0] || del_seq <= 0) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         int deleted = 0;
-        if (uid && uid[0] && cid && cid[0] && del_seq > 0 &&
-            msg_may_delete_physical_by_seq(svc, uid, cid, del_seq)) {
+        if (msg_may_delete_physical_by_seq(svc, uid, cid, del_seq)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 if (svc->msgs[mi].seq == del_seq) {
                     msg_remove_at(svc, mi);
@@ -844,7 +853,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                 }
             }
         }
-        miku_ji(resp, "errCode", deleted ? 0 : ((uid && uid[0] && cid && cid[0] && del_seq > 0) ? 5001 : 400));
+        miku_ji(resp, "errCode", deleted ? 0 : 5001);
     } break;
     case MK_MSG_RPC_setMessageReactionExtensions: {
         int g = msg_reaction_conv_gate(svc, req);
