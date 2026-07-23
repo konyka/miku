@@ -998,6 +998,13 @@ static void test_msg_conv_read_rpc_validation(void) {
     miku_json_destroy(mark_bad);
     miku_json_destroy(mark_bad_resp);
 
+    miku_json_val_t *by_conv_bad = miku_json_create_object();
+    miku_json_val_t *by_conv_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getMsgByConv", by_conv_bad, by_conv_bad_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(by_conv_bad_resp, "errCode")));
+    miku_json_destroy(by_conv_bad);
+    miku_json_destroy(by_conv_bad_resp);
+
     miku_msg_service_destroy(msg);
 }
 

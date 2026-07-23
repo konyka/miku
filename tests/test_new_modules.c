@@ -1903,6 +1903,14 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(c0, "unreadCount")));
     miku_json_destroy(r);
 
+    char mark_no_cid[8192] = {0};
+    http_post_with_token(19780, "/msg/mark_conversation_as_read", tok_r1,
+        "{\"userID\":\"forged\"}", mark_no_cid, sizeof(mark_no_cid));
+    r = miku_json_parse_str(extract_json_body(mark_no_cid));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
     char resp2[8192] = {0};
     http_post_with_token(19780, "/msg/search_msg", token,
         "{\"keyword\":\"e2e test\",\"conversationID\":\"si_2_r1_s1\"}", resp2, sizeof(resp2));
