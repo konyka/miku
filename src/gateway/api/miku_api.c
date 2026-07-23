@@ -1208,6 +1208,15 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                  || strcmp(method, "deleteMessageReactionExtensions") == 0)
             miku_jss(j, "userID", actor);
     }
+    if (strcmp(method, "sendBusinessNotification") == 0) {
+        if (req_token_platform(req) != 5) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+            resp->status = 403;
+            return;
+        }
+    }
     if (strcmp(method, "sendMsg") == 0 || strcmp(method, "sendSimpleMsg") == 0
         || strcmp(method, "send") == 0
         || strcmp(method, "sendBusinessNotification") == 0) {
@@ -1393,7 +1402,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             return;
         }
     }
-    if (strcmp(method, "cleanUpMsg") == 0 || strcmp(method, "batchSendMsg") == 0)
+    if (strcmp(method, "cleanUpMsg") == 0 || strcmp(method, "batchSendMsg") == 0
+        || strcmp(method, "sendBusinessNotification") == 0)
         miku_ji(j, "platformID", req_token_platform(req));
     miku_msg_handle_rpc(c->msg, method, j, out);
 

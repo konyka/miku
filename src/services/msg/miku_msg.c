@@ -590,7 +590,12 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
-        int gate = msg_send_gate(svc, &m);
+        int gate;
+        if (msg_rpc_admin_platform(req)) {
+            gate = (!m.send_id[0] || (!m.recv_id[0] && !m.group_id[0])) ? 400 : 0;
+        } else {
+            gate = msg_send_gate(svc, &m);
+        }
         if (gate != 0) {
             miku_ji(resp, "errCode", gate);
             break;

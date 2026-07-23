@@ -2882,6 +2882,13 @@ static void test_admin_stats(void) {
     mk_assert_not_null(dr);
     mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
     miku_json_destroy(dr);
+    char biz_bad[8192] = {0};
+    http_post_with_token(19798, "/msg/send_business_notification", user_tok,
+        "{\"recvID\":\"u1\",\"content\":\"sys\"}", biz_bad, sizeof(biz_bad));
+    dr = miku_json_parse_str(extract_json_body(biz_bad));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
 
     char auth_resp[8192] = {0};
     http_post_to(19798, "/auth/admin_token",
@@ -2909,6 +2916,13 @@ static void test_admin_stats(void) {
     char cleanup_ok[8192] = {0};
     http_post_with_token(19798, "/msg/clean_up", token, "{}", cleanup_ok, sizeof(cleanup_ok));
     dr = miku_json_parse_str(extract_json_body(cleanup_ok));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
+    char biz_ok[8192] = {0};
+    http_post_with_token(19798, "/msg/send_business_notification", token,
+        "{\"recvID\":\"u1\",\"content\":\"sys note\"}", biz_ok, sizeof(biz_ok));
+    dr = miku_json_parse_str(extract_json_body(biz_ok));
     mk_assert_not_null(dr);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(dr, "errCode")));
     miku_json_destroy(dr);
