@@ -1275,6 +1275,30 @@ static void test_msg_rpc_delete_resp_reuse(void) {
         mk_assert(!del || miku_json_type(del) == MK_JSON_NULL);
     }
 
+    send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("del4"));
+    miku_json_object_set(send_req, "clientMsgID", miku_json_create_str("del-cmid-4"));
+    send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+
+    miku_json_val_t *uall_ok = miku_json_create_object();
+    miku_json_object_set(uall_ok, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "userClearAllMsg", uall_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(resp, "deleted")));
+    miku_json_destroy(uall_ok);
+    miku_msg_handle_rpc(msg, "userClearAllMsg", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *del = miku_json_get(resp, "deleted");
+        mk_assert(!del || miku_json_type(del) == MK_JSON_NULL);
+    }
+
     miku_json_destroy(bad);
     miku_json_destroy(resp);
     miku_msg_service_destroy(msg);
