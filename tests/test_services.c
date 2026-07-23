@@ -968,6 +968,11 @@ static void test_msg_conv_read_rpc_validation(void) {
     miku_json_val_t *by_seq = miku_json_create_object();
     miku_json_object_set(by_seq, "conversationID", miku_json_create_str("si_1_a_b"));
     miku_json_object_set(by_seq, "userID", miku_json_create_str("a"));
+    miku_json_object_set(by_seq, "seq", miku_json_create_int(0));
+    miku_json_val_t *by_seq_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getMsgBySeq", by_seq, by_seq_bad_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(by_seq_bad_resp, "errCode")));
+    miku_json_destroy(by_seq_bad_resp);
     miku_json_object_set(by_seq, "seq", miku_json_create_int(1));
     miku_json_val_t *by_seq_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "getMsgBySeq", by_seq, by_seq_resp);

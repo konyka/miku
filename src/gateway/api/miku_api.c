@@ -1300,15 +1300,31 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "getMsgByConv") == 0 || strcmp(method, "pullMsgBySeq") == 0
                || strcmp(method, "getMsgBySeq") == 0) {
+        if (require_fields(j, resp, "conversationID", (const char *)NULL)) {
+            miku_json_destroy(j); return;
+        }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
-        if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
+        if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":0,\"data\":[]}");
             return;
         }
+        if (strcmp(method, "getMsgBySeq") == 0) {
+            int64_t seq = miku_json_int(miku_json_get(j, "seq"));
+            if (seq <= 0) {
+                miku_json_destroy(j); miku_json_destroy(out);
+                miku_http_response_set_json(resp,
+                    "{\"errCode\":400,\"errMsg\":\"missing required fields: seq\"}");
+                resp->status = 400;
+                return;
+            }
+        }
     } else if (strcmp(method, "getNewestSeq") == 0) {
+        if (require_fields(j, resp, "conversationID", (const char *)NULL)) {
+            miku_json_destroy(j); return;
+        }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
-        if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
+        if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":0,\"seq\":0}");
             return;
