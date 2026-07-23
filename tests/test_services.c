@@ -935,6 +935,23 @@ static void test_msg_rpc_resp_reuse(void) {
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
     mk_assert(miku_json_get(resp, "data") == NULL);
 
+    miku_json_val_t *search_ok = miku_json_create_object();
+    miku_json_object_set(search_ok, "keyword", miku_json_create_str("needle"));
+    miku_json_object_set(search_ok, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(search_ok, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "searchMsg", search_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "data"));
+    miku_json_destroy(search_ok);
+
+    miku_json_val_t *search_bad = miku_json_create_object();
+    miku_json_object_set(search_bad, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(search_bad, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "searchMsg", search_bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert(miku_json_get(resp, "data") == NULL);
+    miku_json_destroy(search_bad);
+
     miku_json_destroy(ok);
     miku_json_destroy(bad);
     miku_json_destroy(resp);
