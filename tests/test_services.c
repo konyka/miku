@@ -915,10 +915,17 @@ static void test_msg_reaction_conv_gate(void) {
     miku_msg_handle_rpc(msg, "addMessageReactionExtensions", bad_req, bad_resp);
     mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(bad_resp, "errCode")));
 
+    miku_json_val_t *empty_req = miku_json_create_object();
+    miku_json_val_t *empty_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getMessageListReactionExtensions", empty_req, empty_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
+
     miku_json_destroy(ok_req);
     miku_json_destroy(ok_resp);
     miku_json_destroy(bad_req);
     miku_json_destroy(bad_resp);
+    miku_json_destroy(empty_req);
+    miku_json_destroy(empty_resp);
     miku_msg_service_destroy(msg);
     miku_friend_service_destroy(friends);
 }

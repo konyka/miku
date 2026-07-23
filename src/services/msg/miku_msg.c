@@ -282,7 +282,7 @@ static int msg_user_may_access_conv(miku_msg_service_t *svc, const char *uid, co
 static int msg_reaction_conv_gate(miku_msg_service_t *svc, const miku_json_val_t *req) {
     const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
     const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
-    if (!uid || !uid[0] || !cid || !cid[0]) return 3003;
+    if (!uid || !uid[0] || !cid || !cid[0]) return 400;
     return msg_user_may_access_conv(svc, uid, cid) ? 0 : 3003;
 }
 
@@ -850,7 +850,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_getMessageListReactionExtensions: {
         int g = msg_reaction_conv_gate(svc, req);
-        (void)g;
+        if (g == 400) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
