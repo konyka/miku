@@ -881,9 +881,31 @@ static void test_msg_send_rpc_validation(void) {
     miku_json_val_t *resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "send", req, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(resp);
+    resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "sendMsg", req, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(resp);
+    resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "sendSimpleMsg", req, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(req);
+    miku_json_destroy(resp);
+
+    req = miku_json_create_object();
+    resp = miku_json_create_object();
+    miku_json_object_set(req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(req, "content", miku_json_create_str("hi"));
+    miku_msg_handle_rpc(msg, "send", req, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(req);
+    miku_json_destroy(resp);
+
+    req = miku_json_create_object();
+    resp = miku_json_create_object();
+    miku_json_object_set(req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(req, "content", miku_json_create_str("hi"));
+    miku_msg_handle_rpc(msg, "sendMsg", req, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
     miku_json_destroy(req);
     miku_json_destroy(resp);
