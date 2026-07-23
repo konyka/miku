@@ -929,6 +929,11 @@ static void test_msg_rpc_resp_reuse(void) {
     miku_json_val_t *send_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "send", send_req, send_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    const char *smid = miku_json_str(miku_json_get(send_resp, "serverMsgID"));
+    mk_assert(smid && smid[0]);
+    char smid_copy[128];
+    strncpy(smid_copy, smid, sizeof(smid_copy) - 1);
+    smid_copy[sizeof(smid_copy) - 1] = '\0';
     miku_json_destroy(send_req);
     miku_json_destroy(send_resp);
 
@@ -992,6 +997,20 @@ static void test_msg_rpc_resp_reuse(void) {
     {
         miku_json_val_t *sq = miku_json_get(resp, "seq");
         mk_assert(!sq || miku_json_type(sq) == MK_JSON_NULL);
+    }
+
+    miku_json_val_t *st_ok = miku_json_create_object();
+    miku_json_object_set(st_ok, "serverMsgID", miku_json_create_str(smid_copy));
+    miku_json_object_set(st_ok, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "getSendMsgStatus", st_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(resp, "status")));
+    miku_json_destroy(st_ok);
+    miku_msg_handle_rpc(msg, "getSendMsgStatus", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *st = miku_json_get(resp, "status");
+        mk_assert(!st || miku_json_type(st) == MK_JSON_NULL);
     }
 
     miku_json_destroy(ok);
