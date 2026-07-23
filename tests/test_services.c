@@ -842,6 +842,33 @@ static void test_msg_admin_rpc_gate(void) {
     miku_msg_service_destroy(msg);
 }
 
+static void test_msg_delete_by_seq_gate(void) {
+    miku_friend_service_t *friends = miku_friend_service_create();
+    miku_msg_service_t *msg = miku_msg_service_create();
+    miku_msg_service_set_friend_svc(msg, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "u1", "u2", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "u2", "u1", ""));
+
+    miku_json_val_t *send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("u1"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("u2"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("x"));
+    miku_json_val_t *send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    int64_t seq = miku_json_int(miku_json_get(send_resp, "seq"));
+    char conv_id[MK_CONV_ID_LEN];
+    miku_conversation_id_resolve(conv_id, sizeof(conv_id), NULL, NULL, "u1", "u2");
+
+    mk_assert_int_eq(0, miku_msg_may_delete_physical_by_seq(msg, "u2", conv_id, seq));
+    mk_assert_int_eq(1, miku_msg_may_delete_physical_by_seq(msg, "u1", conv_id, seq));
+
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+    miku_msg_service_destroy(msg);
+    miku_friend_service_destroy(friends);
+}
+
 static void test_msg_mark_read_gate(void) {
     miku_friend_service_t *friends = miku_friend_service_create();
     miku_msg_service_t *msg = miku_msg_service_create();
@@ -1975,6 +2002,7 @@ void run_service_tests(void) {
     mk_run_test(test_msg_conv_read_gate);
     mk_run_test(test_msg_get_send_status_gate);
     mk_run_test(test_msg_admin_rpc_gate);
+    mk_run_test(test_msg_delete_by_seq_gate);
     mk_run_test(test_msg_mark_read_gate);
     mk_run_test(test_msg_delete_revoke_conv_gate);
     mk_run_test(test_msg_send_friend_gate);

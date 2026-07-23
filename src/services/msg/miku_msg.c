@@ -135,6 +135,9 @@ static void rebuild_indexes(miku_msg_service_t *svc);
 static int msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
                                    const char *client_msg_id);
 
+static int msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid,
+                                        const char *conv_id, int64_t seq);
+
 static void msg_remove_at(miku_msg_service_t *svc, int mi) {
     if (!svc || mi < 0 || mi >= svc->count) return;
     /* Keep msgs[] seq-ordered (binary pull); rebuild indexes after compact. */
@@ -300,6 +303,22 @@ static int msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
 int miku_msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
                                  const char *client_msg_id) {
     return msg_may_delete_physical(svc, uid, client_msg_id);
+}
+
+static int msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid,
+                                          const char *conv_id, int64_t seq) {
+    if (!svc || !uid || !uid[0] || !conv_id || !conv_id[0] || seq <= 0) return 0;
+    if (!msg_user_may_access_conv(svc, uid, conv_id)) return 0;
+    for (int mi = conv_head(svc, conv_id); mi >= 0; mi = svc->conv_next[mi]) {
+        if (svc->msgs[mi].seq == seq)
+            return strcmp(svc->msgs[mi].send_id, uid) == 0;
+    }
+    return 0;
+}
+
+int miku_msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid,
+                                        const char *conv_id, int64_t seq) {
+    return msg_may_delete_physical_by_seq(svc, uid, conv_id, seq);
 }
 
 static int msg_rpc_admin_platform(const miku_json_val_t *req) {
@@ -740,10 +759,9 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int64_t del_seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
         int deleted = 0;
         if (uid && uid[0] && cid && cid[0] && del_seq > 0 &&
-            msg_user_may_access_conv(svc, uid, cid)) {
+            msg_may_delete_physical_by_seq(svc, uid, cid, del_seq)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
-                if (svc->msgs[mi].seq == del_seq &&
-                    strcmp(svc->msgs[mi].send_id, uid) == 0) {
+                if (svc->msgs[mi].seq == del_seq) {
                     msg_remove_at(svc, mi);
                     deleted = 1;
                     break;

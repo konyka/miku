@@ -1360,6 +1360,12 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             miku_http_response_set_json(resp, "{\"errCode\":5001,\"errMsg\":\"forbidden\"}");
             return;
         }
+        int64_t del_seq = miku_json_int(miku_json_get(j, "seq"));
+        if (!miku_msg_may_delete_physical_by_seq(c->msg, actor, cid, del_seq)) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp, "{\"errCode\":5001,\"errMsg\":\"forbidden\"}");
+            return;
+        }
     }
     if (strcmp(method, "cleanUpMsg") == 0 || strcmp(method, "batchSendMsg") == 0)
         miku_ji(j, "platformID", req_token_platform(req));

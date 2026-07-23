@@ -30,6 +30,8 @@ MIKU_API int miku_msg_update_delivery(miku_msg_service_t *svc, const char *clien
 /* True when uid is sender and still has conv access (physical delete pre-check). */
 MIKU_API int miku_msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
                                           const char *client_msg_id);
+MIKU_API int miku_msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid,
+                                                  const char *conv_id, int64_t seq);
 
 MIKU_API void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                                    const miku_json_val_t *req, miku_json_val_t *resp);
