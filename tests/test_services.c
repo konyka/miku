@@ -1013,6 +1013,23 @@ static void test_msg_rpc_resp_reuse(void) {
         mk_assert(!st || miku_json_type(st) == MK_JSON_NULL);
     }
 
+    miku_json_val_t *get_ok = miku_json_create_object();
+    miku_json_object_set(get_ok, "serverMsgID", miku_json_create_str(smid_copy));
+    miku_json_object_set(get_ok, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "getMsg", get_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "data"));
+    miku_json_destroy(get_ok);
+    miku_json_val_t *get_bad = miku_json_create_object();
+    miku_json_object_set(get_bad, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "getMsg", get_bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+    miku_json_destroy(get_bad);
+
     miku_json_destroy(ok);
     miku_json_destroy(bad);
     miku_json_destroy(resp);
