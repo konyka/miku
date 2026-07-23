@@ -475,6 +475,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     case MK_MSG_RPC_revokeMsg: {
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
+        if (!uid || !uid[0] || !cmid || !cmid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         int rc = miku_msg_revoke(svc, uid, cmid);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 5001);
     } break;
