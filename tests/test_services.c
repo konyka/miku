@@ -1021,6 +1021,8 @@ static void test_msg_get_rpc_validation(void) {
     miku_json_val_t *empty_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "checkMsgIsSendSuccess", empty, empty_resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
+    miku_json_destroy(empty_resp);
+    empty_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "getSendMsgStatus", empty, empty_resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
     miku_json_destroy(empty);

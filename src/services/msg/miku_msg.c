@@ -439,9 +439,22 @@ static int msg_rpc_id(const char *method) {
     return -1;
 }
 
+static void msg_rpc_clear_resp(miku_json_val_t *resp) {
+    if (!resp || miku_json_type(resp) != MK_JSON_OBJECT) return;
+    static const char *keys[] = {
+        "errCode", "errMsg", "data", "seq", "serverMsgID", "sendTime",
+        "status", "deleted", NULL,
+    };
+    for (int i = 0; keys[i]; i++) {
+        if (miku_json_get(resp, keys[i]))
+            miku_json_object_set(resp, keys[i], miku_json_create_null());
+    }
+}
+
 void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
                           const miku_json_val_t *req, miku_json_val_t *resp) {
     if (!svc || !method || !resp) return;
+    msg_rpc_clear_resp(resp);
     switch (msg_rpc_id(method)) {
     case MK_MSG_RPC_sendMsg: {
         miku_msg_t m;
