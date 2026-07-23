@@ -1935,6 +1935,30 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
+    char get_no_cid[8192] = {0};
+    http_post_with_token(19780, "/msg/get", token,
+        "{}", get_no_cid, sizeof(get_no_cid));
+    r = miku_json_parse_str(extract_json_body(get_no_cid));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char by_seq_no_seq[8192] = {0};
+    http_post_with_token(19780, "/msg/get_by_seq", token,
+        "{\"conversationID\":\"si_2_r1_s1\"}", by_seq_no_seq, sizeof(by_seq_no_seq));
+    r = miku_json_parse_str(extract_json_body(by_seq_no_seq));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char react_no_cid[8192] = {0};
+    http_post_with_token(19780, "/msg/get_message_list_reaction_extensions", token,
+        "{}", react_no_cid, sizeof(react_no_cid));
+    r = miku_json_parse_str(extract_json_body(react_no_cid));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
     char resp2[8192] = {0};
     http_post_with_token(19780, "/msg/search_msg", token,
         "{\"keyword\":\"e2e test\",\"conversationID\":\"si_2_r1_s1\"}", resp2, sizeof(resp2));
@@ -1982,7 +2006,8 @@ static void test_http_e2e_msg_send_and_search(void) {
 
     /* Existence oracle: unauthorized get-by-seq / get_msg must match "not found". */
     char body_seq[256];
-    snprintf(body_seq, sizeof(body_seq), "{\"seq\":%lld}", (long long)sent_seq);
+    snprintf(body_seq, sizeof(body_seq),
+             "{\"seq\":%lld,\"conversationID\":\"si_2_r1_s1\"}", (long long)sent_seq);
     char get_seq_bad[8192] = {0};
     http_post_with_token(19780, "/msg/get_by_seq", tok_x, body_seq, get_seq_bad, sizeof(get_seq_bad));
     r = miku_json_parse_str(extract_json_body(get_seq_bad));
