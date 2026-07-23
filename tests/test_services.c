@@ -767,6 +767,24 @@ static void test_msg_get_send_status_gate(void) {
     miku_msg_handle_rpc(msg, "getSendMsgStatus", ok_req, ok_resp);
     mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(ok_resp, "status")));
 
+    miku_json_val_t *chk_req = miku_json_create_object();
+    miku_json_object_set(chk_req, "serverMsgID", miku_json_create_str(smid));
+    miku_json_object_set(chk_req, "userID", miku_json_create_str("s1"));
+    miku_json_val_t *chk_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "checkMsgIsSendSuccess", chk_req, chk_resp);
+    mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(chk_resp, "status")));
+
+    mk_assert_int_eq(0, miku_friend_delete(friends, "s1", "s2"));
+    mk_assert_int_eq(0, miku_friend_delete(friends, "s2", "s1"));
+    miku_json_val_t *lost_req = miku_json_create_object();
+    miku_json_object_set(lost_req, "serverMsgID", miku_json_create_str(smid));
+    miku_json_object_set(lost_req, "userID", miku_json_create_str("s1"));
+    miku_json_val_t *lost_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getSendMsgStatus", lost_req, lost_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(lost_resp, "status")));
+    miku_json_destroy(lost_req);
+    miku_json_destroy(lost_resp);
+
     miku_json_val_t *bad_req = miku_json_create_object();
     miku_json_object_set(bad_req, "serverMsgID", miku_json_create_str(smid));
     miku_json_object_set(bad_req, "userID", miku_json_create_str("s2"));
@@ -774,6 +792,8 @@ static void test_msg_get_send_status_gate(void) {
     miku_msg_handle_rpc(msg, "getSendMsgStatus", bad_req, bad_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(bad_resp, "status")));
 
+    miku_json_destroy(chk_req);
+    miku_json_destroy(chk_resp);
     miku_json_destroy(send_req);
     miku_json_destroy(send_resp);
     miku_json_destroy(ok_req);

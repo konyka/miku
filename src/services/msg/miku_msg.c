@@ -443,7 +443,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             int mi = -1;
             if (smid && smid[0]) mi = hash_find_sid(svc, smid);
             else if (cmid && cmid[0]) mi = hash_find_cid(svc, cmid);
-            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0)
+            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
+                msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
                 status = 1;
         }
         miku_ji(resp, "errCode", 0);
@@ -633,7 +634,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int found = 0;
         if (smid && uid && uid[0]) {
             int mi = hash_find_sid(svc, smid);
-            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0)
+            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
+                msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
                 found = 1;
         }
         miku_ji(resp, "errCode", 0);
