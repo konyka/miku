@@ -2055,6 +2055,22 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
+    char send_no_content[8192] = {0};
+    http_post_with_token(19780, "/msg/send_msg", token,
+        "{\"recvID\":\"r1\"}", send_no_content, sizeof(send_no_content));
+    r = miku_json_parse_str(extract_json_body(send_no_content));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char send_no_peer[8192] = {0};
+    http_post_with_token(19780, "/msg/send_msg", token,
+        "{\"content\":\"orphan\"}", send_no_peer, sizeof(send_no_peer));
+    r = miku_json_parse_str(extract_json_body(send_no_peer));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
     char resp2[8192] = {0};
     http_post_with_token(19780, "/msg/search_msg", token,
         "{\"keyword\":\"e2e test\",\"conversationID\":\"si_2_r1_s1\"}", resp2, sizeof(resp2));
