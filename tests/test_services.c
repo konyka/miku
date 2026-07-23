@@ -952,6 +952,15 @@ static void test_msg_get_rpc_validation(void) {
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
     miku_json_destroy(req);
     miku_json_destroy(resp);
+
+    miku_json_val_t *empty = miku_json_create_object();
+    miku_json_val_t *empty_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "checkMsgIsSendSuccess", empty, empty_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
+    miku_msg_handle_rpc(msg, "getSendMsgStatus", empty, empty_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
+    miku_json_destroy(empty);
+    miku_json_destroy(empty_resp);
     miku_msg_service_destroy(msg);
 }
 
@@ -1002,6 +1011,20 @@ static void test_msg_conv_read_rpc_validation(void) {
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(mark_bad_resp, "errCode")));
     miku_json_destroy(mark_bad);
     miku_json_destroy(mark_bad_resp);
+
+    miku_json_val_t *mark_msgs_bad = miku_json_create_object();
+    miku_json_val_t *mark_msgs_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "markMsgsAsRead", mark_msgs_bad, mark_msgs_bad_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(mark_msgs_bad_resp, "errCode")));
+    miku_json_destroy(mark_msgs_bad);
+    miku_json_destroy(mark_msgs_bad_resp);
+
+    miku_json_val_t *set_seq_bad = miku_json_create_object();
+    miku_json_val_t *set_seq_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "setConversationHasReadSeq", set_seq_bad, set_seq_bad_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(set_seq_bad_resp, "errCode")));
+    miku_json_destroy(set_seq_bad);
+    miku_json_destroy(set_seq_bad_resp);
 
     miku_json_val_t *by_conv_bad = miku_json_create_object();
     miku_json_val_t *by_conv_bad_resp = miku_json_create_object();

@@ -1383,6 +1383,17 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             resp->status = 403;
             return;
         }
+    } else if (strcmp(method, "getConversationsHasReadAndMaxSeq") == 0) {
+        if (require_fields(j, resp, "userID", (const char *)NULL)) {
+            miku_json_destroy(j); return;
+        }
+        if (!actor[0]) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"unauthorized\"}");
+            resp->status = 403;
+            return;
+        }
     } else if (strcmp(method, "setMessageReactionExtensions") == 0
                || strcmp(method, "addMessageReactionExtensions") == 0
                || strcmp(method, "deleteMessageReactionExtensions") == 0) {
@@ -1390,7 +1401,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             miku_json_destroy(j); return;
         }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
-        if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {
+        if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
                 "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
