@@ -1186,6 +1186,76 @@ static void test_msg_rpc_resp_reuse(void) {
     miku_friend_service_destroy(friends);
 }
 
+static void test_msg_rpc_delete_resp_reuse(void) {
+    miku_friend_service_t *friends = miku_friend_service_create();
+    miku_msg_service_t *msg = miku_msg_service_create();
+    miku_msg_service_set_friend_svc(msg, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "a", "b", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "b", "a", ""));
+
+    char cid[MK_CONV_ID_LEN];
+    miku_conversation_id_resolve(cid, sizeof(cid), NULL, NULL, "a", "b");
+
+    miku_json_val_t *send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("del"));
+    miku_json_object_set(send_req, "clientMsgID", miku_json_create_str("del-cmid"));
+    miku_json_val_t *send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+
+    miku_json_val_t *resp = miku_json_create_object();
+    miku_json_val_t *bad = miku_json_create_object();
+
+    miku_json_val_t *del_ok = miku_json_create_object();
+    miku_json_object_set(del_ok, "userID", miku_json_create_str("a"));
+    miku_json_object_set(del_ok, "clientMsgID", miku_json_create_str("del-cmid"));
+    miku_msg_handle_rpc(msg, "deleteMsg", del_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(del_ok);
+    miku_msg_handle_rpc(msg, "deleteMsg", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
+    send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("del2"));
+    miku_json_object_set(send_req, "clientMsgID", miku_json_create_str("del-cmid-2"));
+    send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    int64_t seq2 = miku_json_int(miku_json_get(send_resp, "seq"));
+    mk_assert(seq2 > 0);
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+
+    miku_json_val_t *phys_ok = miku_json_create_object();
+    miku_json_object_set(phys_ok, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(phys_ok, "userID", miku_json_create_str("a"));
+    miku_json_object_set(phys_ok, "seq", miku_json_create_int(seq2));
+    miku_msg_handle_rpc(msg, "deleteMsgPhysicalBySeq", phys_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(phys_ok);
+    miku_msg_handle_rpc(msg, "deleteMsgPhysicalBySeq", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
+    miku_json_destroy(bad);
+    miku_json_destroy(resp);
+    miku_msg_service_destroy(msg);
+    miku_friend_service_destroy(friends);
+}
+
 static void test_msg_delete_by_seq_gate(void) {
     miku_friend_service_t *friends = miku_friend_service_create();
     miku_msg_service_t *msg = miku_msg_service_create();
@@ -2522,6 +2592,7 @@ void run_service_tests(void) {
     mk_run_test(test_msg_admin_rpc_gate);
     mk_run_test(test_msg_send_rpc_validation);
     mk_run_test(test_msg_rpc_resp_reuse);
+    mk_run_test(test_msg_rpc_delete_resp_reuse);
     mk_run_test(test_msg_delete_by_seq_gate);
     mk_run_test(test_msg_reaction_conv_gate);
     mk_run_test(test_msg_revoke_rpc_validation);
