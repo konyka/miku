@@ -645,8 +645,12 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     case MK_MSG_RPC_getNewestSeq: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!cid || !cid[0] || !uid || !uid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         int64_t max = 0;
-        if (cid && cid[0] && uid && uid[0] && msg_user_may_access_conv(svc, uid, cid)) {
+        if (msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 if (svc->msgs[mi].seq > max) max = svc->msgs[mi].seq;
             }
@@ -678,10 +682,13 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *keyword = req ? miku_json_str(miku_json_get(req, "keyword")) : NULL;
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!keyword || !keyword[0] || !cid || !cid[0] || !uid || !uid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (keyword && keyword[0] && cid && cid[0] && uid && uid[0] &&
-            msg_user_may_access_conv(svc, uid, cid)) {
+        if (msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 if (strstr(svc->msgs[mi].content, keyword))
                     miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));

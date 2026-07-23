@@ -1017,7 +1017,7 @@ static void test_msg_send_get_search_delete(void) {
     miku_json_val_t *empty = miku_json_create_object();
     miku_json_val_t *empty_resp = miku_json_create_object();
     miku_msg_handle_rpc(svc, "getNewestSeq", empty, empty_resp);
-    mk_assert_int_eq(0, miku_json_int(miku_json_get(empty_resp, "seq")));
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
 
     miku_json_destroy(send_req); miku_json_destroy(send_resp);
     miku_json_destroy(send2_req); miku_json_destroy(send2_resp);

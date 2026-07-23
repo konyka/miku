@@ -968,6 +968,15 @@ static void test_msg_conv_read_rpc_validation(void) {
     mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(by_seq_resp, "data")));
     miku_json_destroy(by_seq);
     miku_json_destroy(by_seq_resp);
+
+    miku_json_val_t *search_bad = miku_json_create_object();
+    miku_json_object_set(search_bad, "keyword", miku_json_create_str("x"));
+    miku_json_val_t *search_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "searchMsg", search_bad, search_bad_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(search_bad_resp, "errCode")));
+    miku_json_destroy(search_bad);
+    miku_json_destroy(search_bad_resp);
+
     miku_msg_service_destroy(msg);
 }
 
