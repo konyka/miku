@@ -948,6 +948,29 @@ static void test_msg_get_rpc_validation(void) {
     miku_msg_service_destroy(msg);
 }
 
+static void test_msg_conv_read_rpc_validation(void) {
+    miku_msg_service_t *msg = miku_msg_service_create();
+    mk_assert_not_null(msg);
+    miku_json_val_t *pull = miku_json_create_object();
+    miku_json_val_t *pull_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "pullMsgBySeq", pull, pull_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(pull_resp, "errCode")));
+    miku_json_destroy(pull);
+    miku_json_destroy(pull_resp);
+
+    miku_json_val_t *by_seq = miku_json_create_object();
+    miku_json_object_set(by_seq, "conversationID", miku_json_create_str("si_1_a_b"));
+    miku_json_object_set(by_seq, "userID", miku_json_create_str("a"));
+    miku_json_object_set(by_seq, "seq", miku_json_create_int(1));
+    miku_json_val_t *by_seq_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getMsgBySeq", by_seq, by_seq_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(by_seq_resp, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(by_seq_resp, "data")));
+    miku_json_destroy(by_seq);
+    miku_json_destroy(by_seq_resp);
+    miku_msg_service_destroy(msg);
+}
+
 static void test_msg_mark_read_gate(void) {
     miku_friend_service_t *friends = miku_friend_service_create();
     miku_msg_service_t *msg = miku_msg_service_create();
@@ -2085,6 +2108,7 @@ void run_service_tests(void) {
     mk_run_test(test_msg_reaction_conv_gate);
     mk_run_test(test_msg_revoke_rpc_validation);
     mk_run_test(test_msg_get_rpc_validation);
+    mk_run_test(test_msg_conv_read_rpc_validation);
     mk_run_test(test_msg_mark_read_gate);
     mk_run_test(test_msg_delete_revoke_conv_gate);
     mk_run_test(test_msg_send_friend_gate);

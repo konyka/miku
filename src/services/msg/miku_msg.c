@@ -461,6 +461,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     case MK_MSG_RPC_getMsgByConv: {
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!cid || !cid[0] || !uid || !uid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         int64_t start = req ? miku_json_int(miku_json_get(req, "startTime")) : 0;
         int64_t end = req ? miku_json_int(miku_json_get(req, "endTime")) : 0;
         int64_t cnt = req ? miku_json_int(miku_json_get(req, "count")) : 20;
@@ -552,6 +556,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int64_t seq = req ? miku_json_int(miku_json_get(req, "seq")) : 0;
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!cid || !cid[0] || !uid || !uid[0] || seq <= 0) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (seq > 0 && cid && cid[0] && uid && uid[0] &&
@@ -651,9 +659,13 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int64_t end_seq = req ? miku_json_int(miku_json_get(req, "endSeq")) : 0;
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!cid || !cid[0] || !uid || !uid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (cid && cid[0] && uid && uid[0] && msg_user_may_access_conv(svc, uid, cid)) {
+        if (msg_user_may_access_conv(svc, uid, cid)) {
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
                 int64_t s = svc->msgs[mi].seq;
                 if (s >= begin && (end_seq == 0 || s <= end_seq))
