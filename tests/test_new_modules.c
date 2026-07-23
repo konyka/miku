@@ -2047,6 +2047,22 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
+    char react_add_no_cid[8192] = {0};
+    http_post_with_token(19780, "/msg/add_message_reaction_extensions", token,
+        "{}", react_add_no_cid, sizeof(react_add_no_cid));
+    r = miku_json_parse_str(extract_json_body(react_add_no_cid));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char react_del_no_cid[8192] = {0};
+    http_post_with_token(19780, "/msg/delete_message_reaction_extensions", token,
+        "{}", react_del_no_cid, sizeof(react_del_no_cid));
+    r = miku_json_parse_str(extract_json_body(react_del_no_cid));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
     char search_no_kw[8192] = {0};
     http_post_with_token(19780, "/msg/search_msg", token,
         "{\"conversationID\":\"si_2_r1_s1\"}", search_no_kw, sizeof(search_no_kw));
