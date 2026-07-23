@@ -926,6 +926,7 @@ static void test_msg_rpc_resp_reuse(void) {
     miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
     miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
     miku_json_object_set(send_req, "content", miku_json_create_str("reuse"));
+    miku_json_object_set(send_req, "clientMsgID", miku_json_create_str("reuse-cmid"));
     miku_json_val_t *send_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "send", send_req, send_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
@@ -1159,6 +1160,19 @@ static void test_msg_rpc_resp_reuse(void) {
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
     miku_json_destroy(react_ok);
     miku_msg_handle_rpc(msg, "getMessageListReactionExtensions", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
+    miku_json_val_t *rev_ok = miku_json_create_object();
+    miku_json_object_set(rev_ok, "userID", miku_json_create_str("a"));
+    miku_json_object_set(rev_ok, "clientMsgID", miku_json_create_str("reuse-cmid"));
+    miku_msg_handle_rpc(msg, "revokeMsg", rev_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(rev_ok);
+    miku_msg_handle_rpc(msg, "revokeMsg", bad, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
     {
         miku_json_val_t *d = miku_json_get(resp, "data");
