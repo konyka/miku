@@ -1083,6 +1083,32 @@ static void test_msg_rpc_resp_reuse(void) {
         mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
     }
 
+    miku_json_val_t *mcr_ok = miku_json_create_object();
+    miku_json_object_set(mcr_ok, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(mcr_ok, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "markConversationAsRead", mcr_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(mcr_ok);
+    miku_msg_handle_rpc(msg, "markConversationAsRead", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
+    miku_json_val_t *mmr_ok = miku_json_create_object();
+    miku_json_object_set(mmr_ok, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(mmr_ok, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "markMsgsAsRead", mmr_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(mmr_ok);
+    miku_msg_handle_rpc(msg, "markMsgsAsRead", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
     miku_json_destroy(ok);
     miku_json_destroy(bad);
     miku_json_destroy(resp);
