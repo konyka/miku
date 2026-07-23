@@ -1050,6 +1050,17 @@ static void test_msg_conv_read_rpc_validation(void) {
     miku_json_destroy(by_conv_bad);
     miku_json_destroy(by_conv_bad_resp);
 
+    miku_json_val_t *empty = miku_json_create_object();
+    miku_json_val_t *empty_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "markConversationAsRead", empty, empty_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
+    miku_msg_handle_rpc(msg, "clearConversationMsg", empty, empty_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
+    miku_msg_handle_rpc(msg, "userClearAllMsg", empty, empty_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(empty_resp, "errCode")));
+    miku_json_destroy(empty);
+    miku_json_destroy(empty_resp);
+
     miku_msg_service_destroy(msg);
 }
 
