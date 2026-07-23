@@ -284,6 +284,10 @@ static int msg_send_gate(miku_msg_service_t *svc, const miku_msg_t *m) {
     return 0;
 }
 
+static int msg_rpc_admin_platform(const miku_json_val_t *req) {
+    return req && miku_json_int(miku_json_get(req, "platformID")) == 5;
+}
+
 enum {
     MK_MSG_RPC_sendMsg = 0,
     MK_MSG_RPC_getMsgByConv = 1,
@@ -451,6 +455,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "status", status);
     } break;
     case MK_MSG_RPC_cleanUpMsg: {
+        if (!msg_rpc_admin_platform(req)) {
+            miku_ji(resp, "errCode", 403);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_MSG_RPC_deleteMsg: {
@@ -468,6 +476,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "errCode", deleted ? 0 : ((uid && uid[0] && cmid && cmid[0]) ? 5001 : 400));
     } break;
     case MK_MSG_RPC_batchSendMsg: {
+        if (!msg_rpc_admin_platform(req)) {
+            miku_ji(resp, "errCode", 403);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", miku_json_create_array());
     } break;

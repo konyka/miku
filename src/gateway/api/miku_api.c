@@ -1345,6 +1345,8 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             return;
         }
     }
+    if (strcmp(method, "cleanUpMsg") == 0 || strcmp(method, "batchSendMsg") == 0)
+        miku_ji(j, "platformID", req_token_platform(req));
     miku_msg_handle_rpc(c->msg, method, j, out);
 
     /* getMsg / getMsgBySeq / searchMsg: drop non-participant results (no 3003 oracle). */

@@ -804,6 +804,44 @@ static void test_msg_get_send_status_gate(void) {
     miku_friend_service_destroy(friends);
 }
 
+static void test_msg_admin_rpc_gate(void) {
+    miku_msg_service_t *msg = miku_msg_service_create();
+    mk_assert_not_null(msg);
+
+    miku_json_val_t *deny_req = miku_json_create_object();
+    miku_json_val_t *deny_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "cleanUpMsg", deny_req, deny_resp);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(deny_resp, "errCode")));
+    miku_json_destroy(deny_req);
+    miku_json_destroy(deny_resp);
+
+    miku_json_val_t *batch_deny = miku_json_create_object();
+    miku_json_val_t *batch_deny_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "batchSendMsg", batch_deny, batch_deny_resp);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(batch_deny_resp, "errCode")));
+    miku_json_destroy(batch_deny);
+    miku_json_destroy(batch_deny_resp);
+
+    miku_json_val_t *ok_req = miku_json_create_object();
+    miku_json_object_set(ok_req, "platformID", miku_json_create_int(5));
+    miku_json_val_t *ok_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "cleanUpMsg", ok_req, ok_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ok_resp, "errCode")));
+    miku_json_destroy(ok_req);
+    miku_json_destroy(ok_resp);
+
+    miku_json_val_t *batch_ok = miku_json_create_object();
+    miku_json_object_set(batch_ok, "platformID", miku_json_create_int(5));
+    miku_json_val_t *batch_ok_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "batchSendMsg", batch_ok, batch_ok_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(batch_ok_resp, "errCode")));
+    mk_assert_not_null(miku_json_get(batch_ok_resp, "data"));
+    miku_json_destroy(batch_ok);
+    miku_json_destroy(batch_ok_resp);
+
+    miku_msg_service_destroy(msg);
+}
+
 static void test_msg_mark_read_gate(void) {
     miku_friend_service_t *friends = miku_friend_service_create();
     miku_msg_service_t *msg = miku_msg_service_create();
@@ -1936,6 +1974,7 @@ void run_service_tests(void) {
     mk_run_test(test_msg_get_si_mutual_gate);
     mk_run_test(test_msg_conv_read_gate);
     mk_run_test(test_msg_get_send_status_gate);
+    mk_run_test(test_msg_admin_rpc_gate);
     mk_run_test(test_msg_mark_read_gate);
     mk_run_test(test_msg_delete_revoke_conv_gate);
     mk_run_test(test_msg_send_friend_gate);
