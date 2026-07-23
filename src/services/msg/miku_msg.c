@@ -451,7 +451,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int rc = miku_msg_send(svc, &m);
-        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
             miku_ji(resp, "seq", m.seq);
@@ -583,7 +583,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int rc = miku_msg_send(svc, &m);
-        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
             miku_ji(resp, "seq", (int)m.seq);
@@ -600,7 +600,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int rc = miku_msg_send(svc, &m);
-        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
             miku_ji(resp, "seq", m.seq);
@@ -626,7 +626,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int rc = miku_msg_send(svc, &m);
-        miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
+        miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
     } break;
     case MK_MSG_RPC_getMsg: {
         const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;
@@ -722,10 +722,13 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_getConversationsHasReadAndMaxSeq: {
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!uid || !uid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
-        (void)uid; /* API/conv service owns data; fail-closed without userID at gateway */
     } break;
     case MK_MSG_RPC_checkMsgIsSendSuccess: {
         const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;

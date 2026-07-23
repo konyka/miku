@@ -977,6 +977,13 @@ static void test_msg_conv_read_rpc_validation(void) {
     miku_json_destroy(search_bad);
     miku_json_destroy(search_bad_resp);
 
+    miku_json_val_t *seqs_bad = miku_json_create_object();
+    miku_json_val_t *seqs_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getConversationsHasReadAndMaxSeq", seqs_bad, seqs_bad_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(seqs_bad_resp, "errCode")));
+    miku_json_destroy(seqs_bad);
+    miku_json_destroy(seqs_bad_resp);
+
     miku_msg_service_destroy(msg);
 }
 
