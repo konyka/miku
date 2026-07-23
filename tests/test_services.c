@@ -657,6 +657,49 @@ static void test_msg_get_group_member_gate(void) {
     miku_group_service_destroy(group);
 }
 
+static void test_msg_get_si_mutual_gate(void) {
+    miku_friend_service_t *friends = miku_friend_service_create();
+    miku_msg_service_t *msg = miku_msg_service_create();
+    mk_assert_not_null(friends);
+    mk_assert_not_null(msg);
+    miku_msg_service_set_friend_svc(msg, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "a", "b", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "b", "a", ""));
+
+    miku_json_val_t *send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("secret"));
+    miku_json_object_set(send_req, "clientMsgID", miku_json_create_str("c_si_gate"));
+    miku_json_val_t *send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    const char *smid = miku_json_str(miku_json_get(send_resp, "serverMsgID"));
+
+    miku_json_val_t *get_b = miku_json_create_object();
+    miku_json_object_set(get_b, "serverMsgID", miku_json_create_str(smid));
+    miku_json_object_set(get_b, "userID", miku_json_create_str("b"));
+    miku_json_val_t *get_b_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getMsg", get_b, get_b_resp);
+    mk_assert_int_eq(1, (int)miku_json_size(miku_json_get(get_b_resp, "data")));
+
+    miku_json_val_t *get_eve = miku_json_create_object();
+    miku_json_object_set(get_eve, "serverMsgID", miku_json_create_str(smid));
+    miku_json_object_set(get_eve, "userID", miku_json_create_str("eve"));
+    miku_json_val_t *get_eve_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getMsg", get_eve, get_eve_resp);
+    mk_assert_int_eq(0, (int)miku_json_size(miku_json_get(get_eve_resp, "data")));
+
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+    miku_json_destroy(get_b);
+    miku_json_destroy(get_b_resp);
+    miku_json_destroy(get_eve);
+    miku_json_destroy(get_eve_resp);
+    miku_msg_service_destroy(msg);
+    miku_friend_service_destroy(friends);
+}
+
 static void test_msg_conv_read_gate(void) {
     miku_friend_service_t *friends = miku_friend_service_create();
     miku_msg_service_t *msg = miku_msg_service_create();
@@ -1870,6 +1913,7 @@ void run_service_tests(void) {
     mk_run_test(test_conv_create_and_get);
     mk_run_test(test_msg_send_and_query);
     mk_run_test(test_msg_get_group_member_gate);
+    mk_run_test(test_msg_get_si_mutual_gate);
     mk_run_test(test_msg_conv_read_gate);
     mk_run_test(test_msg_get_send_status_gate);
     mk_run_test(test_msg_mark_read_gate);

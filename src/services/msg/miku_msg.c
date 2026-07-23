@@ -249,20 +249,6 @@ int miku_msg_update_delivery(miku_msg_service_t *svc, const char *client_msg_id,
     return 0;
 }
 
-static int msg_user_may_read(miku_msg_service_t *svc, const miku_msg_t *m, const char *uid) {
-    if (!m || !uid || !uid[0]) return 0;
-    if (m->group_id[0]) {
-        if (!svc || !svc->group_svc) return 0;
-        return miku_group_is_member(svc->group_svc, m->group_id, uid);
-    }
-    if (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0) return 1;
-    if (strncmp(m->conversation_id, "si_", 3) == 0) {
-        char peer[MK_USER_ID_LEN];
-        return miku_conversation_si_peer(m->conversation_id, uid, peer, sizeof(peer)) == 0;
-    }
-    return 0;
-}
-
 static int msg_user_may_access_conv(miku_msg_service_t *svc, const char *uid, const char *cid) {
     if (!svc || !uid || !uid[0] || !cid || !cid[0]) return 0;
     if (strncmp(cid, "si_", 3) == 0)
@@ -562,7 +548,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         if (smid && uid && uid[0]) {
             int mi = hash_find_sid(svc, smid);
-            if (mi >= 0 && msg_user_may_read(svc, &svc->msgs[mi], uid))
+            if (mi >= 0 && msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
                 miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
         }
         miku_json_object_set(resp, "data", arr);

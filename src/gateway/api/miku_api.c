@@ -1314,6 +1314,14 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             resp->status = 403;
             return;
         }
+    } else if (strcmp(method, "cleanUpMsg") == 0) {
+        if (req_token_platform(req) != 5) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
+            resp->status = 403;
+            return;
+        }
     } else if (strcmp(method, "deleteMsgPhysical") == 0) {
         if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) {
             miku_json_destroy(j); return;
