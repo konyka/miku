@@ -284,6 +284,20 @@ static int msg_send_gate(miku_msg_service_t *svc, const miku_msg_t *m) {
     return 0;
 }
 
+static int msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
+                                   const char *client_msg_id) {
+    if (!svc || !uid || !uid[0] || !client_msg_id || !client_msg_id[0]) return 0;
+    int mi = hash_find_cid(svc, client_msg_id);
+    if (mi < 0) return 0;
+    return strcmp(svc->msgs[mi].send_id, uid) == 0 &&
+           msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id);
+}
+
+int miku_msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
+                                 const char *client_msg_id) {
+    return msg_may_delete_physical(svc, uid, client_msg_id);
+}
+
 static int msg_rpc_admin_platform(const miku_json_val_t *req) {
     return req && miku_json_int(miku_json_get(req, "platformID")) == 5;
 }
@@ -706,10 +720,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         int deleted = 0;
-        if (uid && uid[0] && cmid && cmid[0]) {
+        if (uid && uid[0] && cmid && cmid[0] &&
+            msg_may_delete_physical(svc, uid, cmid)) {
             int mi = hash_find_cid(svc, cmid);
-            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
-                msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id)) {
+            if (mi >= 0) {
                 msg_remove_at(svc, mi);
                 deleted = 1;
             }

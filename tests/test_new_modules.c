@@ -2049,6 +2049,21 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(1, (int)miku_json_size(data));
     miku_json_destroy(r);
 
+    char phys_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/delete_msg_physical", tok_r1,
+        "{\"userID\":\"r1\",\"clientMsgID\":\"cm_e2e_1\"}", phys_bad, sizeof(phys_bad));
+    r = miku_json_parse_str(extract_json_body(phys_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(5001, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char phys_ok[8192] = {0};
+    http_post_with_token(19780, "/msg/delete_msg_physical", token,
+        "{\"userID\":\"s1\",\"clientMsgID\":\"cm_e2e_1\"}", phys_ok, sizeof(phys_ok));
+    r = miku_json_parse_str(extract_json_body(phys_ok));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
     char del_fri[8192] = {0};
     http_post_with_token(19780, "/friend/delete", token,
         "{\"ownerUserID\":\"s1\",\"friendUserID\":\"r1\"}", del_fri, sizeof(del_fri));
