@@ -1991,6 +1991,30 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
+    char del_no_cmid[8192] = {0};
+    http_post_with_token(19780, "/msg/delete_msg", token,
+        "{\"userID\":\"s1\"}", del_no_cmid, sizeof(del_no_cmid));
+    r = miku_json_parse_str(extract_json_body(del_no_cmid));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char phys_no_cmid[8192] = {0};
+    http_post_with_token(19780, "/msg/delete_msg_physical", token,
+        "{\"userID\":\"s1\"}", phys_no_cmid, sizeof(phys_no_cmid));
+    r = miku_json_parse_str(extract_json_body(phys_no_cmid));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char mark_msgs_no_cid[8192] = {0};
+    http_post_with_token(19780, "/msg/mark_msgs_as_read", tok_r1,
+        "{}", mark_msgs_no_cid, sizeof(mark_msgs_no_cid));
+    r = miku_json_parse_str(extract_json_body(mark_msgs_no_cid));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
     char resp2[8192] = {0};
     http_post_with_token(19780, "/msg/search_msg", token,
         "{\"keyword\":\"e2e test\",\"conversationID\":\"si_2_r1_s1\"}", resp2, sizeof(resp2));
