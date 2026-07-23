@@ -1915,6 +1915,14 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(1, (int)miku_json_size(data));
     miku_json_destroy(r);
 
+    char rev_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/revoke", tok_r1,
+        "{\"userID\":\"r1\",\"clientMsgID\":\"cm_e2e_1\"}", rev_bad, sizeof(rev_bad));
+    r = miku_json_parse_str(extract_json_body(rev_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(5001, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
     char auth_x[8192] = {0};
     http_post_to(19780, "/auth/user_token",
         "{\"userID\":\"x1\",\"secret\":\"openIM123\",\"platformID\":1}", auth_x, sizeof(auth_x));

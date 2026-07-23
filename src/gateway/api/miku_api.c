@@ -1261,7 +1261,16 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             }
         }
     } else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0) {
-        if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) {
+            miku_json_destroy(j); return;
+        }
+        const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));
+        if (!actor[0] || !cmid || !cmid[0] ||
+            !miku_msg_may_delete_physical(c->msg, actor, cmid)) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp, "{\"errCode\":5001,\"errMsg\":\"forbidden\"}");
+            return;
+        }
     } else if (strcmp(method, "searchMsg") == 0) {
         if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));

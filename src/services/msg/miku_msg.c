@@ -132,6 +132,9 @@ static void hash_del_sid(miku_msg_service_t *svc, const char *sid) {
 
 static void rebuild_indexes(miku_msg_service_t *svc);
 
+static int msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
+                                   const char *client_msg_id);
+
 static void msg_remove_at(miku_msg_service_t *svc, int mi) {
     if (!svc || mi < 0 || mi >= svc->count) return;
     /* Keep msgs[] seq-ordered (binary pull); rebuild indexes after compact. */
@@ -216,11 +219,12 @@ int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,
 
 int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *client_msg_id) {
     if (!svc || !user_id || !client_msg_id) return -1;
-    int mi = hash_find_cid(svc, client_msg_id);
-    if (mi >= 0 && strcmp(svc->msgs[mi].send_id, user_id) == 0 &&
-        msg_user_may_access_conv(svc, user_id, svc->msgs[mi].conversation_id)) {
-        svc->msgs[mi].status = 2;
-        return 0;
+    if (msg_may_delete_physical(svc, user_id, client_msg_id)) {
+        int mi = hash_find_cid(svc, client_msg_id);
+        if (mi >= 0) {
+            svc->msgs[mi].status = 2;
+            return 0;
+        }
     }
     return -2;
 }
@@ -479,10 +483,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         int deleted = 0;
-        if (uid && uid[0] && cmid && cmid[0]) {
+        if (uid && uid[0] && cmid && cmid[0] &&
+            msg_may_delete_physical(svc, uid, cmid)) {
             int mi = hash_find_cid(svc, cmid);
-            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
-                msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id)) {
+            if (mi >= 0) {
                 msg_remove_at(svc, mi);
                 deleted = 1;
             }
