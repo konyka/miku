@@ -587,6 +587,10 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         }
     } break;
     case MK_MSG_RPC_sendBusinessNotification: {
+        if (!msg_rpc_admin_platform(req)) {
+            miku_ji(resp, "errCode", 403);
+            break;
+        }
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);

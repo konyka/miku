@@ -839,6 +839,15 @@ static void test_msg_admin_rpc_gate(void) {
     miku_json_destroy(batch_ok);
     miku_json_destroy(batch_ok_resp);
 
+    miku_json_val_t *biz_deny = miku_json_create_object();
+    miku_json_object_set(biz_deny, "sendID", miku_json_create_str("sys"));
+    miku_json_object_set(biz_deny, "recvID", miku_json_create_str("u1"));
+    miku_json_val_t *biz_deny_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "sendBusinessNotification", biz_deny, biz_deny_resp);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(biz_deny_resp, "errCode")));
+    miku_json_destroy(biz_deny);
+    miku_json_destroy(biz_deny_resp);
+
     miku_msg_service_destroy(msg);
 }
 

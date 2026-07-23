@@ -1337,6 +1337,24 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             resp->status = 403;
             return;
         }
+    } else if (strcmp(method, "getSendMsgStatus") == 0
+               || strcmp(method, "checkMsgIsSendSuccess") == 0) {
+        const char *smid = miku_json_str(miku_json_get(j, "serverMsgID"));
+        const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));
+        if ((!smid || !smid[0]) && (!cmid || !cmid[0])) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":400,\"errMsg\":\"missing required fields: serverMsgID or clientMsgID\"}");
+            resp->status = 400;
+            return;
+        }
+        if (!actor[0]) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"unauthorized\"}");
+            resp->status = 403;
+            return;
+        }
     } else if (strcmp(method, "setMessageReactionExtensions") == 0
                || strcmp(method, "addMessageReactionExtensions") == 0
                || strcmp(method, "deleteMessageReactionExtensions") == 0) {
