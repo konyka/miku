@@ -1,6 +1,8 @@
 #include "miku_common.h"
 #include "miku_log.h"
 #include "miku_msg.h"
+#include "miku_friend.h"
+#include "miku_group.h"
 #include "miku_rpc_server.h"
 #include "miku_service_config.h"
 #include "miku_graceful.h"
@@ -28,6 +30,10 @@ int main(int argc, char **argv) {
 
     miku_msg_service_t *svc = miku_msg_service_create();
     if (!svc) { MK_LOG_ERROR("Failed to create msg service"); return 1; }
+    miku_friend_service_t *friends = miku_friend_service_create();
+    miku_group_service_t *groups = miku_group_service_create();
+    if (friends) miku_msg_service_set_friend_svc(svc, friends);
+    if (groups) miku_msg_service_set_group_svc(svc, groups);
 
     #pragma GCC diagnostic push
 
@@ -40,10 +46,17 @@ int main(int argc, char **argv) {
 
 
     #pragma GCC diagnostic pop
-    if (!srv) { miku_msg_service_destroy(svc); return 1; }
+    if (!srv) {
+        if (groups) miku_group_service_destroy(groups);
+        if (friends) miku_friend_service_destroy(friends);
+        miku_msg_service_destroy(svc);
+        return 1;
+    }
     miku_rpc_server_enable_internal_auth(srv);
     if (miku_rpc_server_start(srv) != 0) {
         miku_rpc_server_destroy(srv);
+        if (groups) miku_group_service_destroy(groups);
+        if (friends) miku_friend_service_destroy(friends);
         miku_msg_service_destroy(svc); return 1;
     }
 
@@ -52,6 +65,8 @@ int main(int argc, char **argv) {
 
     miku_rpc_server_stop(srv);
     miku_rpc_server_destroy(srv);
+    if (groups) miku_group_service_destroy(groups);
+    if (friends) miku_friend_service_destroy(friends);
     miku_msg_service_destroy(svc);
     miku_graceful_cleanup(&g_graceful);
     return 0;

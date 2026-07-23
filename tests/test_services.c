@@ -792,6 +792,14 @@ static void test_msg_get_send_status_gate(void) {
     miku_msg_handle_rpc(msg, "getSendMsgStatus", bad_req, bad_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(bad_resp, "status")));
 
+    miku_json_val_t *bad_id_req = miku_json_create_object();
+    miku_json_object_set(bad_id_req, "userID", miku_json_create_str("s1"));
+    miku_json_val_t *bad_id_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getSendMsgStatus", bad_id_req, bad_id_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(bad_id_resp, "errCode")));
+    miku_json_destroy(bad_id_req);
+    miku_json_destroy(bad_id_resp);
+
     miku_json_destroy(chk_req);
     miku_json_destroy(chk_resp);
     miku_json_destroy(send_req);

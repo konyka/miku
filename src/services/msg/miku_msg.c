@@ -486,15 +486,17 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;
         const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        int status = 0;
-        if (uid && uid[0]) {
-            int mi = -1;
-            if (smid && smid[0]) mi = hash_find_sid(svc, smid);
-            else if (cmid && cmid[0]) mi = hash_find_cid(svc, cmid);
-            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
-                msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
-                status = 1;
+        if (!uid || !uid[0] || ((!smid || !smid[0]) && (!cmid || !cmid[0]))) {
+            miku_ji(resp, "errCode", 400);
+            break;
         }
+        int status = 0;
+        int mi = -1;
+        if (smid && smid[0]) mi = hash_find_sid(svc, smid);
+        else if (cmid && cmid[0]) mi = hash_find_cid(svc, cmid);
+        if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
+            msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
+            status = 1;
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "status", status);
     } break;
@@ -695,14 +697,19 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_checkMsgIsSendSuccess: {
         const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;
+        const char *cmid = req ? miku_json_str(miku_json_get(req, "clientMsgID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        int found = 0;
-        if (smid && uid && uid[0]) {
-            int mi = hash_find_sid(svc, smid);
-            if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
-                msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
-                found = 1;
+        if (!uid || !uid[0] || ((!smid || !smid[0]) && (!cmid || !cmid[0]))) {
+            miku_ji(resp, "errCode", 400);
+            break;
         }
+        int found = 0;
+        int mi = -1;
+        if (smid && smid[0]) mi = hash_find_sid(svc, smid);
+        else if (cmid && cmid[0]) mi = hash_find_cid(svc, cmid);
+        if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
+            msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
+            found = 1;
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "status", found ? 1 : 0);
     } break;
