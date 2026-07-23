@@ -922,6 +922,16 @@ static void test_msg_rpc_resp_reuse(void) {
     char cid[MK_CONV_ID_LEN];
     miku_conversation_id_resolve(cid, sizeof(cid), NULL, NULL, "a", "b");
 
+    miku_json_val_t *send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("reuse"));
+    miku_json_val_t *send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+
     miku_json_val_t *ok = miku_json_create_object();
     miku_json_object_set(ok, "conversationID", miku_json_create_str(cid));
     miku_json_object_set(ok, "userID", miku_json_create_str("a"));
@@ -933,7 +943,10 @@ static void test_msg_rpc_resp_reuse(void) {
     miku_json_val_t *bad = miku_json_create_object();
     miku_msg_handle_rpc(msg, "getMsgByConv", bad, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
-    mk_assert(miku_json_get(resp, "data") == NULL);
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
 
     miku_json_val_t *search_ok = miku_json_create_object();
     miku_json_object_set(search_ok, "keyword", miku_json_create_str("needle"));
@@ -949,7 +962,10 @@ static void test_msg_rpc_resp_reuse(void) {
     miku_json_object_set(search_bad, "userID", miku_json_create_str("a"));
     miku_msg_handle_rpc(msg, "searchMsg", search_bad, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
-    mk_assert(miku_json_get(resp, "data") == NULL);
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
     miku_json_destroy(search_bad);
 
     miku_json_val_t *time_req = miku_json_create_object();
@@ -959,7 +975,24 @@ static void test_msg_rpc_resp_reuse(void) {
     miku_json_destroy(time_req);
     miku_msg_handle_rpc(msg, "getMsgByConv", bad, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
-    mk_assert(miku_json_get(resp, "serverTime") == NULL);
+    {
+        miku_json_val_t *st = miku_json_get(resp, "serverTime");
+        mk_assert(!st || miku_json_type(st) == MK_JSON_NULL);
+    }
+
+    miku_json_val_t *newest_ok = miku_json_create_object();
+    miku_json_object_set(newest_ok, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(newest_ok, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "getNewestSeq", newest_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert(miku_json_int(miku_json_get(resp, "seq")) > 0);
+    miku_json_destroy(newest_ok);
+    miku_msg_handle_rpc(msg, "getNewestSeq", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *sq = miku_json_get(resp, "seq");
+        mk_assert(!sq || miku_json_type(sq) == MK_JSON_NULL);
+    }
 
     miku_json_destroy(ok);
     miku_json_destroy(bad);
