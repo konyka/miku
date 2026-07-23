@@ -934,6 +934,8 @@ static void test_msg_rpc_resp_reuse(void) {
     char smid_copy[128];
     strncpy(smid_copy, smid, sizeof(smid_copy) - 1);
     smid_copy[sizeof(smid_copy) - 1] = '\0';
+    int64_t sent_seq = miku_json_int(miku_json_get(send_resp, "seq"));
+    mk_assert(sent_seq > 0);
     miku_json_destroy(send_req);
     miku_json_destroy(send_resp);
 
@@ -1029,6 +1031,21 @@ static void test_msg_rpc_resp_reuse(void) {
         mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
     }
     miku_json_destroy(get_bad);
+
+    miku_json_val_t *by_seq = miku_json_create_object();
+    miku_json_object_set(by_seq, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(by_seq, "userID", miku_json_create_str("a"));
+    miku_json_object_set(by_seq, "seq", miku_json_create_int(sent_seq));
+    miku_msg_handle_rpc(msg, "getMsgBySeq", by_seq, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_int_eq(1, (int)miku_json_size(miku_json_get(resp, "data")));
+    miku_json_destroy(by_seq);
+    miku_msg_handle_rpc(msg, "getMsgBySeq", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
 
     miku_json_destroy(ok);
     miku_json_destroy(bad);
