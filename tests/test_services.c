@@ -869,6 +869,38 @@ static void test_msg_delete_by_seq_gate(void) {
     miku_friend_service_destroy(friends);
 }
 
+static void test_msg_reaction_conv_gate(void) {
+    miku_friend_service_t *friends = miku_friend_service_create();
+    miku_msg_service_t *msg = miku_msg_service_create();
+    miku_msg_service_set_friend_svc(msg, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "a", "b", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "b", "a", ""));
+
+    char cid[MK_CONV_ID_LEN];
+    miku_conversation_id_resolve(cid, sizeof(cid), NULL, NULL, "a", "b");
+
+    miku_json_val_t *ok_req = miku_json_create_object();
+    miku_json_object_set(ok_req, "userID", miku_json_create_str("a"));
+    miku_json_object_set(ok_req, "conversationID", miku_json_create_str(cid));
+    miku_json_val_t *ok_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "setMessageReactionExtensions", ok_req, ok_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ok_resp, "errCode")));
+
+    miku_json_val_t *bad_req = miku_json_create_object();
+    miku_json_object_set(bad_req, "userID", miku_json_create_str("x"));
+    miku_json_object_set(bad_req, "conversationID", miku_json_create_str(cid));
+    miku_json_val_t *bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "addMessageReactionExtensions", bad_req, bad_resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(bad_resp, "errCode")));
+
+    miku_json_destroy(ok_req);
+    miku_json_destroy(ok_resp);
+    miku_json_destroy(bad_req);
+    miku_json_destroy(bad_resp);
+    miku_msg_service_destroy(msg);
+    miku_friend_service_destroy(friends);
+}
+
 static void test_msg_mark_read_gate(void) {
     miku_friend_service_t *friends = miku_friend_service_create();
     miku_msg_service_t *msg = miku_msg_service_create();
@@ -2003,6 +2035,7 @@ void run_service_tests(void) {
     mk_run_test(test_msg_get_send_status_gate);
     mk_run_test(test_msg_admin_rpc_gate);
     mk_run_test(test_msg_delete_by_seq_gate);
+    mk_run_test(test_msg_reaction_conv_gate);
     mk_run_test(test_msg_mark_read_gate);
     mk_run_test(test_msg_delete_revoke_conv_gate);
     mk_run_test(test_msg_send_friend_gate);

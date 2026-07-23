@@ -272,6 +272,13 @@ static int msg_user_may_access_conv(miku_msg_service_t *svc, const char *uid, co
     return 0;
 }
 
+static int msg_reaction_conv_gate(miku_msg_service_t *svc, const miku_json_val_t *req) {
+    const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+    const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
+    if (!uid || !uid[0] || !cid || !cid[0]) return 3003;
+    return msg_user_may_access_conv(svc, uid, cid) ? 0 : 3003;
+}
+
 /* 0 = allowed; otherwise OpenIM-style errCode for RPC response. */
 static int msg_send_gate(miku_msg_service_t *svc, const miku_msg_t *m) {
     if (!m || !m->send_id[0]) return 400;
@@ -771,18 +778,23 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "errCode", deleted ? 0 : ((uid && uid[0] && cid && cid[0] && del_seq > 0) ? 5001 : 400));
     } break;
     case MK_MSG_RPC_setMessageReactionExtensions: {
-        miku_ji(resp, "errCode", 0);
+        int g = msg_reaction_conv_gate(svc, req);
+        miku_ji(resp, "errCode", g ? g : 0);
     } break;
     case MK_MSG_RPC_getMessageListReactionExtensions: {
+        int g = msg_reaction_conv_gate(svc, req);
+        (void)g;
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_MSG_RPC_addMessageReactionExtensions: {
-        miku_ji(resp, "errCode", 0);
+        int g = msg_reaction_conv_gate(svc, req);
+        miku_ji(resp, "errCode", g ? g : 0);
     } break;
     case MK_MSG_RPC_deleteMessageReactionExtensions: {
-        miku_ji(resp, "errCode", 0);
+        int g = msg_reaction_conv_gate(svc, req);
+        miku_ji(resp, "errCode", g ? g : 0);
     } break;
     default:
         if (strncmp(method, "setMessage", 10) == 0 ||
