@@ -1070,6 +1070,19 @@ static void test_msg_rpc_resp_reuse(void) {
         mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
     }
 
+    miku_json_val_t *read = miku_json_create_object();
+    miku_json_object_set(read, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "getConversationsHasReadAndMaxSeq", read, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "data"));
+    miku_json_destroy(read);
+    miku_msg_handle_rpc(msg, "getConversationsHasReadAndMaxSeq", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
     miku_json_destroy(ok);
     miku_json_destroy(bad);
     miku_json_destroy(resp);
