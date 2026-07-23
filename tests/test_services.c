@@ -862,6 +862,31 @@ static void test_msg_admin_rpc_gate(void) {
     miku_json_destroy(biz_deny);
     miku_json_destroy(biz_deny_resp);
 
+    miku_json_val_t *biz_bad = miku_json_create_object();
+    miku_json_object_set(biz_bad, "platformID", miku_json_create_int(5));
+    miku_json_object_set(biz_bad, "sendID", miku_json_create_str("sys"));
+    miku_json_val_t *biz_bad_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "sendBusinessNotification", biz_bad, biz_bad_resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(biz_bad_resp, "errCode")));
+    miku_json_destroy(biz_bad);
+    miku_json_destroy(biz_bad_resp);
+
+    miku_msg_service_destroy(msg);
+}
+
+static void test_msg_send_rpc_validation(void) {
+    miku_msg_service_t *msg = miku_msg_service_create();
+    mk_assert_not_null(msg);
+    miku_json_val_t *req = miku_json_create_object();
+    miku_json_val_t *resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", req, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_msg_handle_rpc(msg, "sendMsg", req, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_msg_handle_rpc(msg, "sendSimpleMsg", req, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(req);
+    miku_json_destroy(resp);
     miku_msg_service_destroy(msg);
 }
 
@@ -2197,6 +2222,7 @@ void run_service_tests(void) {
     mk_run_test(test_msg_conv_read_gate);
     mk_run_test(test_msg_get_send_status_gate);
     mk_run_test(test_msg_admin_rpc_gate);
+    mk_run_test(test_msg_send_rpc_validation);
     mk_run_test(test_msg_delete_by_seq_gate);
     mk_run_test(test_msg_reaction_conv_gate);
     mk_run_test(test_msg_revoke_rpc_validation);
