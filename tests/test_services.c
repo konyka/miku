@@ -1253,6 +1253,30 @@ static void test_msg_rpc_delete_resp_reuse(void) {
     send_req = miku_json_create_object();
     miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
     miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("del-phys"));
+    miku_json_object_set(send_req, "clientMsgID", miku_json_create_str("del-cmid-phys"));
+    send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+
+    miku_json_val_t *dphys_ok = miku_json_create_object();
+    miku_json_object_set(dphys_ok, "userID", miku_json_create_str("a"));
+    miku_json_object_set(dphys_ok, "clientMsgID", miku_json_create_str("del-cmid-phys"));
+    miku_msg_handle_rpc(msg, "deleteMsgPhysical", dphys_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(dphys_ok);
+    miku_msg_handle_rpc(msg, "deleteMsgPhysical", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
+    send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
     miku_json_object_set(send_req, "content", miku_json_create_str("del3"));
     miku_json_object_set(send_req, "clientMsgID", miku_json_create_str("del-cmid-3"));
     send_resp = miku_json_create_object();
