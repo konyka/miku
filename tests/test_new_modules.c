@@ -1959,6 +1959,22 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
+    char status_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/get_send_status", token,
+        "{}", status_bad, sizeof(status_bad));
+    r = miku_json_parse_str(extract_json_body(status_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    char check_no_id[8192] = {0};
+    http_post_with_token(19780, "/msg/check_msg_is_send_success", token,
+        "{}", check_no_id, sizeof(check_no_id));
+    r = miku_json_parse_str(extract_json_body(check_no_id));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
     char resp2[8192] = {0};
     http_post_with_token(19780, "/msg/search_msg", token,
         "{\"keyword\":\"e2e test\",\"conversationID\":\"si_2_r1_s1\"}", resp2, sizeof(resp2));
