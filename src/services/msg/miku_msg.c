@@ -138,6 +138,8 @@ static int msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
 static int msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid,
                                         const char *conv_id, int64_t seq);
 
+static int msg_send_gate(miku_msg_service_t *svc, const miku_msg_t *m);
+
 static void msg_remove_at(miku_msg_service_t *svc, int mi) {
     if (!svc || mi < 0 || mi >= svc->count) return;
     /* Keep msgs[] seq-ordered (binary pull); rebuild indexes after compact. */
@@ -190,6 +192,11 @@ int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m) {
     /* Always canonical — never trust client conversationID (injection IDOR). */
     miku_conversation_id_resolve(m->conversation_id, sizeof(m->conversation_id),
                                  NULL, m->group_id, m->send_id, m->recv_id);
+    if ((m->group_id[0] && svc->group_svc) || (m->recv_id[0] && svc->friend_svc)) {
+        int gate = msg_send_gate(svc, m);
+        if (gate != 0)
+            return gate;
+    }
     miku_uuid_generate(m->server_msg_id);
     m->seq = ++svc->seq;
     m->send_time = miku_timestamp_ms();

@@ -465,9 +465,14 @@ static void test_conv_create_and_get(void) {
 static void test_msg_send_and_query(void) {
     miku_msg_service_t *svc = miku_msg_service_create();
     miku_friend_service_t *friends = miku_friend_service_create();
+    miku_group_service_t *groups = miku_group_service_create();
     mk_assert_not_null(svc);
     mk_assert_not_null(friends);
+    mk_assert_not_null(groups);
     miku_msg_service_set_friend_svc(svc, friends);
+    miku_msg_service_set_group_svc(svc, groups);
+    mk_assert_int_eq(0, miku_group_add_member(groups, "g9", "owner", 100));
+    mk_assert_int_eq(0, miku_group_add_member(groups, "g9", "s1", 20));
     mk_assert_int_eq(0, miku_friend_add(friends, "s1", "r1", ""));
     mk_assert_int_eq(0, miku_friend_add(friends, "r1", "s1", ""));
     mk_assert_int_eq(0, miku_friend_add(friends, "alice", "bob", ""));
@@ -527,14 +532,13 @@ static void test_msg_send_and_query(void) {
     strncpy(spoof.conversation_id, "si_5_alice_bob", sizeof(spoof.conversation_id) - 1);
     strncpy(spoof.content, "injected", sizeof(spoof.content) - 1);
     spoof.msg_type = MK_MSG_TYPE_TEXT;
-    mk_assert_int_eq(0, miku_msg_send(svc, &spoof));
+    mk_assert_int_eq(6002, miku_msg_send(svc, &spoof));
     mk_assert_str_eq("si_3_eve_mallory", spoof.conversation_id);
     n = miku_msg_get_by_conv(svc, "si_5_alice_bob", 0, 0, 10, out, 4);
     mk_assert_int_eq(1, n);
     mk_assert(strcmp(out[0].content, "injected") != 0);
     n = miku_msg_get_by_conv(svc, "si_3_eve_mallory", 0, 0, 10, out, 4);
-    mk_assert_int_eq(1, n);
-    mk_assert_str_eq("injected", out[0].content);
+    mk_assert_int_eq(0, n);
 
     miku_msg_t gm;
     memset(&gm, 0, sizeof(gm));
@@ -600,6 +604,7 @@ static void test_msg_send_and_query(void) {
     miku_json_destroy(uclr_resp);
 
     miku_friend_service_destroy(friends);
+    miku_group_service_destroy(groups);
     miku_msg_service_destroy(svc);
 }
 
