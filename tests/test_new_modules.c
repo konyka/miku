@@ -2846,6 +2846,19 @@ static void test_admin_stats(void) {
     mk_assert_not_null(dr);
     mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
     miku_json_destroy(dr);
+    char cleanup_bad[8192] = {0};
+    http_post_with_token(19798, "/msg/clean_up", user_tok, "{}", cleanup_bad, sizeof(cleanup_bad));
+    dr = miku_json_parse_str(extract_json_body(cleanup_bad));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
+    char batch_bad[8192] = {0};
+    http_post_with_token(19798, "/msg/batch_send", user_tok, "{\"msgs\":[]}",
+        batch_bad, sizeof(batch_bad));
+    dr = miku_json_parse_str(extract_json_body(batch_bad));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
 
     char auth_resp[8192] = {0};
     http_post_to(19798, "/auth/admin_token",
@@ -2862,6 +2875,20 @@ static void test_admin_stats(void) {
     mk_assert(body != NULL);
     mk_assert(strstr(body, "\"errCode\":0") != NULL);
     mk_assert(strstr(body, "uptimeMs") != NULL);
+    char batch_ok[8192] = {0};
+    http_post_with_token(19798, "/msg/batch_send", token, "{\"msgs\":[]}",
+        batch_ok, sizeof(batch_ok));
+    dr = miku_json_parse_str(extract_json_body(batch_ok));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    mk_assert_not_null(miku_json_get(dr, "data"));
+    miku_json_destroy(dr);
+    char cleanup_ok[8192] = {0};
+    http_post_with_token(19798, "/msg/clean_up", token, "{}", cleanup_ok, sizeof(cleanup_ok));
+    dr = miku_json_parse_str(extract_json_body(cleanup_ok));
+    mk_assert_not_null(dr);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(dr, "errCode")));
+    miku_json_destroy(dr);
     char shut_ok[8192] = {0};
     http_post_with_token(19798, "/admin/shutdown", token, "{}", shut_ok, sizeof(shut_ok));
     dr = miku_json_parse_str(extract_json_body(shut_ok));
