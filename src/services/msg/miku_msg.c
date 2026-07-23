@@ -623,13 +623,15 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     case MK_MSG_RPC_getMsg: {
         const char *smid = req ? miku_json_str(miku_json_get(req, "serverMsgID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
+        if (!uid || !uid[0] || !smid || !smid[0]) {
+            miku_ji(resp, "errCode", 400);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (smid && uid && uid[0]) {
-            int mi = hash_find_sid(svc, smid);
-            if (mi >= 0 && msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
-                miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
-        }
+        int mi = hash_find_sid(svc, smid);
+        if (mi >= 0 && msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
+            miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_MSG_RPC_getNewestSeq: {

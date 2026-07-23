@@ -1337,6 +1337,15 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             resp->status = 403;
             return;
         }
+    } else if (strcmp(method, "getMsg") == 0) {
+        if (require_fields(j, resp, "serverMsgID", (const char *)NULL)) {
+            miku_json_destroy(j); return;
+        }
+        if (!actor[0]) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp, "{\"errCode\":0,\"data\":[]}");
+            return;
+        }
     } else if (strcmp(method, "getSendMsgStatus") == 0
                || strcmp(method, "checkMsgIsSendSuccess") == 0) {
         const char *smid = miku_json_str(miku_json_get(j, "serverMsgID"));
