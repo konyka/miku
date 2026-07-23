@@ -25,7 +25,8 @@ MIKU_API int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,
                                    miku_msg_t *out, int max);
 MIKU_API int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *client_msg_id);
 /* Align API msg-service record with gateway-authoritative seq/id/time. */
-MIKU_API int miku_msg_update_delivery(miku_msg_service_t *svc, const char *client_msg_id,
+MIKU_API int miku_msg_update_delivery(miku_msg_service_t *svc, const char *uid,
+                                      const char *client_msg_id,
                                       int64_t seq, const char *server_msg_id, int64_t send_time);
 /* True when uid is sender and still has conv access (physical delete pre-check). */
 MIKU_API int miku_msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,

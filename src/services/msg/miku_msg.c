@@ -239,11 +239,13 @@ int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *cl
     return -2;
 }
 
-int miku_msg_update_delivery(miku_msg_service_t *svc, const char *client_msg_id,
+int miku_msg_update_delivery(miku_msg_service_t *svc, const char *uid,
+                             const char *client_msg_id,
                              int64_t seq, const char *server_msg_id, int64_t send_time) {
-    if (!svc || !client_msg_id || !client_msg_id[0]) return -1;
+    if (!svc || !uid || !uid[0] || !client_msg_id || !client_msg_id[0]) return -1;
     int mi = hash_find_cid(svc, client_msg_id);
     if (mi < 0) return -1;
+    if (strcmp(svc->msgs[mi].send_id, uid) != 0) return -1;
     if (seq > 0) svc->msgs[mi].seq = seq;
     if (server_msg_id && server_msg_id[0]) {
         char old_sid[sizeof(svc->msgs[mi].server_msg_id)];

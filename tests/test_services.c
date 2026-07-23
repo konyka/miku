@@ -492,7 +492,7 @@ static void test_msg_send_and_query(void) {
     strncpy(m.client_msg_id, "c_upd_1", sizeof(m.client_msg_id) - 1);
     mk_assert_int_eq(0, miku_msg_send(svc, &m));
     mk_assert_str_eq("si_2_r1_s1", m.conversation_id);
-    mk_assert_int_eq(0, miku_msg_update_delivery(svc, "c_upd_1", 99, "gw_id", 12345));
+    mk_assert_int_eq(0, miku_msg_update_delivery(svc, "s1", "c_upd_1", 99, "gw_id", 12345));
     miku_msg_t out[4];
     int n = miku_msg_get_by_conv(svc, "si_2_r1_s1", 0, 0, 10, out, 4);
     mk_assert(n >= 1);
@@ -506,6 +506,7 @@ static void test_msg_send_and_query(void) {
         }
     }
     mk_assert_int_eq(1, found);
+    mk_assert_int_eq(-1, miku_msg_update_delivery(svc, "r1", "c_upd_1", 88, "bad", 1));
 
     /* Substring userIDs must not leak across conversations. */
     miku_msg_t ice;
