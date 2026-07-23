@@ -443,7 +443,7 @@ static void msg_rpc_clear_resp(miku_json_val_t *resp) {
     if (!resp || miku_json_type(resp) != MK_JSON_OBJECT) return;
     static const char *keys[] = {
         "errCode", "errMsg", "data", "seq", "serverMsgID", "sendTime",
-        "status", "deleted", NULL,
+        "serverTime", "status", "deleted", NULL,
     };
     for (int i = 0; keys[i]; i++) {
         if (miku_json_get(resp, keys[i]))

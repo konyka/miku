@@ -952,6 +952,15 @@ static void test_msg_rpc_resp_reuse(void) {
     mk_assert(miku_json_get(resp, "data") == NULL);
     miku_json_destroy(search_bad);
 
+    miku_json_val_t *time_req = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "getServerTime", time_req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "serverTime"));
+    miku_json_destroy(time_req);
+    miku_msg_handle_rpc(msg, "getMsgByConv", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert(miku_json_get(resp, "serverTime") == NULL);
+
     miku_json_destroy(ok);
     miku_json_destroy(bad);
     miku_json_destroy(resp);
