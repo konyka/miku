@@ -879,6 +879,17 @@ static void test_msg_admin_rpc_gate(void) {
     mk_assert_not_null(miku_json_get(reuse_resp, "data"));
     miku_json_destroy(admin_ok);
 
+    miku_json_val_t *biz_noplat = miku_json_create_object();
+    miku_json_object_set(biz_noplat, "sendID", miku_json_create_str("sys"));
+    miku_json_object_set(biz_noplat, "recvID", miku_json_create_str("u1"));
+    miku_msg_handle_rpc(msg, "sendBusinessNotification", biz_noplat, reuse_resp);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(reuse_resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(reuse_resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+    miku_json_destroy(biz_noplat);
+
     miku_json_val_t *admin_deny = miku_json_create_object();
     miku_msg_handle_rpc(msg, "cleanUpMsg", admin_deny, reuse_resp);
     mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(reuse_resp, "errCode")));
@@ -2029,6 +2040,16 @@ static void test_rpc_internal_token(void) {
     r = miku_json_parse_str(resp);
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    resp[0] = '\0';
+    mk_assert_int_eq(0, rpc_call(srv, 19091,
+        "{\"method\":\"registerUser\",\"userID\":\"u98\",\"nickname\":\"bad token\","
+        "\"internalToken\":\"wrong-secret\"}",
+        resp, sizeof(resp)));
+    r = miku_json_parse_str(resp);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(401, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
     miku_rpc_server_stop(srv);
