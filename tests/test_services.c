@@ -1393,6 +1393,61 @@ static void test_msg_rpc_delete_resp_reuse(void) {
     miku_friend_service_destroy(friends);
 }
 
+static void test_msg_rpc_gate_resp_reuse(void) {
+    miku_friend_service_t *friends = miku_friend_service_create();
+    miku_msg_service_t *msg = miku_msg_service_create();
+    miku_msg_service_set_friend_svc(msg, friends);
+    mk_assert_int_eq(0, miku_friend_add(friends, "a", "b", ""));
+    mk_assert_int_eq(0, miku_friend_add(friends, "b", "a", ""));
+
+    char cid[MK_CONV_ID_LEN];
+    miku_conversation_id_resolve(cid, sizeof(cid), NULL, NULL, "a", "b");
+
+    miku_json_val_t *send_req = miku_json_create_object();
+    miku_json_object_set(send_req, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(send_req, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(send_req, "content", miku_json_create_str("gate"));
+    miku_json_val_t *send_resp = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "send", send_req, send_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(send_resp, "errCode")));
+    miku_json_destroy(send_req);
+    miku_json_destroy(send_resp);
+
+    miku_json_val_t *resp = miku_json_create_object();
+    miku_json_val_t *read_ok = miku_json_create_object();
+    miku_json_object_set(read_ok, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(read_ok, "userID", miku_json_create_str("a"));
+    miku_msg_handle_rpc(msg, "getMsgByConv", read_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "data"));
+
+    miku_json_val_t *intruder = miku_json_create_object();
+    miku_json_object_set(intruder, "conversationID", miku_json_create_str(cid));
+    miku_json_object_set(intruder, "userID", miku_json_create_str("intruder"));
+    miku_msg_handle_rpc(msg, "markMsgsAsRead", intruder, resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
+    miku_msg_handle_rpc(msg, "getMsgByConv", read_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "data"));
+    miku_msg_handle_rpc(msg, "setConversationHasReadSeq", intruder, resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
+    miku_json_destroy(intruder);
+    miku_json_destroy(read_ok);
+    miku_json_destroy(resp);
+    miku_msg_service_destroy(msg);
+    miku_friend_service_destroy(friends);
+}
+
 static void test_msg_delete_by_seq_gate(void) {
     miku_friend_service_t *friends = miku_friend_service_create();
     miku_msg_service_t *msg = miku_msg_service_create();
@@ -2739,6 +2794,7 @@ void run_service_tests(void) {
     mk_run_test(test_msg_send_rpc_validation);
     mk_run_test(test_msg_rpc_resp_reuse);
     mk_run_test(test_msg_rpc_delete_resp_reuse);
+    mk_run_test(test_msg_rpc_gate_resp_reuse);
     mk_run_test(test_msg_delete_by_seq_gate);
     mk_run_test(test_msg_reaction_conv_gate);
     mk_run_test(test_msg_revoke_rpc_validation);
