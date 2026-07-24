@@ -871,6 +871,24 @@ static void test_msg_admin_rpc_gate(void) {
     miku_json_destroy(biz_bad);
     miku_json_destroy(biz_bad_resp);
 
+    miku_json_val_t *reuse_resp = miku_json_create_object();
+    miku_json_val_t *admin_ok = miku_json_create_object();
+    miku_json_object_set(admin_ok, "platformID", miku_json_create_int(5));
+    miku_msg_handle_rpc(msg, "batchSendMsg", admin_ok, reuse_resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(reuse_resp, "errCode")));
+    mk_assert_not_null(miku_json_get(reuse_resp, "data"));
+    miku_json_destroy(admin_ok);
+
+    miku_json_val_t *admin_deny = miku_json_create_object();
+    miku_msg_handle_rpc(msg, "cleanUpMsg", admin_deny, reuse_resp);
+    mk_assert_int_eq(403, (int)miku_json_int(miku_json_get(reuse_resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(reuse_resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+    miku_json_destroy(admin_deny);
+    miku_json_destroy(reuse_resp);
+
     miku_msg_service_destroy(msg);
 }
 
@@ -1917,6 +1935,15 @@ static void test_rpc_client_call(void) {
     miku_json_val_t *r = miku_json_parse_str(resp);
     mk_assert_not_null(r);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+
+    memset(resp, 0, sizeof(resp));
+    mk_assert_int_eq(0, miku_rpc_call("127.0.0.1", 19092,
+        "{\"method\":\"registerUser\",\"userID\":\"rc2\",\"nickname\":\"no token\"}",
+        resp, sizeof(resp), 0));
+    r = miku_json_parse_str(resp);
+    mk_assert_not_null(r);
+    mk_assert_int_eq(401, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
 
     pctx.stop = 1;
