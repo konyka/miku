@@ -1415,7 +1415,9 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
             miku_json_destroy(j); miku_json_destroy(out);
-            miku_http_response_set_json(resp, "{\"errCode\":0,\"data\":[]}");
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"not a conversation participant\"}");
+            resp->status = 403;
             return;
         }
     } else if (strcmp(method, "cleanUpMsg") == 0) {
