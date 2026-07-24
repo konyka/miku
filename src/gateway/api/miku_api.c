@@ -1345,6 +1345,13 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             resp->status = 403;
             return;
         }
+        if (strcmp(method, "clearConversationMsg") == 0 && cid && strncmp(cid, "sg_", 3) == 0) {
+            miku_json_destroy(j); miku_json_destroy(out);
+            miku_http_response_set_json(resp,
+                "{\"errCode\":3003,\"errMsg\":\"group history cannot be cleared\"}");
+            resp->status = 403;
+            return;
+        }
     } else if (strcmp(method, "userClearAllMsg") == 0) {
         if (require_fields(j, resp, "userID", (const char *)NULL)) {
             miku_json_destroy(j); return;
