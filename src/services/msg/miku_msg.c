@@ -874,8 +874,8 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
     } break;
     case MK_MSG_RPC_getMessageListReactionExtensions: {
         int g = msg_reaction_conv_gate(svc, req);
-        if (g == 400) {
-            miku_ji(resp, "errCode", 400);
+        if (g != 0) {
+            miku_ji(resp, "errCode", g);
             break;
         }
         miku_ji(resp, "errCode", 0);
