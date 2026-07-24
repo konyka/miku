@@ -2224,6 +2224,27 @@ static void test_http_e2e_msg_send_and_search(void) {
     mk_assert_not_null(r);
     mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
     miku_json_destroy(r);
+    char react_set_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/set_message_reaction_extensions", tok_x,
+        "{\"conversationID\":\"si_2_r1_s1\"}", react_set_bad, sizeof(react_set_bad));
+    r = miku_json_parse_str(extract_json_body(react_set_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char react_add_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/add_message_reaction_extensions", tok_x,
+        "{\"conversationID\":\"si_2_r1_s1\"}", react_add_bad, sizeof(react_add_bad));
+    r = miku_json_parse_str(extract_json_body(react_add_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
+    char react_del_bad[8192] = {0};
+    http_post_with_token(19780, "/msg/delete_message_reaction_extensions", tok_x,
+        "{\"conversationID\":\"si_2_r1_s1\"}", react_del_bad, sizeof(react_del_bad));
+    r = miku_json_parse_str(extract_json_body(react_del_bad));
+    mk_assert_not_null(r);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(r, "errCode")));
+    miku_json_destroy(r);
 
     /* Underscore UIDs: length-prefix prevents si_ collision IDOR (a vs a_b). */
     char cid_ac[64], cid_ab[64], peer[64];
