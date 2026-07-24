@@ -1441,6 +1441,26 @@ static void test_msg_rpc_gate_resp_reuse(void) {
         mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
     }
 
+    miku_msg_handle_rpc(msg, "getMsgByConv", read_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "data"));
+    miku_msg_handle_rpc(msg, "markConversationAsRead", intruder, resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
+    miku_msg_handle_rpc(msg, "getMsgByConv", read_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "data"));
+    miku_msg_handle_rpc(msg, "setMessageReactionExtensions", intruder, resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *d = miku_json_get(resp, "data");
+        mk_assert(!d || miku_json_type(d) == MK_JSON_NULL);
+    }
+
     miku_json_destroy(intruder);
     miku_json_destroy(read_ok);
     miku_json_destroy(resp);
