@@ -1176,6 +1176,10 @@ static void test_msg_rpc_resp_reuse(void) {
     mk_assert_not_null(miku_json_get(resp, "data"));
     miku_msg_handle_rpc(msg, "setMessageReactionExtensions", react_ok, resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_msg_handle_rpc(msg, "addMessageReactionExtensions", react_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_msg_handle_rpc(msg, "deleteMessageReactionExtensions", react_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
     miku_json_destroy(react_ok);
     miku_msg_handle_rpc(msg, "getMessageListReactionExtensions", bad, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
@@ -1195,6 +1199,27 @@ static void test_msg_rpc_resp_reuse(void) {
     mk_assert(miku_json_int(miku_json_get(resp, "sendTime")) > 0);
     miku_json_destroy(simp_ok);
     miku_msg_handle_rpc(msg, "sendSimpleMsg", bad, resp);
+    mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    {
+        miku_json_val_t *sm = miku_json_get(resp, "serverMsgID");
+        miku_json_val_t *sq = miku_json_get(resp, "seq");
+        miku_json_val_t *st = miku_json_get(resp, "sendTime");
+        mk_assert(!sm || miku_json_type(sm) == MK_JSON_NULL);
+        mk_assert(!sq || miku_json_type(sq) == MK_JSON_NULL);
+        mk_assert(!st || miku_json_type(st) == MK_JSON_NULL);
+    }
+
+    miku_json_val_t *smsg_ok = miku_json_create_object();
+    miku_json_object_set(smsg_ok, "sendID", miku_json_create_str("a"));
+    miku_json_object_set(smsg_ok, "recvID", miku_json_create_str("b"));
+    miku_json_object_set(smsg_ok, "content", miku_json_create_str("smsg"));
+    miku_msg_handle_rpc(msg, "sendMsg", smsg_ok, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_not_null(miku_json_get(resp, "serverMsgID"));
+    mk_assert(miku_json_int(miku_json_get(resp, "seq")) > 0);
+    mk_assert(miku_json_int(miku_json_get(resp, "sendTime")) > 0);
+    miku_json_destroy(smsg_ok);
+    miku_msg_handle_rpc(msg, "sendMsg", bad, resp);
     mk_assert_int_eq(400, (int)miku_json_int(miku_json_get(resp, "errCode")));
     {
         miku_json_val_t *sm = miku_json_get(resp, "serverMsgID");
