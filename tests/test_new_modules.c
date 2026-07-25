@@ -347,6 +347,37 @@ void test_ws_subscription_basic(void) {
     miku_ws_sub_destroy(sub);
 }
 
+void test_ws_subscription_notify_escape(void) {
+    miku_ws_sub_t *sub = miku_ws_sub_create();
+    mk_assert_not_null(sub);
+
+    /* User IDs may contain quotes (see test_webhook_payload_escape), so the
+     * status notification payload must stay parseable JSON. */
+    mk_assert_int_eq(0, miku_ws_sub_subscribe(sub, "watcher", "u\"quote\\x"));
+    g_sub_notify_count = 0;
+    g_sub_last_payload[0] = '\0';
+    miku_ws_sub_set_notify(sub, test_sub_notify_cb, NULL);
+
+    miku_ws_sub_user_online(sub, "u\"quote\\x", 3);
+    mk_assert_int_eq(1, g_sub_notify_count);
+    miku_json_val_t *on = miku_json_parse_str(g_sub_last_payload);
+    mk_assert_not_null(on);
+    mk_assert_str_eq("u\"quote\\x", miku_json_str(miku_json_get(on, "userID")));
+    mk_assert_str_eq("online", miku_json_str(miku_json_get(on, "status")));
+    mk_assert_int_eq(3, (int)miku_json_int(miku_json_get(on, "platform")));
+    miku_json_destroy(on);
+
+    miku_ws_sub_user_offline(sub, "u\"quote\\x");
+    mk_assert_int_eq(2, g_sub_notify_count);
+    miku_json_val_t *off = miku_json_parse_str(g_sub_last_payload);
+    mk_assert_not_null(off);
+    mk_assert_str_eq("u\"quote\\x", miku_json_str(miku_json_get(off, "userID")));
+    mk_assert_str_eq("offline", miku_json_str(miku_json_get(off, "status")));
+    miku_json_destroy(off);
+
+    miku_ws_sub_destroy(sub);
+}
+
 void test_msggw_ws_resolve_conv(void) {
     char conv[128];
 
@@ -3389,6 +3420,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_offline_push_fcm_service_account);
     mk_run_test(test_cron_tasks_basic);
     mk_run_test(test_ws_subscription_basic);
+    mk_run_test(test_ws_subscription_notify_escape);
     mk_run_test(test_msggw_ws_resolve_conv);
     mk_run_test(test_msggw_user_read_seq);
     mk_run_test(test_msggw_ws_deliver_msg);

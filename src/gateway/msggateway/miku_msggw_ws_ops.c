@@ -275,10 +275,12 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             break;
         }
         miku_msggw_peek_max_seq(gc->gw, conv, &seq);
-        char resp[256];
+        char econv[sizeof(conv) * 2];
+        miku_json_escape_str(conv, econv, sizeof(econv));
+        char resp[512];
         snprintf(resp, sizeof(resp),
                  "{\"errCode\":0,\"conversationID\":\"%s\",\"maxSeq\":%lld}",
-                 conv, (long long)seq);
+                 econv, (long long)seq);
         reply_json(gc->gw, client_idx, opcode, resp);
         MK_LOG_INFO("ws_op[%d]: GET_NEWEST_SEQ client=%d maxSeq=%lld",
                     opcode, client_idx, (long long)seq);
@@ -378,10 +380,12 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                 else if (im.recv_id[0]) im.conversation_type = MK_IM_CONV_SINGLE;
             }
             fanout_send_msg(gc, &im);
-            char resp[256];
+            char econv[sizeof(conv) * 2];
+            miku_json_escape_str(conv, econv, sizeof(econv));
+            char resp[512];
             snprintf(resp, sizeof(resp),
                      "{\"errCode\":0,\"conversationID\":\"%s\",\"hasReadSeq\":%lld}",
-                     conv, (long long)rs);
+                     econv, (long long)rs);
             reply_json(gc->gw, client_idx, opcode, resp);
             MK_LOG_INFO("ws_op[%d]: SEND_MSG READ client=%d conv=%s hasReadSeq=%lld recv=%s group=%s",
                         opcode, client_idx, conv, (long long)rs, im.recv_id, im.group_id);
@@ -394,11 +398,15 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
             break;
         }
 
+        char ecmid[sizeof(im.client_msg_id) * 2];
+        char esmid[sizeof(im.msg_id) * 2];
+        miku_json_escape_str(im.client_msg_id, ecmid, sizeof(ecmid));
+        miku_json_escape_str(im.msg_id, esmid, sizeof(esmid));
         char resp[512];
         snprintf(resp, sizeof(resp),
                  "{\"errCode\":0,\"clientMsgID\":\"%s\",\"serverMsgID\":\"%s\","
                  "\"sendTime\":%lld,\"seq\":%lld}",
-                 im.client_msg_id, im.msg_id,
+                 ecmid, esmid,
                  (long long)im.send_time, (long long)im.seq);
         reply_json(gc->gw, client_idx, opcode, resp);
         MK_LOG_INFO("ws_op[%d]: SEND_MSG client=%d sendID=%s recvID=%s groupID=%s seq=%lld",

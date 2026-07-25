@@ -1,5 +1,6 @@
 #include "miku_ws_subscription.h"
 #include "miku_hash.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -190,17 +191,21 @@ static void notify_subscribers(miku_ws_sub_t *sub, const char *target_user_id,
 
 void miku_ws_sub_user_online(miku_ws_sub_t *sub, const char *user_id, int platform) {
     if (!sub || !user_id) return;
-    char payload[256];
+    char euid[256];
+    miku_json_escape_str(user_id, euid, sizeof(euid));
+    char payload[512];
     snprintf(payload, sizeof(payload),
              "{\"userID\":\"%s\",\"platform\":%d,\"status\":\"online\"}",
-             user_id, platform);
+             euid, platform);
     notify_subscribers(sub, user_id, payload);
 }
 
 void miku_ws_sub_user_offline(miku_ws_sub_t *sub, const char *user_id) {
     if (!sub || !user_id) return;
-    char payload[256];
+    char euid[256];
+    miku_json_escape_str(user_id, euid, sizeof(euid));
+    char payload[512];
     snprintf(payload, sizeof(payload),
-             "{\"userID\":\"%s\",\"status\":\"offline\"}", user_id);
+             "{\"userID\":\"%s\",\"status\":\"offline\"}", euid);
     notify_subscribers(sub, user_id, payload);
 }

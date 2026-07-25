@@ -322,9 +322,11 @@ PAYLOAD: JSON 编码的业务数据
 
 完整的 JSON 解析和构建器：
 - 支持 null/bool/int/double/string/array/object 7 种类型
-- 递归下降解析器
-- `miku_json_stringify` 序列化
-- 性能：1.36M ops/sec（解析），1.47M ops/sec（序列化）
+- 递归下降解析器，按 RFC 8259 解码 `\uXXXX`（含 UTF-16 代理对 → UTF-8）；
+  孤立代理与 `\u0000` 替换为 U+FFFD，以保证结果仍是合法 C 字符串
+- `miku_json_stringify` 序列化，字符串值与对象键均按 RFC 8259 §7 转义
+  （含 `U+0000`–`U+001F` 的 `\u00XX`）；无需转义的片段整段追加
+- 性能：2.68M ops/sec（解析），4.87M ops/sec（序列化）
 
 #### 3.8 中间件管道
 
@@ -955,14 +957,14 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 
 | 分类 | 测试数 | 说明 |
 |------|--------|------|
-| Foundation | 20 | 内存池、Arena、Slab、日志、配置、HashMap、字符串、UUID 等 |
+| Foundation | 21 | 内存池、Arena、Slab、日志、配置、HashMap、字符串、UUID 等 |
 | Runtime | 9 | 协程、线程池、调度器、通道、定时器 |
-| Protocol | 38 | HTTP 解析、JSON、WebSocket、RPC、PB、中间件、203 路由校验 |
+| Protocol | 44 | HTTP 解析、JSON 编解码转义、WebSocket、RPC、PB、中间件、203 路由校验 |
 | Storage | 9 | LRU 缓存、服务发现 |
-| Services | 29 | 模型、7 个 RPC 服务、集成测试、认证中间件 |
-| New Modules | 61 | IM 消息、消息管道、限流、Webhook、WS ops、E2E 等 |
+| Services | 55 | 模型、7 个 RPC 服务、集成测试、认证中间件 |
+| New Modules | 67 | IM 消息、消息管道、限流、Webhook、WS ops、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **171** | 166 功能 + 5 基准 |
+| **总计** | **210** | 205 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
@@ -976,11 +978,13 @@ timeout 60 ./build/bin/miku_tests
 
 | 基准 | 吞吐量 |
 |------|--------|
-| JSON 解析 | 1.36M ops/sec |
-| JSON 序列化 | 1.47M ops/sec |
-| HashMap Put | 7.09M ops/sec |
-| Cache Set+Get | 3.97M ops/sec |
-| MsgTransfer 入队 | 38.4M ops/sec |
+| JSON 解析 | 2.68M ops/sec |
+| JSON 序列化 | 4.87M ops/sec |
+| HashMap Put | 10.4M ops/sec |
+| Cache Set+Get | 7.02M ops/sec |
+| MsgTransfer 入队 | 58.2M ops/sec |
+
+> 数据来自 Release 构建（`-O3 -march=native -flto`）的 `run_benchmarks`，每项 1 秒、取 3 次中位数。
 
 ### 性能目标
 

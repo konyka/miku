@@ -348,9 +348,9 @@ static void webhook_fire_json(miku_webhook_t *wh, miku_webhook_event_t ev,
         const char *key = va_arg(ap, const char *);
         if (!key) break;
         const char *val = va_arg(ap, const char *);
-        char ev[512];
-        miku_json_escape_str(val ? val : "", ev, sizeof(ev));
-        int n = snprintf(payload + pos, sizeof(payload) - pos, ",\"%s\":\"%s\"", key, ev);
+        char esc_val[512];
+        miku_json_escape_str(val ? val : "", esc_val, sizeof(esc_val));
+        int n = snprintf(payload + pos, sizeof(payload) - pos, ",\"%s\":\"%s\"", key, esc_val);
         if (n <= 0 || pos + (size_t)n >= sizeof(payload)) break;
         pos += (size_t)n;
     }

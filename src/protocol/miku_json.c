@@ -83,6 +83,46 @@ static char next(json_parser_t *p) {
 
 static miku_json_val_t *parse_value(json_parser_t *p);
 
+static int decode_hex4(const char *s, unsigned *out) {
+    unsigned v = 0;
+    for (int k = 0; k < 4; k++) {
+        char c = s[k];
+        unsigned d;
+        if (c >= '0' && c <= '9')      d = (unsigned)(c - '0');
+        else if (c >= 'a' && c <= 'f') d = (unsigned)(c - 'a') + 10u;
+        else if (c >= 'A' && c <= 'F') d = (unsigned)(c - 'A') + 10u;
+        else return -1;
+        v = (v << 4) | d;
+    }
+    *out = v;
+    return 0;
+}
+
+/* Writes at most 3 bytes for a BMP code point and 4 for a supplementary one,
+ * always fewer than the 6 (or 12) source bytes of the \u escape it replaces. */
+static size_t encode_utf8(unsigned cp, char *out) {
+    if (cp < 0x80u) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800u) {
+        out[0] = (char)(0xC0u | (cp >> 6));
+        out[1] = (char)(0x80u | (cp & 0x3Fu));
+        return 2;
+    }
+    if (cp < 0x10000u) {
+        out[0] = (char)(0xE0u | (cp >> 12));
+        out[1] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+        out[2] = (char)(0x80u | (cp & 0x3Fu));
+        return 3;
+    }
+    out[0] = (char)(0xF0u | (cp >> 18));
+    out[1] = (char)(0x80u | ((cp >> 12) & 0x3Fu));
+    out[2] = (char)(0x80u | ((cp >> 6) & 0x3Fu));
+    out[3] = (char)(0x80u | (cp & 0x3Fu));
+    return 4;
+}
+
 static char *decode_string(json_parser_t *p) {
     if (next(p) != '"') return NULL;
     size_t start = p->pos;
@@ -114,6 +154,28 @@ static char *decode_string(json_parser_t *p) {
                     case 'n':  result[j++] = '\n'; break;
                     case 'r':  result[j++] = '\r'; break;
                     case 't':  result[j++] = '\t'; break;
+                    case 'u': {
+                        unsigned cp = 0;
+                        if (i + 4 >= p->pos || decode_hex4(p->src + i + 1, &cp) != 0) {
+                            result[j++] = 'u';
+                            break;
+                        }
+                        i += 4;
+                        if (cp >= 0xD800u && cp <= 0xDBFFu && i + 6 < p->pos
+                            && p->src[i + 1] == '\\' && p->src[i + 2] == 'u') {
+                            unsigned lo = 0;
+                            if (decode_hex4(p->src + i + 3, &lo) == 0
+                                && lo >= 0xDC00u && lo <= 0xDFFFu) {
+                                cp = 0x10000u + ((cp - 0xD800u) << 10) + (lo - 0xDC00u);
+                                i += 6;
+                            }
+                        }
+                        /* Lone surrogates and NUL cannot survive as a C string;
+                         * substitute U+FFFD as RFC 8259 §8.2 permits. */
+                        if (cp == 0 || (cp >= 0xD800u && cp <= 0xDFFFu)) cp = 0xFFFDu;
+                        j += encode_utf8(cp, result + j);
+                        break;
+                    }
                     default:   result[j++] = p->src[i]; break;
                 }
             } else {
@@ -460,61 +522,89 @@ int miku_json_object_set(miku_json_val_t *obj, const char *key, miku_json_val_t 
     return 0;
 }
 
+/* Append a quoted JSON string literal, escaping per RFC 8259 §7. Escape-free
+ * spans are appended as one block: appending byte-by-byte cost a capacity
+ * check plus a NUL write per character on every serialised response. */
+static void stringify_str(miku_string_t *s, const char *str) {
+    miku_str_cat_len(s, "\"", 1);
+    if (!str) { miku_str_cat_len(s, "\"", 1); return; }
+    size_t run = 0;
+    const char *p = str;
+    for (;; p++) {
+        const char *esc = NULL;
+        char ubuf[8];
+        unsigned char c = (unsigned char)*p;
+        switch (c) {
+            case '\0': break;
+            case '"':  esc = "\\\""; break;
+            case '\\': esc = "\\\\"; break;
+            case '\n': esc = "\\n"; break;
+            case '\r': esc = "\\r"; break;
+            case '\t': esc = "\\t"; break;
+            case '\b': esc = "\\b"; break;
+            case '\f': esc = "\\f"; break;
+            default:
+                if (c < 0x20) {
+                    snprintf(ubuf, sizeof(ubuf), "\\u%04x", (unsigned)c);
+                    esc = ubuf;
+                } else {
+                    run++;
+                    continue;
+                }
+                break;
+        }
+        if (run) {
+            miku_str_cat_len(s, p - run, run);
+            run = 0;
+        }
+        if (!esc) break;
+        miku_str_cat(s, esc);
+    }
+    miku_str_cat_len(s, "\"", 1);
+}
+
 static void stringify_val(miku_string_t *s, const miku_json_val_t *v) {
     if (!v) { miku_str_cat(s, "null"); return; }
     switch (v->type) {
         case MK_JSON_NULL:
-            miku_str_cat(s, "null");
+            miku_str_cat_len(s, "null", 4);
             break;
         case MK_JSON_BOOL:
-            miku_str_cat(s, v->u.bool_val ? "true" : "false");
+            if (v->u.bool_val) miku_str_cat_len(s, "true", 4);
+            else               miku_str_cat_len(s, "false", 5);
             break;
-        case MK_JSON_INT:
-            miku_str_printf(s, "%lld", (long long)v->u.int_val);
+        case MK_JSON_INT: {
+            char buf[24];
+            int n = snprintf(buf, sizeof(buf), "%lld", (long long)v->u.int_val);
+            if (n > 0) miku_str_cat_len(s, buf, (size_t)n);
             break;
+        }
         case MK_JSON_DOUBLE: {
             char buf[64];
-            snprintf(buf, sizeof(buf), "%.17g", v->u.dbl_val);
-            miku_str_cat(s, buf);
+            int n = snprintf(buf, sizeof(buf), "%.17g", v->u.dbl_val);
+            if (n > 0) miku_str_cat_len(s, buf, (size_t)n);
             break;
         }
-        case MK_JSON_STRING: {
-            miku_str_cat(s, "\"");
-            if (v->u.str_val) {
-                const char *p = v->u.str_val;
-                while (*p) {
-                    switch (*p) {
-                        case '"':  miku_str_cat(s, "\\\""); break;
-                        case '\\': miku_str_cat(s, "\\\\"); break;
-                        case '\n': miku_str_cat(s, "\\n"); break;
-                        case '\r': miku_str_cat(s, "\\r"); break;
-                        case '\t': miku_str_cat(s, "\\t"); break;
-                        case '\b': miku_str_cat(s, "\\b"); break;
-                        case '\f': miku_str_cat(s, "\\f"); break;
-                        default:   miku_str_cat_len(s, p, 1); break;
-                    }
-                    p++;
-                }
-            }
-            miku_str_cat(s, "\"");
+        case MK_JSON_STRING:
+            stringify_str(s, v->u.str_val);
             break;
-        }
         case MK_JSON_ARRAY:
-            miku_str_cat(s, "[");
+            miku_str_cat_len(s, "[", 1);
             for (size_t i = 0; i < v->u.array.count; i++) {
-                if (i > 0) miku_str_cat(s, ",");
+                if (i > 0) miku_str_cat_len(s, ",", 1);
                 stringify_val(s, v->u.array.items[i]);
             }
-            miku_str_cat(s, "]");
+            miku_str_cat_len(s, "]", 1);
             break;
         case MK_JSON_OBJECT:
-            miku_str_cat(s, "{");
+            miku_str_cat_len(s, "{", 1);
             for (size_t i = 0; i < v->u.object.count; i++) {
-                if (i > 0) miku_str_cat(s, ",");
-                miku_str_printf(s, "\"%s\":", v->u.object.pairs[i].key);
+                if (i > 0) miku_str_cat_len(s, ",", 1);
+                stringify_str(s, v->u.object.pairs[i].key);
+                miku_str_cat_len(s, ":", 1);
                 stringify_val(s, v->u.object.pairs[i].val);
             }
-            miku_str_cat(s, "}");
+            miku_str_cat_len(s, "}", 1);
             break;
     }
 }

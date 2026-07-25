@@ -400,6 +400,63 @@ void test_json_stringify(void) {
     miku_json_destroy(v);
 }
 
+void test_json_stringify_escapes_keys(void) {
+    miku_json_val_t *obj = miku_json_create_object();
+    /* A conversationID reaches miku_json_object_set as a key on the WS
+     * GET_CONV_MAX_READ_SEQ path, so keys are user-controlled. */
+    miku_json_object_set(obj, "si_a\"b\\c", miku_json_create_int(7));
+    miku_json_object_set(obj, "ctl\x01key", miku_json_create_int(8));
+
+    miku_string_t *out = miku_json_stringify(obj);
+    mk_assert_not_null(out);
+    mk_assert(strstr(out->data, "\\\"") != NULL);
+    mk_assert(strstr(out->data, "\\u0001") != NULL);
+
+    miku_json_val_t *back = miku_json_parse_str(out->data);
+    mk_assert_not_null(back);
+    mk_assert_int_eq(7, (int)miku_json_int(miku_json_get(back, "si_a\"b\\c")));
+    mk_assert_int_eq(8, (int)miku_json_int(miku_json_get(back, "ctl\x01key")));
+
+    miku_json_destroy(back);
+    miku_str_destroy(out);
+    miku_json_destroy(obj);
+}
+
+void test_json_stringify_escapes_control_chars(void) {
+    miku_json_val_t *obj = miku_json_create_object();
+    miku_json_object_set(obj, "content", miku_json_create_str("a\x01\x1f" "b\tc"));
+
+    miku_string_t *out = miku_json_stringify(obj);
+    mk_assert_not_null(out);
+    mk_assert(strstr(out->data, "\\u0001") != NULL);
+    mk_assert(strstr(out->data, "\\u001f") != NULL);
+    mk_assert(strstr(out->data, "\\t") != NULL);
+
+    miku_json_val_t *back = miku_json_parse_str(out->data);
+    mk_assert_not_null(back);
+    mk_assert_str_eq("a\x01\x1f" "b\tc", miku_json_str(miku_json_get(back, "content")));
+
+    miku_json_destroy(back);
+    miku_str_destroy(out);
+    miku_json_destroy(obj);
+}
+
+void test_json_parse_unicode_escape(void) {
+    miku_json_val_t *v = miku_json_parse_str(
+        "{\"a\":\"\\u0041\",\"b\":\"\\u4e2d\",\"c\":\"\\ud83d\\ude00\","
+        "\"d\":\"\\ud800x\",\"e\":\"\\u0000\"}");
+    mk_assert_not_null(v);
+
+    mk_assert_str_eq("A", miku_json_str(miku_json_get(v, "a")));
+    mk_assert_str_eq("\xe4\xb8\xad", miku_json_str(miku_json_get(v, "b")));
+    mk_assert_str_eq("\xf0\x9f\x98\x80", miku_json_str(miku_json_get(v, "c")));
+    /* Lone surrogate and NUL both become U+FFFD (EF BF BD). */
+    mk_assert_str_eq("\xef\xbf\xbdx", miku_json_str(miku_json_get(v, "d")));
+    mk_assert_str_eq("\xef\xbf\xbd", miku_json_str(miku_json_get(v, "e")));
+
+    miku_json_destroy(v);
+}
+
 void test_json_build_and_query(void) {
     miku_json_val_t *obj = miku_json_create_object();
     mk_assert_not_null(obj);
@@ -752,6 +809,9 @@ void run_protocol_tests(void) {
     mk_run_test(test_json_parse_primitives);
     mk_run_test(test_json_parse_nested);
     mk_run_test(test_json_stringify);
+    mk_run_test(test_json_stringify_escapes_keys);
+    mk_run_test(test_json_stringify_escapes_control_chars);
+    mk_run_test(test_json_parse_unicode_escape);
     mk_run_test(test_json_build_and_query);
     mk_run_test(test_json_get_missing);
     mk_run_test(test_json_roundtrip);
