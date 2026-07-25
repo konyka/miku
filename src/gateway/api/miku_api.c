@@ -5,6 +5,8 @@
 #include "miku_version.h"
 #include "miku_msggw_ws_ops.h"
 #include "miku_token.h"
+#include "miku_rpc_client.h"
+#include "miku_rpc_server.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -244,6 +246,17 @@ miku_api_ctx_t *miku_api_ctx_create(void) {
     return ctx;
 }
 
+void miku_api_configure_rpc(miku_api_ctx_t *ctx, const miku_service_config_t *cfg) {
+    if (!ctx || !cfg) return;
+    strncpy(ctx->rpc_host, cfg->rpc_host, sizeof(ctx->rpc_host) - 1);
+    ctx->rpc_user_port = cfg->rpc_user_port;
+    ctx->rpc_friend_port = cfg->rpc_friend_port;
+    ctx->rpc_group_port = cfg->rpc_group_port;
+    ctx->rpc_conversation_port = cfg->rpc_conversation_port;
+    ctx->rpc_msg_port = cfg->rpc_msg_port;
+    ctx->rpc_third_port = cfg->rpc_third_port;
+}
+
 void miku_api_ctx_destroy(miku_api_ctx_t *ctx) {
     if (!ctx) return;
     miku_auth_service_destroy(ctx->auth);
@@ -319,6 +332,52 @@ static void webhook_fire_json(miku_webhook_t *wh, miku_webhook_event_t ev,
         miku_webhook_fire(wh, ev, payload);
     }
 }
+
+static void api_service_rpc(miku_api_ctx_t *c, int port, void *svc,
+                            miku_rpc_dispatch_fn dispatch, const char *method,
+                            miku_json_val_t *req, miku_json_val_t *out) {
+    if (!c || !dispatch || !method || !out) return;
+    if (!c->rpc_host[0] || port <= 0) {
+        dispatch(svc, method, req, out);
+        return;
+    }
+    char payload[65536];
+    if (miku_rpc_build_method_payload(method, req, payload, sizeof(payload)) != 0) {
+        miku_jerr(out, 500, "rpc payload build failed");
+        return;
+    }
+    char resp[65536];
+    if (miku_rpc_call(c->rpc_host, port, payload, resp, sizeof(resp), 1) != 0) {
+        miku_jerr(out, 503, "rpc call failed");
+        return;
+    }
+    miku_json_val_t *r = miku_json_parse_str(resp);
+    if (!r) {
+        miku_jerr(out, 500, "rpc response parse failed");
+        return;
+    }
+    miku_json_object_assign(out, r);
+    miku_json_destroy(r);
+}
+
+#define API_USER_RPC(c, method, req, out) \
+    api_service_rpc((c), (c)->rpc_user_port, (c)->user, \
+        (miku_rpc_dispatch_fn)miku_user_handle_rpc, method, req, out)
+#define API_FRIEND_RPC(c, method, req, out) \
+    api_service_rpc((c), (c)->rpc_friend_port, (c)->friend_svc, \
+        (miku_rpc_dispatch_fn)miku_friend_handle_rpc, method, req, out)
+#define API_GROUP_RPC(c, method, req, out) \
+    api_service_rpc((c), (c)->rpc_group_port, (c)->group_svc, \
+        (miku_rpc_dispatch_fn)miku_group_handle_rpc, method, req, out)
+#define API_CONV_RPC(c, method, req, out) \
+    api_service_rpc((c), (c)->rpc_conversation_port, (c)->conv, \
+        (miku_rpc_dispatch_fn)miku_conv_handle_rpc, method, req, out)
+#define API_MSG_RPC(c, method, req, out) \
+    api_service_rpc((c), (c)->rpc_msg_port, (c)->msg, \
+        (miku_rpc_dispatch_fn)miku_msg_handle_rpc, method, req, out)
+#define API_THIRD_RPC(c, method, req, out) \
+    api_service_rpc((c), (c)->rpc_third_port, (c)->third, \
+        (miku_rpc_dispatch_fn)miku_third_handle_rpc, method, req, out)
 
 /* Per-request token parse cache. The HTTP server dispatches handlers
  * sequentially in its epoll thread, so a thread-local keyed by the token
@@ -839,7 +898,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
             filter_presence_user_id_list(c, plat, actor, j, "subscribeUserIDList");
         }
     }
-    miku_user_handle_rpc(c->user, method, j, out);
+    API_USER_RPC(c, method, j, out);
     /* Non-admin search: exact userID only — block nickname/userID substring sweeps. */
     if (strcmp(method, "searchUser") == 0 && plat != 5) {
         const char *kw = miku_json_str(miku_json_get(j, "keyword"));
@@ -920,7 +979,7 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
             return;
         }
     }
-    miku_friend_handle_rpc(c->friend_svc, method, j, out);
+    API_FRIEND_RPC(c, method, j, out);
     if (strcmp(method, "isFriend") == 0 && plat != 5 && actor[0]) {
         const char *fuid = miku_json_str(miku_json_get(j, "friendUserID"));
         if (!fuid) fuid = miku_json_str(miku_json_get(j, "userID2"));
@@ -1061,7 +1120,7 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
                                                dismiss_members, 256);
     }
 
-    miku_group_handle_rpc(c->group_svc, method, j, out);
+    API_GROUP_RPC(c, method, j, out);
 
     /* Sync members to msggateway so split-deploy group PUSH works. */
     if (c->on_group_member) {
@@ -1182,7 +1241,7 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
         resp->status = 403;
         return;
     }
-    miku_conv_handle_rpc(c->conv, method, j, out);
+    API_CONV_RPC(c, method, j, out);
     if (conv_is_read(method) && actor[0]) {
         filter_conv_read_result(c, actor, out);
         if (strcmp(method, "getTotalUnreadMsgCount") == 0)
@@ -1502,7 +1561,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     if (strcmp(method, "cleanUpMsg") == 0 || strcmp(method, "batchSendMsg") == 0
         || strcmp(method, "sendBusinessNotification") == 0)
         miku_ji(j, "platformID", req_token_platform(req));
-    miku_msg_handle_rpc(c->msg, method, j, out);
+    API_MSG_RPC(c, method, j, out);
 
     /* getMsg / getMsgBySeq / searchMsg: drop non-participant results (no 3003 oracle). */
     if (actor[0] && (strcmp(method, "getMsg") == 0 || strcmp(method, "getMsgBySeq") == 0
@@ -1677,7 +1736,7 @@ static void handle_third(miku_http_request_t *req, miku_http_response_t *resp, v
             }
         }
     }
-    miku_third_handle_rpc(c->third, method, j, out);
+    API_THIRD_RPC(c, method, j, out);
     miku_json_destroy(j);
     json_resp(resp, out);
 }
@@ -1796,7 +1855,7 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
                 miku_json_val_t *get = miku_json_create_object();
                 miku_json_object_set(get, "userID", miku_json_create_str(uid ? uid : ""));
                 miku_json_val_t *r = miku_json_create_object();
-                miku_user_handle_rpc(c->user, "getUserInfo", get, r);
+                API_USER_RPC(c, "getUserInfo", get, r);
                 int64_t err = miku_json_int(miku_json_get(r, "errCode"));
                 if (err == 0) {
                     miku_json_val_t *data = miku_json_get(r, "data");
@@ -1813,7 +1872,7 @@ static void handle_batch(miku_http_request_t *req, miku_http_response_t *resp, v
         if (req_token_uid(c, req, actor, sizeof(actor)) == 0 && actor[0])
             miku_jss(j, "ownerUserID", actor);
         miku_json_val_t *r = miku_json_create_object();
-        miku_friend_handle_rpc(c->friend_svc, "deleteFriend", j, r);
+        API_FRIEND_RPC(c, "deleteFriend", j, r);
         miku_json_object_set(out, "errCode", miku_json_get(r, "errCode"));
         miku_json_destroy(r);
     } else {
@@ -1872,7 +1931,7 @@ static void handle_jssdk(miku_http_request_t *req, miku_http_response_t *resp, v
         miku_jss(j, "ownerUserID", actor);
         miku_jss(j, "userID", actor);
     }
-    miku_conv_handle_rpc(c->conv, method, j, out);
+    API_CONV_RPC(c, method, j, out);
     if (actor[0]) filter_conv_read_result(c, actor, out);
     miku_json_destroy(j);
     json_resp(resp, out);

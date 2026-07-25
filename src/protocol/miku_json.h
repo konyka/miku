@@ -71,4 +71,8 @@ MIKU_API int  miku_json_object_set(miku_json_val_t *obj, const char *key, miku_j
 
 MIKU_API miku_string_t   *miku_json_stringify(const miku_json_val_t *v);
 
+MIKU_API miku_json_val_t *miku_json_clone(const miku_json_val_t *v);
+MIKU_API void             miku_json_object_assign(miku_json_val_t *dst,
+                                                   const miku_json_val_t *src);
+
 #endif

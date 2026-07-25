@@ -38,6 +38,10 @@ int miku_service_config_load(miku_service_config_t *out, const char *config_dir)
     out->api_port = (int)miku_config_get_int(cfg, "api.port", 10002);
     out->ws_port  = (int)miku_config_get_int(cfg, "msggateway.port", 10001);
 
+    safe_strcpy(out->rpc_host,
+                miku_config_get_str(cfg, "rpc.host", ""),
+                sizeof(out->rpc_host));
+
     out->rpc_auth_port        = (int)miku_config_get_int(cfg, "rpc.auth.port", 10100);
     out->rpc_user_port        = (int)miku_config_get_int(cfg, "rpc.user.port", 10110);
     out->rpc_friend_port      = (int)miku_config_get_int(cfg, "rpc.friend.port", 10120);
@@ -87,6 +91,7 @@ void miku_service_config_print(const miku_service_config_t *cfg) {
     MK_LOG_INFO("  listen_ip:    %s", cfg->listen_ip);
     MK_LOG_INFO("  api_port:     %d", cfg->api_port);
     MK_LOG_INFO("  ws_port:      %d", cfg->ws_port);
+    MK_LOG_INFO("  rpc host:     %s", cfg->rpc_host[0] ? cfg->rpc_host : "(in-process)");
     MK_LOG_INFO("  rpc auth:     %d", cfg->rpc_auth_port);
     MK_LOG_INFO("  rpc user:     %d", cfg->rpc_user_port);
     MK_LOG_INFO("  rpc friend:   %d", cfg->rpc_friend_port);

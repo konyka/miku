@@ -63,6 +63,29 @@ int miku_rpc_json_add_internal_token(const char *payload_json,
     return 0;
 }
 
+int miku_rpc_build_method_payload(const char *method, const miku_json_val_t *req,
+                                  char *out, size_t out_cap) {
+    if (!out || out_cap == 0 || !method || !method[0]) return -1;
+    char em[128];
+    miku_json_escape_str(method, em, sizeof(em));
+    if (!req || miku_json_type(req) != MK_JSON_OBJECT || miku_json_size(req) == 0)
+        return snprintf(out, out_cap, "{\"method\":\"%s\"}", em) >= (int)out_cap ? -1 : 0;
+
+    miku_string_t *rs = miku_json_stringify(req);
+    if (!rs || !rs->data || rs->data[0] != '{' || rs->len < 2) {
+        miku_str_destroy(rs);
+        return snprintf(out, out_cap, "{\"method\":\"%s\"}", em) >= (int)out_cap ? -1 : 0;
+    }
+    int n;
+    if (rs->len == 2)
+        n = snprintf(out, out_cap, "{\"method\":\"%s\"}", em);
+    else
+        n = snprintf(out, out_cap, "{\"method\":\"%s\",%.*s}",
+                     em, (int)(rs->len - 2), rs->data + 1);
+    miku_str_destroy(rs);
+    return (n < 0 || (size_t)n >= out_cap) ? -1 : 0;
+}
+
 static int connect_host_port(const char *host, int port, int timeout_ms) {
     char portstr[16];
     snprintf(portstr, sizeof(portstr), "%d", port);

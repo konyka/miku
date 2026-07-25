@@ -161,6 +161,7 @@ int main(int argc, char **argv) {
 
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     if (!ctx) { MK_LOG_ERROR("Failed to create API context"); return 1; }
+    miku_api_configure_rpc(ctx, &sc);
     ctx->stats.port = port;
     ctx->on_kick = api_kick_user;
     ctx->on_kick_ctx = NULL;

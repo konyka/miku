@@ -7,6 +7,7 @@ typedef struct {
     char listen_ip[64];
     int  api_port;
     int  ws_port;
+    char rpc_host[64];
     int  rpc_auth_port;
     int  rpc_user_port;
     int  rpc_friend_port;

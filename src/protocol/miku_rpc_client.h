@@ -2,6 +2,7 @@
 #define MIKU_RPC_CLIENT_H
 
 #include "miku_common.h"
+#include "miku_json.h"
 #include <stddef.h>
 
 /* Copy payload JSON with internalToken field added (for split-deploy RPC). */
@@ -14,5 +15,9 @@ MIKU_API int miku_rpc_json_add_internal_token(const char *payload_json,
 MIKU_API int miku_rpc_call(const char *host, int port, const char *payload_json,
                             char *resp_body, size_t resp_cap,
                             int with_internal_token);
+
+/* Merge method + req object into one RPC JSON body (req fields follow method). */
+MIKU_API int miku_rpc_build_method_payload(const char *method, const miku_json_val_t *req,
+                                            char *out, size_t out_cap);
 
 #endif

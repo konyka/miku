@@ -7,6 +7,7 @@
 #include "miku_rpc.h"
 #include "miku_rpc_client.h"
 #include "miku_pb.h"
+#include "miku_json_util.h"
 #include "miku_sha1.h"
 #include "miku_middleware.h"
 #include "miku_api.h"
@@ -274,6 +275,24 @@ void test_http_post_json_internal_resp(void) {
     miku_http_server_stop(srv);
     pthread_join(tid, NULL);
     miku_http_server_destroy(srv);
+}
+
+void test_rpc_build_method_payload(void) {
+    miku_json_val_t *req = miku_json_create_object();
+    miku_jss(req, "userID", "u\"1");
+    miku_jss(req, "nickname", "n");
+    char payload[256];
+    mk_assert_int_eq(0, miku_rpc_build_method_payload("registerUser", req, payload, sizeof(payload)));
+    miku_json_val_t *j = miku_json_parse_str(payload);
+    mk_assert_not_null(j);
+    mk_assert_str_eq("registerUser", miku_json_str(miku_json_get(j, "method")));
+    mk_assert_str_eq("u\"1", miku_json_str(miku_json_get(j, "userID")));
+    miku_json_destroy(j);
+    miku_json_destroy(req);
+
+    char empty[64];
+    mk_assert_int_eq(0, miku_rpc_build_method_payload("ping", NULL, empty, sizeof(empty)));
+    mk_assert_str_eq("{\"method\":\"ping\"}", empty);
 }
 
 /* ── JSON Parser Tests ───────────────────────── */
@@ -745,6 +764,7 @@ void run_protocol_tests(void) {
     mk_run_test(test_ws_handshake);
     mk_run_test(test_rpc_header_codec);
     mk_run_test(test_rpc_json_internal_token);
+    mk_run_test(test_rpc_build_method_payload);
     mk_run_test(test_rpc_message_roundtrip);
     mk_run_test(test_pb_varint_roundtrip);
     mk_run_test(test_pb_svarint_roundtrip);

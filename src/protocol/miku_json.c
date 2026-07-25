@@ -525,3 +525,65 @@ miku_string_t *miku_json_stringify(const miku_json_val_t *v) {
     stringify_val(s, v);
     return s;
 }
+
+static void json_object_clear(miku_json_val_t *obj) {
+    if (!obj || obj->type != MK_JSON_OBJECT) return;
+    for (size_t i = 0; i < obj->u.object.count; i++) {
+        free(obj->u.object.pairs[i].key);
+        miku_json_destroy(obj->u.object.pairs[i].val);
+    }
+    obj->u.object.count = 0;
+    if (obj->u.object.kh) {
+        for (size_t i = 0; i <= obj->u.object.kh_mask; i++)
+            obj->u.object.kh[i] = -1;
+    }
+}
+
+miku_json_val_t *miku_json_clone(const miku_json_val_t *v) {
+    if (!v) return miku_json_create_null();
+    switch (v->type) {
+    case MK_JSON_NULL:
+        return miku_json_create_null();
+    case MK_JSON_BOOL:
+        return miku_json_create_bool(v->u.bool_val);
+    case MK_JSON_INT:
+        return miku_json_create_int(v->u.int_val);
+    case MK_JSON_DOUBLE:
+        return miku_json_create_dbl(v->u.dbl_val);
+    case MK_JSON_STRING:
+        return miku_json_create_str(v->u.str_val ? v->u.str_val : "");
+    case MK_JSON_ARRAY: {
+        miku_json_val_t *a = miku_json_create_array();
+        if (!a) return NULL;
+        for (size_t i = 0; i < v->u.array.count; i++)
+            if (miku_json_array_push(a, miku_json_clone(v->u.array.items[i])) != 0) {
+                miku_json_destroy(a);
+                return NULL;
+            }
+        return a;
+    }
+    case MK_JSON_OBJECT: {
+        miku_json_val_t *o = miku_json_create_object();
+        if (!o) return NULL;
+        for (size_t i = 0; i < v->u.object.count; i++) {
+            miku_json_val_t *cv = miku_json_clone(v->u.object.pairs[i].val);
+            if (!cv || miku_json_object_set(o, v->u.object.pairs[i].key, cv) != 0) {
+                miku_json_destroy(o);
+                return NULL;
+            }
+        }
+        return o;
+    }
+    default:
+        return NULL;
+    }
+}
+
+void miku_json_object_assign(miku_json_val_t *dst, const miku_json_val_t *src) {
+    if (!dst || dst->type != MK_JSON_OBJECT || !src || src->type != MK_JSON_OBJECT) return;
+    json_object_clear(dst);
+    for (size_t i = 0; i < src->u.object.count; i++) {
+        miku_json_val_t *cv = miku_json_clone(src->u.object.pairs[i].val);
+        if (cv) miku_json_object_set(dst, src->u.object.pairs[i].key, cv);
+    }
+}

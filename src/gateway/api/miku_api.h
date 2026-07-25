@@ -14,6 +14,7 @@
 #include "miku_ratelimit.h"
 #include "miku_webhook.h"
 #include "miku_im_message.h"
+#include "miku_service_config.h"
 
 typedef void (*miku_api_kick_fn)(const char *user_id, int platform, void *ctx);
 /* Return 0 on success. May update msg (seq, msg_id, send_time). */
@@ -48,10 +49,20 @@ typedef struct {
     /* Optional: sync blacklist to msggateway for WS single-chat gates */
     miku_api_blacklist_fn      on_blacklist;
     void                      *on_blacklist_ctx;
+    /* Split-deploy: non-empty rpc_host + port>0 routes service RPC over TCP + internalToken. */
+    char                       rpc_host[64];
+    int                        rpc_user_port;
+    int                        rpc_friend_port;
+    int                        rpc_group_port;
+    int                        rpc_conversation_port;
+    int                        rpc_msg_port;
+    int                        rpc_third_port;
 } miku_api_ctx_t;
 
 MIKU_API miku_api_ctx_t *miku_api_ctx_create(void);
 MIKU_API void miku_api_ctx_destroy(miku_api_ctx_t *ctx);
+
+MIKU_API void miku_api_configure_rpc(miku_api_ctx_t *ctx, const miku_service_config_t *cfg);
 
 MIKU_API int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx);
 
