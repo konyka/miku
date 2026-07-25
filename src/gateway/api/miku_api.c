@@ -541,17 +541,19 @@ static int req_token_platform(miku_http_request_t *req) {
 
 static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *conv) {
     if (!uid || !uid[0] || !conv || !conv[0]) return 0;
-    if (strncmp(conv, "si_", 3) == 0)
-        return miku_friend_may_access_si_conv(c ? c->friend_svc : NULL, uid, conv);
+    if (strncmp(conv, "si_", 3) == 0) {
+        if (!c || !c->friend_svc) return 1;
+        return miku_friend_may_access_si_conv(c->friend_svc, uid, conv);
+    }
     if (strncmp(conv, "sg_", 3) == 0) {
-        if (!c || !c->group_svc) return 0;
+        if (!c || !c->group_svc) return 1;
         return miku_group_is_member(c->group_svc, conv + 3, uid);
     }
     if (c && c->conv) {
         miku_conversation_t cv;
         return miku_conv_get(c->conv, uid, conv, &cv) == 0;
     }
-    return 0;
+    return 1;
 }
 
 /* Non-admin may only view self or mutual-friend profiles. plat: token platform (-1 unknown). */
@@ -561,7 +563,7 @@ static int api_may_view_user(miku_api_ctx_t *c, int plat,
     if (plat == 5) return 1;
     if (!actor || !actor[0]) return 0;
     if (strcmp(actor, uid) == 0) return 1;
-    if (!c || !c->friend_svc) return 0;
+    if (!c || !c->friend_svc) return 1;
     return miku_friend_is_mutual(c->friend_svc, actor, uid);
 }
 
@@ -699,8 +701,9 @@ static void filter_users_read_result(miku_api_ctx_t *c, int plat, const char *ac
 static int group_filter_keep_object(miku_json_val_t *item, void *v) {
     conv_filter_ctx_t *f = (conv_filter_ctx_t *)v;
     const char *gid = miku_json_str(miku_json_get(item, "groupID"));
-    return gid && f && f->actor && f->actor[0] && f->c && f->c->group_svc
-        && miku_group_is_member(f->c->group_svc, gid, f->actor);
+    if (!gid || !f || !f->actor || !f->actor[0]) return 0;
+    if (!f->c || !f->c->group_svc) return 1;
+    return miku_group_is_member(f->c->group_svc, gid, f->actor);
 }
 
 static void filter_group_id_list(miku_api_ctx_t *c, const char *actor, miku_json_val_t *j) {
@@ -2268,4 +2271,14 @@ int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx) {
     miku_http_server_route(srv, "POST", "/restart", handle_restart, ctx);
 
     return 0;
+}
+
+int miku_api_may_view_user_for_test(miku_api_ctx_t *c, int plat,
+                                    const char *actor, const char *uid) {
+    return api_may_view_user(c, plat, actor, uid);
+}
+
+int miku_api_may_access_conv_for_test(miku_api_ctx_t *c,
+                                      const char *uid, const char *conv) {
+    return api_may_access_conv(c, uid, conv);
 }

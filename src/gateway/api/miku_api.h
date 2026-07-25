@@ -66,4 +66,10 @@ MIKU_API void miku_api_configure_rpc(miku_api_ctx_t *ctx, const miku_service_con
 
 MIKU_API int miku_api_register_routes(miku_http_server_t *srv, miku_api_ctx_t *ctx);
 
+/* Test introspection for post-RPC read ACL helpers. */
+MIKU_API int miku_api_may_view_user_for_test(miku_api_ctx_t *c, int plat,
+                                             const char *actor, const char *uid);
+MIKU_API int miku_api_may_access_conv_for_test(miku_api_ctx_t *c,
+                                              const char *uid, const char *conv);
+
 #endif
