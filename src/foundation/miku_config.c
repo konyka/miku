@@ -138,7 +138,10 @@ const char *miku_config_get(const miku_config_t *cfg, const char *key) {
 
 int64_t miku_config_get_int(const miku_config_t *cfg, const char *key, int64_t def) {
     const char *val = miku_config_get(cfg, key);
-    return val ? atoll(val) : def;
+    if (!val) return def;
+    if (strcmp(val, "true") == 0) return 1;
+    if (strcmp(val, "false") == 0) return 0;
+    return atoll(val);
 }
 
 const char *miku_config_get_str(const miku_config_t *cfg, const char *key, const char *def) {

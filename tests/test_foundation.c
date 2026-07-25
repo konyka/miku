@@ -266,6 +266,9 @@ void test_service_config(void) {
     mk_assert_str_eq("mongodb://localhost:27017", sc.mongo_uri);
     mk_assert_str_eq("miku", sc.mongo_database);
     mk_assert_int_eq(64, sc.mongo_pool_size);
+    mk_assert_int_eq(1, sc.push_enable);
+    mk_assert_str_eq("dummy", sc.push_provider);
+    mk_assert_str_eq("", sc.push_endpoint);
 }
 
 void test_graceful_lifecycle(void) {

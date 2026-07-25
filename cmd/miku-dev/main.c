@@ -146,7 +146,10 @@ int main(int argc, char **argv) {
     ctx->on_msg_sent_ctx = &ws_ctx;
 
     miku_push_t *push = miku_push_create();
-    miku_offline_push_t *offline = miku_offline_push_create(MK_PUSH_PROVIDER_DUMMY);
+    miku_push_provider_t push_prov = miku_offline_push_provider_from_str(sc.push_provider);
+    miku_offline_push_t *offline = miku_offline_push_create(push_prov);
+    if (offline && sc.push_endpoint[0])
+        miku_offline_push_set_endpoint(offline, sc.push_endpoint);
 
     miku_crontask_t *cron = miku_crontask_create();
     g_cron_impl = miku_cron_tasks_create();
@@ -167,7 +170,8 @@ int main(int argc, char **argv) {
     MK_LOG_INFO("  Redis:      %s", sc.redis_address);
     MK_LOG_INFO("  Kafka:      %s", sc.kafka_brokers);
     MK_LOG_INFO("  Services:   7 RPC + 5 gateway");
-    MK_LOG_INFO("  Push:       online + offline (%s)", miku_offline_push_provider_name(MK_PUSH_PROVIDER_DUMMY));
+    MK_LOG_INFO("  Push:       online + offline (%s)",
+                miku_offline_push_provider_name(push_prov));
     MK_LOG_INFO("  Cron:       %d tasks", miku_crontask_task_count(cron));
     MK_LOG_INFO("  Press Ctrl+C to stop");
 

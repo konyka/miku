@@ -26,6 +26,9 @@ typedef struct {
     char kafka_group_id[64];
     char log_level[32];
     char log_output[64];
+    int  push_enable;
+    char push_provider[16];
+    char push_endpoint[512];
 } miku_service_config_t;
 
 int  miku_service_config_load(miku_service_config_t *out, const char *config_dir);

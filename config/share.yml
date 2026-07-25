@@ -35,6 +35,8 @@ msgtransfer:
 
 push:
   enable: true
+  provider: dummy
+  endpoint: ""
   fcm:
     serviceAccount: ""
 

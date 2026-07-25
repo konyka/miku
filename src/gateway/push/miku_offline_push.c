@@ -4,6 +4,7 @@
 #include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <stdio.h>
 #include <unistd.h>
 #include <errno.h>
@@ -302,4 +303,12 @@ const char *miku_offline_push_provider_name(miku_push_provider_t p) {
         case MK_PUSH_PROVIDER_JPUSH: return "JPUSH";
         default:                     return "DUMMY";
     }
+}
+
+miku_push_provider_t miku_offline_push_provider_from_str(const char *name) {
+    if (!name || !name[0]) return MK_PUSH_PROVIDER_DUMMY;
+    if (strcasecmp(name, "fcm") == 0) return MK_PUSH_PROVIDER_FCM;
+    if (strcasecmp(name, "getui") == 0) return MK_PUSH_PROVIDER_GETUI;
+    if (strcasecmp(name, "jpush") == 0) return MK_PUSH_PROVIDER_JPUSH;
+    return MK_PUSH_PROVIDER_DUMMY;
 }

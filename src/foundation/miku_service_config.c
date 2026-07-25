@@ -81,6 +81,14 @@ int miku_service_config_load(miku_service_config_t *out, const char *config_dir)
                 miku_config_get_str(cfg, "output", "stdout"),
                 sizeof(out->log_output));
 
+    out->push_enable = (int)miku_config_get_int(cfg, "push.enable", 1);
+    safe_strcpy(out->push_provider,
+                miku_config_get_str(cfg, "push.provider", "dummy"),
+                sizeof(out->push_provider));
+    safe_strcpy(out->push_endpoint,
+                miku_config_get_str(cfg, "push.endpoint", ""),
+                sizeof(out->push_endpoint));
+
     miku_config_destroy(cfg);
     return 0;
 }
@@ -103,4 +111,7 @@ void miku_service_config_print(const miku_service_config_t *cfg) {
     MK_LOG_INFO("  redis:        %s db=%d pool=%d", cfg->redis_address, cfg->redis_db, cfg->redis_pool_size);
     MK_LOG_INFO("  kafka:        %s topic=%s group=%s", cfg->kafka_brokers, cfg->kafka_topic, cfg->kafka_group_id);
     MK_LOG_INFO("  log:          %s -> %s", cfg->log_level, cfg->log_output);
+    MK_LOG_INFO("  push:         enable=%d provider=%s endpoint=%s",
+                cfg->push_enable, cfg->push_provider,
+                cfg->push_endpoint[0] ? cfg->push_endpoint : "(dry-run)");
 }

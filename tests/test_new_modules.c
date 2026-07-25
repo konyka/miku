@@ -250,6 +250,16 @@ void test_offline_push_token(void) {
     miku_offline_push_destroy(op);
 }
 
+void test_offline_push_provider_from_str(void) {
+    mk_assert(miku_offline_push_provider_from_str(NULL) == MK_PUSH_PROVIDER_DUMMY);
+    mk_assert(miku_offline_push_provider_from_str("") == MK_PUSH_PROVIDER_DUMMY);
+    mk_assert(miku_offline_push_provider_from_str("dummy") == MK_PUSH_PROVIDER_DUMMY);
+    mk_assert(miku_offline_push_provider_from_str("FCM") == MK_PUSH_PROVIDER_FCM);
+    mk_assert(miku_offline_push_provider_from_str("getui") == MK_PUSH_PROVIDER_GETUI);
+    mk_assert(miku_offline_push_provider_from_str("JPUSH") == MK_PUSH_PROVIDER_JPUSH);
+    mk_assert(miku_offline_push_provider_from_str("unknown") == MK_PUSH_PROVIDER_DUMMY);
+}
+
 void test_cron_tasks_basic(void) {
     miku_cron_tasks_t *ct = miku_cron_tasks_create();
     mk_assert_not_null(ct);
@@ -3346,6 +3356,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_incr_sync_changes);
     mk_run_test(test_offline_push_basic);
     mk_run_test(test_offline_push_token);
+    mk_run_test(test_offline_push_provider_from_str);
     mk_run_test(test_offline_push_http_payload_escape);
     mk_run_test(test_cron_tasks_basic);
     mk_run_test(test_ws_subscription_basic);

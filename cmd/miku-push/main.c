@@ -19,6 +19,7 @@ int main(int argc, char **argv) {
 
     miku_service_config_t sc;
     miku_service_config_load(&sc, config_dir);
+    miku_service_config_print(&sc);
 
     miku_log_init(NULL, MK_LOG_DEBUG);
     miku_graceful_init(&g_graceful, 300);
@@ -27,8 +28,13 @@ int main(int argc, char **argv) {
     miku_push_t *push = miku_push_create();
     if (!push) { MK_LOG_ERROR("Failed to create push service"); return 1; }
 
-    miku_offline_push_t *offline = miku_offline_push_create(MK_PUSH_PROVIDER_DUMMY);
+    miku_push_provider_t provider = miku_offline_push_provider_from_str(sc.push_provider);
+    miku_offline_push_t *offline = miku_offline_push_create(provider);
     if (!offline) { MK_LOG_ERROR("Failed to create offline push"); miku_push_destroy(push); return 1; }
+    if (sc.push_endpoint[0]) {
+        if (miku_offline_push_set_endpoint(offline, sc.push_endpoint) != 0)
+            MK_LOG_WARN("miku-push: invalid push.endpoint %s", sc.push_endpoint);
+    }
 
     miku_push_start(push);
 
@@ -36,7 +42,7 @@ int main(int argc, char **argv) {
     miku_offline_push_set_token(offline, "demo_user_002", 2, "jpush_demo_token_xyz789");
 
     MK_LOG_INFO("miku-push ready — online + offline (provider=%s)",
-                 miku_offline_push_provider_name(MK_PUSH_PROVIDER_DUMMY));
+                 miku_offline_push_provider_name(provider));
 
     miku_offline_push_send(offline, "demo_user_001", 1,
                             "Welcome", "You have a new message", "miku://chat");

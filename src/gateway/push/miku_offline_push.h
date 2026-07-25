@@ -26,5 +26,6 @@ MIKU_API int  miku_offline_push_set_token(miku_offline_push_t *op, const char *u
 MIKU_API int  miku_offline_push_del_token(miku_offline_push_t *op, const char *user_id,
                                             int platform);
 MIKU_API const char *miku_offline_push_provider_name(miku_push_provider_t p);
+MIKU_API miku_push_provider_t miku_offline_push_provider_from_str(const char *name);
 
 #endif
