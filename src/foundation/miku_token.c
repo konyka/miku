@@ -1,7 +1,9 @@
 #include "miku_token.h"
 #include "miku_hash.h"
+#include "miku_sha1.h"
 #include "miku_uuid.h"
 #include "miku_thread.h"
+#include "miku_log.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -12,7 +14,15 @@ static const char *secret_from_env(const char *env_key, const char *fallback) {
 }
 
 const char *miku_token_default_secret(void) {
-    return secret_from_env("MIKU_TOKEN_SECRET", MIKU_TOKEN_DEFAULT_SECRET);
+    const char *s = getenv("MIKU_TOKEN_SECRET");
+    if (s && s[0]) return s;
+    static bool warned = false;
+    if (!warned) {
+        warned = true;
+        MK_LOG_WARN("MIKU_TOKEN_SECRET not set — using insecure default. "
+                    "Token forgery is trivial in production.");
+    }
+    return MIKU_TOKEN_DEFAULT_SECRET;
 }
 
 const char *miku_admin_default_secret(void) {
@@ -76,12 +86,46 @@ static void revoke_ensure_init(void) {
     }
 }
 
+/* HMAC-SHA1 truncated to 64 bits. Replaces the previous bare FNV-1a hash
+ * which provided no cryptographic security (the secret was a suffix in the
+ * hashed message, not an HMAC key). */
 static uint64_t compute_sig(const char *uid, int platform, int64_t ts,
-                            const char *nonce, const char *secret) {
-    char buf[512];
-    snprintf(buf, sizeof(buf), "%s:%d:%lld:%s:%s",
-             uid, platform, (long long)ts, nonce, secret);
-    return miku_fnv1a_64(buf, strlen(buf));
+                             const char *nonce, const char *secret) {
+    char msg[256];
+    int mlen = snprintf(msg, sizeof(msg), "%s:%d:%lld:%s",
+                        uid, platform, (long long)ts, nonce);
+    if (mlen < 0 || (size_t)mlen >= sizeof(msg)) return 0;
+
+    uint8_t k0[64] = {0};
+    size_t slen = secret ? strlen(secret) : 0;
+    if (slen > 64) {
+        miku_sha1(k0, (const uint8_t *)secret, slen);
+    } else {
+        memcpy(k0, secret, slen);
+    }
+
+    uint8_t ipad[64], opad[64], inner[64 + 256];
+    for (int i = 0; i < 64; i++) {
+        ipad[i] = k0[i] ^ 0x36;
+        opad[i] = k0[i] ^ 0x5c;
+    }
+    memcpy(inner, ipad, 64);
+    memcpy(inner + 64, msg, (size_t)mlen);
+
+    uint8_t ih[20];
+    miku_sha1(ih, inner, 64 + (size_t)mlen);
+
+    uint8_t outer[64 + 20];
+    memcpy(outer, opad, 64);
+    memcpy(outer + 64, ih, 20);
+
+    uint8_t mac[20];
+    miku_sha1(mac, outer, 84);
+
+    uint64_t r = 0;
+    for (int i = 0; i < 8; i++)
+        r = (r << 8) | mac[i];
+    return r;
 }
 
 static int is_revoked(const char *user_id, int platform, int64_t ts) {

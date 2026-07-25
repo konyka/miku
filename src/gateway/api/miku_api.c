@@ -345,12 +345,8 @@ static int check_ratelimit(miku_api_ctx_t *c, miku_http_request_t *req, miku_htt
 }
 
 static miku_json_val_t *parse_body(miku_http_request_t *req) {
-    if (req->body.data && req->body.len > 0) {
-        char *tmp = strndup(req->body.data, req->body.len);
-        miku_json_val_t *j = miku_json_parse_str(tmp);
-        free(tmp);
-        return j;
-    }
+    if (req->body.data && req->body.len > 0)
+        return miku_json_parse(req->body.data, req->body.len);
     return miku_json_create_object();
 }
 
