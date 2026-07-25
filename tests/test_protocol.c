@@ -609,6 +609,137 @@ void test_ws_frame_masked(void) {
     free(f2.payload);
 }
 
+void test_ws_frame_oversized_rejected(void) {
+    /* A frame declaring more than MK_WS_MAX_PAYLOAD must be rejected outright,
+     * not reported as "need more data": the caller has to close the connection
+     * because the declared payload can never be skipped safely. */
+    uint8_t hdr[10] = {0x81, 127, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF};
+    miku_ws_frame_t f;
+    memset(&f, 0, sizeof(f));
+    size_t consumed = 0;
+    mk_assert_int_eq(-1, miku_ws_frame_decode(&f, hdr, sizeof(hdr), &consumed));
+    mk_assert_null(f.payload);
+
+    /* Encoding must not wrap hdr + payload_len past the output capacity. */
+    uint8_t body[4] = {1, 2, 3, 4};
+    miku_ws_frame_t big;
+    memset(&big, 0, sizeof(big));
+    big.fin = true;
+    big.opcode = MK_WS_TEXT;
+    big.payload = body;
+    big.payload_len = UINT64_MAX - 8;
+    uint8_t out[64];
+    size_t out_len = 0;
+    mk_assert_int_eq(-1, miku_ws_frame_encode(&big, out, sizeof(out), &out_len));
+
+    /* A non-NULL length with a NULL payload is rejected rather than copied. */
+    miku_ws_frame_t nul;
+    memset(&nul, 0, sizeof(nul));
+    nul.fin = true;
+    nul.opcode = MK_WS_PONG;
+    nul.payload = NULL;
+    nul.payload_len = 16;
+    mk_assert_int_eq(-1, miku_ws_frame_encode(&nul, out, sizeof(out), &out_len));
+}
+
+void test_ws_frame_read_oversized_no_desync(void) {
+    int sv[2];
+    mk_assert_int_eq(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sv));
+
+    /* Oversized PING: previously frame_read skipped the payload but returned a
+     * positive length, leaving payload NULL with a huge payload_len — the
+     * caller then ponged from a NULL buffer and the unread bytes were parsed
+     * as the next frame header. */
+    uint8_t evil[10] = {0x89, 127, 0, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF};
+    mk_assert(write(sv[1], evil, sizeof(evil)) == (ssize_t)sizeof(evil));
+
+    miku_ws_frame_t *f = miku_ws_frame_create();
+    mk_assert_not_null(f);
+    mk_assert_int_eq(-1, miku_ws_frame_read(sv[0], f));
+    mk_assert_null(f->payload);
+    mk_assert_int_eq(0, (int)f->payload_len);
+    miku_ws_frame_destroy(f);
+
+    close(sv[0]);
+    close(sv[1]);
+}
+
+void test_ws_frame_read_split_header(void) {
+    int sv[2];
+    mk_assert_int_eq(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sv));
+
+    /* Header and payload arriving in separate segments must still decode as one
+     * frame; a short read used to be treated as an error, losing the consumed
+     * bytes and desyncing every later parse on the connection. */
+    uint8_t head[2] = {0x81, 5};
+    mk_assert(write(sv[1], head, 2) == 2);
+    mk_assert(write(sv[1], "He", 2) == 2);
+    mk_assert(write(sv[1], "llo", 3) == 3);
+
+    miku_ws_frame_t *f = miku_ws_frame_create();
+    mk_assert_not_null(f);
+    mk_assert_int_eq(5, miku_ws_frame_read(sv[0], f));
+    mk_assert_int_eq((int)MK_WS_TEXT, (int)f->opcode);
+    mk_assert_int_eq(5, (int)f->payload_len);
+    mk_assert(memcmp(f->payload, "Hello", 5) == 0);
+    miku_ws_frame_destroy(f);
+
+    close(sv[0]);
+    close(sv[1]);
+}
+
+typedef struct {
+    int    fd;
+    size_t payload_len;
+    int    chunks;
+} ws_drip_ctx_t;
+
+static void *ws_drip_writer(void *arg) {
+    ws_drip_ctx_t *d = (ws_drip_ctx_t *)arg;
+    uint8_t hdr[4] = {0x82, 126,
+                      (uint8_t)((d->payload_len >> 8) & 0xFF),
+                      (uint8_t)(d->payload_len & 0xFF)};
+    if (write(d->fd, hdr, sizeof(hdr)) != (ssize_t)sizeof(hdr)) return NULL;
+    uint8_t *body = (uint8_t *)malloc(d->payload_len);
+    if (!body) return NULL;
+    for (size_t i = 0; i < d->payload_len; i++) body[i] = (uint8_t)(i & 0xFF);
+    size_t per = d->payload_len / (size_t)d->chunks;
+    size_t sent = 0;
+    for (int c = 0; c < d->chunks; c++) {
+        size_t n = (c == d->chunks - 1) ? d->payload_len - sent : per;
+        if (write(d->fd, body + sent, n) != (ssize_t)n) break;
+        sent += n;
+        usleep(20000); /* force the reader to EAGAIN and poll again each time */
+    }
+    free(body);
+    return NULL;
+}
+
+void test_ws_frame_read_multi_segment_payload(void) {
+    int sv[2];
+    mk_assert_int_eq(0, socketpair(AF_UNIX, SOCK_STREAM, 0, sv));
+
+    /* A payload dripped in several segments needs more than one poll wait; a
+     * single-shot wait budget would abort partway through a legitimate frame. */
+    ws_drip_ctx_t d = { .fd = sv[1], .payload_len = 4096, .chunks = 5 };
+    pthread_t th;
+    mk_assert_int_eq(0, pthread_create(&th, NULL, ws_drip_writer, &d));
+
+    miku_ws_frame_t *f = miku_ws_frame_create();
+    mk_assert_not_null(f);
+    mk_assert_int_eq(4096, miku_ws_frame_read(sv[0], f));
+    mk_assert_int_eq((int)MK_WS_BINARY, (int)f->opcode);
+    mk_assert_int_eq(4096, (int)f->payload_len);
+    mk_assert_not_null(f->payload);
+    for (int i = 0; i < 4096; i++)
+        mk_assert_int_eq(i & 0xFF, (int)f->payload[i]);
+    miku_ws_frame_destroy(f);
+
+    pthread_join(th, NULL);
+    close(sv[0]);
+    close(sv[1]);
+}
+
 void test_ws_handshake(void) {
     const char *key = "dGhlIHNhbXBsZSBub25jZQ==";
     char accept[64];
@@ -821,6 +952,10 @@ void run_protocol_tests(void) {
     mk_run_test(test_sha1_empty);
     mk_run_test(test_ws_frame_encode_decode);
     mk_run_test(test_ws_frame_masked);
+    mk_run_test(test_ws_frame_oversized_rejected);
+    mk_run_test(test_ws_frame_read_oversized_no_desync);
+    mk_run_test(test_ws_frame_read_split_header);
+    mk_run_test(test_ws_frame_read_multi_segment_payload);
     mk_run_test(test_ws_handshake);
     mk_run_test(test_rpc_header_codec);
     mk_run_test(test_rpc_json_internal_token);

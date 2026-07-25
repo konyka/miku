@@ -10,13 +10,15 @@
 #include <arpa/inet.h>
 #include <fcntl.h>
 #include <stdio.h>
+#include <errno.h>
+#include <poll.h>
 
 #define MK_WS_FD_MAP 65536
 
 static const char WS_MAGIC[] = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
 int miku_ws_handshake(const char *sec_ws_key, char *accept_out, size_t accept_cap) {
-    if (!sec_ws_key || !accept_out) return -1;
+    if (!sec_ws_key || !accept_out || accept_cap == 0) return -1;
     size_t klen = strlen(sec_ws_key);
     size_t mlen = strlen(WS_MAGIC);
     size_t combined_len = klen + mlen;
@@ -46,18 +48,15 @@ void miku_ws_frame_destroy(miku_ws_frame_t *f) {
 
 int miku_ws_frame_encode(const miku_ws_frame_t *f, uint8_t *out, size_t out_cap, size_t *out_len) {
     if (!f || !out || !out_len) return -1;
-    size_t need = 2;
     uint64_t plen = f->payload_len;
-    if (plen <= 125) {
-        need += 0;
-    } else if (plen <= 65535) {
-        need += 2;
-    } else {
-        need += 8;
-    }
-    if (f->masked) need += 4;
-    need += plen;
-    if (need > out_cap) return -1;
+    if (plen > 0 && !f->payload) return -1;
+    size_t hdr = 2;
+    if (plen > 65535)     hdr += 8;
+    else if (plen > 125)  hdr += 2;
+    if (f->masked) hdr += 4;
+    /* Compare against the remaining capacity rather than summing: plen is
+     * caller-supplied and hdr + plen would wrap for a large value. */
+    if (hdr > out_cap || plen > out_cap - hdr) return -1;
 
     size_t pos = 0;
     out[pos++] = (uint8_t)((f->fin ? 0x80 : 0x00) | (f->opcode & 0x0F));
@@ -113,13 +112,15 @@ int miku_ws_frame_decode(miku_ws_frame_t *f, const uint8_t *data, size_t len, si
             plen = (plen << 8) | data[pos++];
     }
 
+    if (plen > MK_WS_MAX_PAYLOAD) return -1;
+
     if (f->masked) {
         if (pos + 4 > len) return 0;
         memcpy(f->masking_key, data + pos, 4);
         pos += 4;
     }
 
-    if (pos + plen > len) return 0;
+    if (plen > len - pos) return 0;
 
     free(f->payload);
     f->payload = NULL;
@@ -140,10 +141,50 @@ int miku_ws_frame_decode(miku_ws_frame_t *f, const uint8_t *data, size_t len, si
     return (int)pos;
 }
 
+/* Read exactly len bytes. Client fds are non-blocking, so a frame split across
+ * TCP segments yields a short read; returning early there would leave the rest
+ * of the frame in the stream and desync every later parse. Once any byte of a
+ * frame has been consumed we wait (up to MK_WS_READ_DEADLINE_MS) for the rest.
+ * Returns len on success, 0 if nothing was available at a frame boundary, or
+ * -1 on error, EOF, or deadline. */
+#define MK_WS_READ_DEADLINE_MS 5000
+
+static ssize_t ws_read_full(int fd, void *buf, size_t len, int at_frame_start) {
+    uint8_t *p = (uint8_t *)buf;
+    size_t got = 0;
+    int64_t deadline = 0;
+    while (got < len) {
+        ssize_t r = read(fd, p + got, len - got);
+        if (r > 0) {
+            got += (size_t)r;
+            continue;
+        }
+        if (r == 0) return got == 0 && at_frame_start ? 0 : -1;
+        if (errno == EINTR) continue;
+        if (errno != EAGAIN && errno != EWOULDBLOCK) return -1;
+        if (got == 0 && at_frame_start) return 0;
+        /* A payload up to MK_WS_MAX_PAYLOAD legitimately spans many segments, so
+         * the budget is wall-clock for the whole read, not per wait. */
+        if (deadline == 0) deadline = miku_timestamp_ms() + MK_WS_READ_DEADLINE_MS;
+        int64_t remaining = deadline - miku_timestamp_ms();
+        if (remaining <= 0) return -1;
+        struct pollfd pfd = { .fd = fd, .events = POLLIN, .revents = 0 };
+        int pr = poll(&pfd, 1, (int)remaining);
+        if (pr < 0) {
+            if (errno == EINTR) continue;
+            return -1;
+        }
+        if (pr == 0) return -1;
+    }
+    return (ssize_t)len;
+}
+
 int miku_ws_frame_read(int fd, miku_ws_frame_t *f) {
+    if (!f) return -1;
     uint8_t hdr[2];
-    ssize_t n = read(fd, hdr, 2);
-    if (n < 2) return -1;
+    /* No data at a frame boundary reports -1, as it always has: callers treat
+     * that as "no more frames", and rc == 0 already means a valid empty frame. */
+    if (ws_read_full(fd, hdr, 2, 1) != 2) return -1;
 
     f->fin = (hdr[0] & 0x80) != 0;
     f->opcode = (miku_ws_opcode_t)(hdr[0] & 0x0F);
@@ -152,37 +193,46 @@ int miku_ws_frame_read(int fd, miku_ws_frame_t *f) {
 
     if (plen == 126) {
         uint8_t ext[2];
-        if (read(fd, ext, 2) < 2) return -1;
+        if (ws_read_full(fd, ext, 2, 0) != 2) return -1;
         plen = ((uint64_t)ext[0] << 8) | ext[1];
     } else if (plen == 127) {
         uint8_t ext[8];
-        if (read(fd, ext, 8) < 8) return -1;
+        if (ws_read_full(fd, ext, 8, 0) != 8) return -1;
         plen = 0;
         for (int i = 0; i < 8; i++)
             plen = (plen << 8) | ext[i];
     }
 
-    if (f->masked) {
-        if (read(fd, f->masking_key, 4) < 4) return -1;
-    }
-
     free(f->payload);
     f->payload = NULL;
-    f->payload_len = plen;
-    if (plen > 0 && plen < 1048576) {
+    f->payload_len = 0;
+
+    /* Reject before touching the payload: an oversized frame cannot be skipped
+     * without losing the stream, so the caller must drop the connection. */
+    if (plen > MK_WS_MAX_PAYLOAD) {
+        MK_LOG_WARN("ws: frame payload %llu exceeds %u limit — closing",
+                    (unsigned long long)plen, MK_WS_MAX_PAYLOAD);
+        return -1;
+    }
+
+    if (f->masked) {
+        if (ws_read_full(fd, f->masking_key, 4, 0) != 4) return -1;
+    }
+
+    if (plen > 0) {
         f->payload = (uint8_t *)malloc((size_t)plen);
         if (!f->payload) return -1;
-        size_t total_read = 0;
-        while (total_read < plen) {
-            ssize_t r = read(fd, f->payload + total_read, (size_t)plen - total_read);
-            if (r <= 0) { free(f->payload); f->payload = NULL; return -1; }
-            total_read += (size_t)r;
+        if (ws_read_full(fd, f->payload, (size_t)plen, 0) != (ssize_t)plen) {
+            free(f->payload);
+            f->payload = NULL;
+            return -1;
         }
         if (f->masked) {
             for (uint64_t i = 0; i < plen; i++)
                 f->payload[i] ^= f->masking_key[i & 3];
         }
     }
+    f->payload_len = plen;
     return (int)plen;
 }
 
@@ -196,7 +246,7 @@ static int ws_send_frame(int fd, miku_ws_opcode_t opcode, const uint8_t *data, s
     f.payload_len = len;
 
     uint8_t buf[4096];
-    if (len + 14 > sizeof(buf)) return -1;
+    if (len > sizeof(buf) - 14) return -1;
     size_t out_len = 0;
     if (miku_ws_frame_encode(&f, buf, sizeof(buf), &out_len) != 0) return -1;
     ssize_t sent = write(fd, buf, out_len);

@@ -13,6 +13,11 @@ typedef enum {
     MK_WS_PONG          = 0xA
 } miku_ws_opcode_t;
 
+/* Largest payload accepted from the wire. A frame declaring more is a protocol
+ * error: reading it partially would leave the rest of the payload in the stream
+ * to be misparsed as the next frame header. */
+#define MK_WS_MAX_PAYLOAD (1024u * 1024u)
+
 typedef struct {
     miku_ws_opcode_t opcode;
     bool             fin;

@@ -282,6 +282,10 @@ RFC 6455 完整实现：
 - 帧编解码（文本/二进制/Close/Ping/Pong）
 - 握手验证（Sec-WebSocket-Key → Accept 计算）
 - 服务器和客户端连接管理
+- 单帧载荷上限 `MK_WS_MAX_PAYLOAD`（1 MiB）；超限的帧直接返回 -1 让调用方断开连接，
+  因为跳过其载荷会使后续字节被误当作帧头解析
+- 帧头、扩展长度、掩码、载荷均使用完整读取：客户端 fd 为非阻塞，帧被 TCP 分片时
+  会在帧内等待剩余字节（5 秒上限），帧边界上无数据则立即返回
 
 #### 3.4 二进制 RPC 协议（miku_rpc）
 
@@ -959,12 +963,12 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 |------|--------|------|
 | Foundation | 21 | 内存池、Arena、Slab、日志、配置、HashMap、字符串、UUID 等 |
 | Runtime | 9 | 协程、线程池、调度器、通道、定时器 |
-| Protocol | 44 | HTTP 解析、JSON 编解码转义、WebSocket、RPC、PB、中间件、203 路由校验 |
+| Protocol | 48 | HTTP 解析、JSON 编解码转义、WebSocket 分帧、RPC、PB、中间件、203 路由校验 |
 | Storage | 9 | LRU 缓存、服务发现 |
 | Services | 55 | 模型、7 个 RPC 服务、集成测试、认证中间件 |
 | New Modules | 67 | IM 消息、消息管道、限流、Webhook、WS ops、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **210** | 205 功能 + 5 基准 |
+| **总计** | **214** | 209 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
