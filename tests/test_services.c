@@ -9,6 +9,7 @@
 #include "miku_third.h"
 #include "miku_json.h"
 #include "miku_api.h"
+#include "miku_service_config.h"
 #include "miku_http_server.h"
 #include "miku_rpc_server.h"
 #include "miku_rpc_client.h"
@@ -2194,6 +2195,30 @@ static void test_api_remote_user_rpc(void) {
     miku_user_service_destroy(svc);
 }
 
+static void test_api_configure_rpc_drops_embedded(void) {
+    miku_service_config_t sc;
+    memset(&sc, 0, sizeof(sc));
+    strncpy(sc.rpc_host, "127.0.0.1", sizeof(sc.rpc_host) - 1);
+    sc.rpc_user_port = 10110;
+    sc.rpc_friend_port = 10120;
+    sc.rpc_group_port = 10150;
+
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    mk_assert_not_null(ctx->user);
+    mk_assert_not_null(ctx->friend_svc);
+    mk_assert_not_null(ctx->group_svc);
+
+    miku_api_configure_rpc(ctx, &sc);
+    mk_assert(ctx->user == NULL);
+    mk_assert(ctx->friend_svc == NULL);
+    mk_assert(ctx->group_svc == NULL);
+    mk_assert_not_null(ctx->conv);
+    mk_assert_not_null(ctx->msg);
+
+    miku_api_ctx_destroy(ctx);
+}
+
 static void test_msggateway_lifecycle(void) {
     miku_msggw_t *gw = miku_msggw_create(19100);
     mk_assert_not_null(gw);
@@ -2950,6 +2975,7 @@ void run_service_tests(void) {
     mk_run_test(test_rpc_internal_token);
     mk_run_test(test_rpc_client_call);
     mk_run_test(test_api_remote_user_rpc);
+    mk_run_test(test_api_configure_rpc_drops_embedded);
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
     mk_run_test(test_msggateway_kick_by_platform);

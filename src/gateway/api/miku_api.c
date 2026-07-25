@@ -255,17 +255,46 @@ void miku_api_configure_rpc(miku_api_ctx_t *ctx, const miku_service_config_t *cf
     ctx->rpc_conversation_port = cfg->rpc_conversation_port;
     ctx->rpc_msg_port = cfg->rpc_msg_port;
     ctx->rpc_third_port = cfg->rpc_third_port;
+
+    if (!ctx->rpc_host[0]) return;
+
+    if (ctx->rpc_user_port > 0 && ctx->user) {
+        miku_user_service_destroy(ctx->user);
+        ctx->user = NULL;
+    }
+    if (ctx->rpc_friend_port > 0 && ctx->friend_svc) {
+        miku_friend_service_destroy(ctx->friend_svc);
+        ctx->friend_svc = NULL;
+        if (ctx->msg) miku_msg_service_set_friend_svc(ctx->msg, NULL);
+    }
+    if (ctx->rpc_group_port > 0 && ctx->group_svc) {
+        miku_group_service_destroy(ctx->group_svc);
+        ctx->group_svc = NULL;
+        if (ctx->msg) miku_msg_service_set_group_svc(ctx->msg, NULL);
+    }
+    if (ctx->rpc_conversation_port > 0 && ctx->conv) {
+        miku_conv_service_destroy(ctx->conv);
+        ctx->conv = NULL;
+    }
+    if (ctx->rpc_msg_port > 0 && ctx->msg) {
+        miku_msg_service_destroy(ctx->msg);
+        ctx->msg = NULL;
+    }
+    if (ctx->rpc_third_port > 0 && ctx->third) {
+        miku_third_service_destroy(ctx->third);
+        ctx->third = NULL;
+    }
 }
 
 void miku_api_ctx_destroy(miku_api_ctx_t *ctx) {
     if (!ctx) return;
-    miku_auth_service_destroy(ctx->auth);
-    miku_user_service_destroy(ctx->user);
-    miku_friend_service_destroy(ctx->friend_svc);
-    miku_group_service_destroy(ctx->group_svc);
-    miku_conv_service_destroy(ctx->conv);
-    miku_msg_service_destroy(ctx->msg);
-    miku_third_service_destroy(ctx->third);
+    if (ctx->auth) miku_auth_service_destroy(ctx->auth);
+    if (ctx->user) miku_user_service_destroy(ctx->user);
+    if (ctx->friend_svc) miku_friend_service_destroy(ctx->friend_svc);
+    if (ctx->group_svc) miku_group_service_destroy(ctx->group_svc);
+    if (ctx->conv) miku_conv_service_destroy(ctx->conv);
+    if (ctx->msg) miku_msg_service_destroy(ctx->msg);
+    if (ctx->third) miku_third_service_destroy(ctx->third);
     miku_ratelimit_destroy(ctx->ratelimit);
     miku_webhook_destroy(ctx->webhook);
     free(ctx);
@@ -532,6 +561,7 @@ static int api_may_view_user(miku_api_ctx_t *c, int plat,
     if (plat == 5) return 1;
     if (!actor || !actor[0]) return 0;
     if (strcmp(actor, uid) == 0) return 1;
+    if (!c || !c->friend_svc) return 0;
     return miku_friend_is_mutual(c->friend_svc, actor, uid);
 }
 
@@ -669,12 +699,12 @@ static void filter_users_read_result(miku_api_ctx_t *c, int plat, const char *ac
 static int group_filter_keep_object(miku_json_val_t *item, void *v) {
     conv_filter_ctx_t *f = (conv_filter_ctx_t *)v;
     const char *gid = miku_json_str(miku_json_get(item, "groupID"));
-    return gid && f->actor && f->actor[0]
+    return gid && f && f->actor && f->actor[0] && f->c && f->c->group_svc
         && miku_group_is_member(f->c->group_svc, gid, f->actor);
 }
 
 static void filter_group_id_list(miku_api_ctx_t *c, const char *actor, miku_json_val_t *j) {
-    if (!c || !actor || !actor[0] || !j) return;
+    if (!c || !c->group_svc || !actor || !actor[0] || !j) return;
     miku_json_val_t *ids = miku_json_get(j, "groupIDList");
     if (!ids || miku_json_type(ids) != MK_JSON_ARRAY) return;
     miku_json_val_t *filtered = miku_json_create_array();
@@ -752,13 +782,13 @@ static void filter_group_invitee_ids(miku_api_ctx_t *c, const char *from,
             const char *u = miku_json_str(miku_json_at(ids, i));
             if (!u || !u[0]) continue;
             if (strcmp(u, from) == 0
-                || miku_friend_is_mutual(c->friend_svc, from, u))
+                || (c->friend_svc && miku_friend_is_mutual(c->friend_svc, from, u)))
                 miku_json_array_push(filtered, miku_json_create_str(u));
         }
         miku_json_object_set(j, keys[k], filtered);
     }
     const char *uid = miku_json_str(miku_json_get(j, "userID"));
-    if (uid && uid[0] && strcmp(uid, from) != 0
+    if (uid && uid[0] && strcmp(uid, from) != 0 && c->friend_svc
         && !miku_friend_is_mutual(c->friend_svc, from, uid))
         miku_jss(j, "userID", "");
 }
@@ -1367,7 +1397,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
         const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));
         if (!actor[0] || !cmid || !cmid[0] ||
-            !miku_msg_may_delete_physical(c->msg, actor, cmid)) {
+            (c->msg && !miku_msg_may_delete_physical(c->msg, actor, cmid))) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":5001,\"errMsg\":\"forbidden\"}");
             return;
@@ -1536,7 +1566,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
         const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));
         if (!actor[0] || !cmid || !cmid[0] ||
-            !miku_msg_may_delete_physical(c->msg, actor, cmid)) {
+            (c->msg && !miku_msg_may_delete_physical(c->msg, actor, cmid))) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":5001,\"errMsg\":\"forbidden\"}");
             return;
@@ -1552,7 +1582,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             return;
         }
         int64_t del_seq = miku_json_int(miku_json_get(j, "seq"));
-        if (!miku_msg_may_delete_physical_by_seq(c->msg, actor, cid, del_seq)) {
+        if (c->msg && !miku_msg_may_delete_physical_by_seq(c->msg, actor, cid, del_seq)) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp, "{\"errCode\":5001,\"errMsg\":\"forbidden\"}");
             return;

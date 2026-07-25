@@ -29,25 +29,34 @@ int main(int argc, char **argv) {
     if (!push) { MK_LOG_ERROR("Failed to create push service"); return 1; }
 
     miku_push_provider_t provider = miku_offline_push_provider_from_str(sc.push_provider);
-    miku_offline_push_t *offline = miku_offline_push_create(provider);
-    if (!offline) { MK_LOG_ERROR("Failed to create offline push"); miku_push_destroy(push); return 1; }
-    if (sc.push_endpoint[0]) {
-        if (miku_offline_push_set_endpoint(offline, sc.push_endpoint) != 0)
-            MK_LOG_WARN("miku-push: invalid push.endpoint %s", sc.push_endpoint);
+    miku_offline_push_t *offline = NULL;
+    if (sc.push_enable) {
+        offline = miku_offline_push_create(provider);
+        if (!offline) { MK_LOG_ERROR("Failed to create offline push"); miku_push_destroy(push); return 1; }
+        if (sc.push_endpoint[0]) {
+            if (miku_offline_push_set_endpoint(offline, sc.push_endpoint) != 0)
+                MK_LOG_WARN("miku-push: invalid push.endpoint %s", sc.push_endpoint);
+        }
+        if (sc.push_fcm_service_account[0])
+            miku_offline_push_set_service_account(offline, sc.push_fcm_service_account);
+    } else {
+        MK_LOG_INFO("miku-push: offline push disabled (push.enable=false)");
     }
-    if (sc.push_fcm_service_account[0])
-        miku_offline_push_set_service_account(offline, sc.push_fcm_service_account);
 
     miku_push_start(push);
 
-    miku_offline_push_set_token(offline, "demo_user_001", 1, "fcm_demo_token_abc123");
-    miku_offline_push_set_token(offline, "demo_user_002", 2, "jpush_demo_token_xyz789");
+    if (offline) {
+        miku_offline_push_set_token(offline, "demo_user_001", 1, "fcm_demo_token_abc123");
+        miku_offline_push_set_token(offline, "demo_user_002", 2, "jpush_demo_token_xyz789");
+    }
 
-    MK_LOG_INFO("miku-push ready — online + offline (provider=%s)",
-                 miku_offline_push_provider_name(provider));
+    MK_LOG_INFO("miku-push ready — online%s%s",
+                sc.push_enable ? " + offline (" : "",
+                sc.push_enable ? miku_offline_push_provider_name(provider) : " only");
 
-    miku_offline_push_send(offline, "demo_user_001", 1,
-                            "Welcome", "You have a new message", "miku://chat");
+    if (offline)
+        miku_offline_push_send(offline, "demo_user_001", 1,
+                                "Welcome", "You have a new message", "miku://chat");
 
     while (miku_graceful_running(&g_graceful)) {
         miku_graceful_wait(&g_graceful, NULL, NULL);
@@ -56,7 +65,7 @@ int main(int argc, char **argv) {
     MK_LOG_INFO("miku-push shutting down");
     miku_push_stop(push);
     miku_push_destroy(push);
-    miku_offline_push_destroy(offline);
+    if (offline) miku_offline_push_destroy(offline);
     miku_graceful_cleanup(&g_graceful);
     return 0;
 }

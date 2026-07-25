@@ -14,6 +14,7 @@
 #include "miku_base64.h"
 #include "miku_rbtree.h"
 #include "miku_memory.h"
+#include <sys/stat.h>
 
 extern void run_runtime_tests(void);
 extern void run_protocol_tests(void);
@@ -272,6 +273,23 @@ void test_service_config(void) {
     mk_assert_str_eq("", sc.push_fcm_service_account);
 }
 
+void test_service_config_push_disabled(void) {
+    const char *path = "/tmp/miku_cfg_push_off/share.yml";
+    mkdir("/tmp/miku_cfg_push_off", 0755);
+    FILE *f = fopen(path, "w");
+    mk_assert_not_null(f);
+    fprintf(f, "push:\n  enable: false\n  provider: fcm\n");
+    fclose(f);
+
+    miku_service_config_t sc;
+    mk_assert_int_eq(0, miku_service_config_load(&sc, "/tmp/miku_cfg_push_off"));
+    mk_assert_int_eq(0, sc.push_enable);
+    mk_assert_str_eq("fcm", sc.push_provider);
+
+    unlink(path);
+    rmdir("/tmp/miku_cfg_push_off");
+}
+
 void test_graceful_lifecycle(void) {
     miku_graceful_t g;
     miku_graceful_init(&g, 0);
@@ -381,6 +399,7 @@ int main(void) {
     mk_run_test(test_config_defaults);
     mk_run_test(test_config_file_io);
     mk_run_test(test_service_config);
+    mk_run_test(test_service_config_push_disabled);
     mk_run_test(test_graceful_lifecycle);
     mk_run_test(test_stats_basic);
     mk_run_test(test_stats_snapshot);

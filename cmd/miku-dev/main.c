@@ -146,12 +146,16 @@ int main(int argc, char **argv) {
     ctx->on_msg_sent_ctx = &ws_ctx;
 
     miku_push_t *push = miku_push_create();
-    miku_push_provider_t push_prov = miku_offline_push_provider_from_str(sc.push_provider);
-    miku_offline_push_t *offline = miku_offline_push_create(push_prov);
-    if (offline && sc.push_endpoint[0])
-        miku_offline_push_set_endpoint(offline, sc.push_endpoint);
-    if (offline && sc.push_fcm_service_account[0])
-        miku_offline_push_set_service_account(offline, sc.push_fcm_service_account);
+    miku_offline_push_t *offline = NULL;
+    miku_push_provider_t push_prov = MK_PUSH_PROVIDER_DUMMY;
+    if (sc.push_enable) {
+        push_prov = miku_offline_push_provider_from_str(sc.push_provider);
+        offline = miku_offline_push_create(push_prov);
+        if (offline && sc.push_endpoint[0])
+            miku_offline_push_set_endpoint(offline, sc.push_endpoint);
+        if (offline && sc.push_fcm_service_account[0])
+            miku_offline_push_set_service_account(offline, sc.push_fcm_service_account);
+    }
 
     miku_crontask_t *cron = miku_crontask_create();
     g_cron_impl = miku_cron_tasks_create();
@@ -172,8 +176,9 @@ int main(int argc, char **argv) {
     MK_LOG_INFO("  Redis:      %s", sc.redis_address);
     MK_LOG_INFO("  Kafka:      %s", sc.kafka_brokers);
     MK_LOG_INFO("  Services:   7 RPC + 5 gateway");
-    MK_LOG_INFO("  Push:       online + offline (%s)",
-                miku_offline_push_provider_name(push_prov));
+    MK_LOG_INFO("  Push:       online%s%s",
+                sc.push_enable ? " + offline (" : "",
+                sc.push_enable ? miku_offline_push_provider_name(push_prov) : " only");
     MK_LOG_INFO("  Cron:       %d tasks", miku_crontask_task_count(cron));
     MK_LOG_INFO("  Press Ctrl+C to stop");
 
@@ -206,7 +211,7 @@ int main(int argc, char **argv) {
     miku_cron_tasks_destroy(g_cron_impl);
     miku_msg_store_destroy(g_msg_store);
     miku_push_destroy(push);
-    miku_offline_push_destroy(offline);
+    if (offline) miku_offline_push_destroy(offline);
     miku_msgtransfer_destroy(mt);
     miku_mt_pipeline_destroy(pipe);
     miku_msggw_destroy(gw);
