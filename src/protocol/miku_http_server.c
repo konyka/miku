@@ -83,8 +83,16 @@ static void conn_track_add(miku_http_server_t *srv, int fd) {
     }
     if (srv->conn_count >= srv->conn_cap) {
         int newcap = srv->conn_cap * 2;
-        srv->conn_fds = realloc(srv->conn_fds, (size_t)newcap * sizeof(int));
-        srv->conn_last_active = realloc(srv->conn_last_active, (size_t)newcap * sizeof(int64_t));
+        int *new_fds = realloc(srv->conn_fds, (size_t)newcap * sizeof(int));
+        int64_t *new_active = realloc(srv->conn_last_active,
+                                      (size_t)newcap * sizeof(int64_t));
+        if (!new_fds || !new_active) {
+            free(new_fds);
+            free(new_active);
+            return;
+        }
+        srv->conn_fds = new_fds;
+        srv->conn_last_active = new_active;
         srv->conn_cap = newcap;
     }
     int idx = srv->conn_count++;
@@ -404,6 +412,12 @@ miku_http_server_t *miku_http_server_create(const char *host, int port) {
     srv->conn_cap = MIKU_INITIAL_CONN_CAP;
     srv->conn_fds = malloc(MIKU_INITIAL_CONN_CAP * sizeof(int));
     srv->conn_last_active = malloc(MIKU_INITIAL_CONN_CAP * sizeof(int64_t));
+    if (!srv->conn_fds || !srv->conn_last_active) {
+        free(srv->conn_fds);
+        free(srv->conn_last_active);
+        free(srv);
+        return NULL;
+    }
     srv->conn_count = 0;
     for (int i = 0; i < MIKU_HTTP_FD_MAP; i++) srv->conn_fd_map[i] = -1;
     return srv;

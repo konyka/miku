@@ -68,7 +68,8 @@ int miku_pb_write_varint(miku_pb_buf_t *buf, uint32_t field, uint64_t val) {
 }
 
 int miku_pb_write_svarint(miku_pb_buf_t *buf, uint32_t field, int64_t val) {
-    uint64_t zigzag = (uint64_t)((val << 1) ^ (val >> 63));
+    uint64_t uval = (uint64_t)val;
+    uint64_t zigzag = (uval << 1) ^ (uint64_t)(val >> 63);
     return miku_pb_write_varint(buf, field, zigzag);
 }
 
