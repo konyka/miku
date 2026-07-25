@@ -97,7 +97,9 @@ void miku_http_response_set_json(miku_http_response_t *resp, const char *json) {
     if (!resp || !json) return;
     miku_str_clear(resp->body);
     miku_str_cat(resp->body, json);
-    miku_hashmap_put(resp->headers, strdup("Content-Type"), strdup("application/json"));
+    /* Hashmap owns (strdups) keys and frees values via val_free=free, so the
+     * key must be a borrowed literal and the value a heap copy. */
+    miku_hashmap_put(resp->headers, "Content-Type", strdup("application/json"));
 }
 
 static void add_header_cb(const char *key, void *val, void *ctx) {
