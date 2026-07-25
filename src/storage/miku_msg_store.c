@@ -11,6 +11,27 @@
 #define MK_MSG_ID_HASH 16384  /* power of 2 */
 #define MK_MSG_CONV_HASH 16384
 
+/* Escape a string for safe interpolation into a JSON string literal.
+ * Prevents NoSQL injection via crafted msgID/conversationID values. */
+static void json_escape_str(const char *in, char *out, size_t cap) {
+    if (!out || cap == 0) return;
+    size_t pos = 0;
+    for (const char *p = in; p && *p && pos + 2 < cap; p++) {
+        if (*p == '"' || *p == '\\') {
+            if (pos + 2 >= cap) break;
+            out[pos++] = '\\';
+            out[pos++] = *p;
+        } else if ((unsigned char)*p < 0x20) {
+            int w = snprintf(out + pos, cap - pos, "\\u%04x", (unsigned)*p);
+            if (w <= 0 || pos + (size_t)w >= cap) break;
+            pos += (size_t)w;
+        } else {
+            out[pos++] = *p;
+        }
+    }
+    out[pos] = '\0';
+}
+
 typedef struct {
     char    msg_id[64];
     char    conversation_id[128];
@@ -297,11 +318,16 @@ int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
         return 0;
     }
 
+    char e_mid[128], e_cid[256], e_sid[128], e_ct[2048];
+    json_escape_str(msg_id, e_mid, sizeof(e_mid));
+    json_escape_str(conversation_id, e_cid, sizeof(e_cid));
+    json_escape_str(sender_id, e_sid, sizeof(e_sid));
+    json_escape_str(content, e_ct, sizeof(e_ct));
     char doc[4096];
     int n = snprintf(doc, sizeof(doc),
         "{\"msgID\":\"%s\",\"conversationID\":\"%s\",\"sendID\":\"%s\","
         "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%ld,\"seq\":%lld,\"status\":1}",
-        msg_id, conversation_id, sender_id, content_type, content,
+        e_mid, e_cid, e_sid, content_type, e_ct,
         (long)send_time, (long long)seq);
     if (n < 0 || (size_t)n >= sizeof(doc)) return -1;
 
@@ -314,10 +340,11 @@ int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversatio
     if (!store || !conversation_id) return -1;
 
     if (store->enabled) {
-        char filter[256];
+        char ecid[256]; json_escape_str(conversation_id, ecid, sizeof(ecid));
+        char filter[512];
         snprintf(filter, sizeof(filter),
                  "{\"conversationID\":\"%s\",\"seq\":{\"$gte\":%ld,\"$lte\":%ld}}",
-                 conversation_id, (long)start_seq, (long)end_seq);
+                 ecid, (long)start_seq, (long)end_seq);
         return miku_mongo_find_one(store->mongo, "messages", filter, results_json);
     }
 
@@ -332,13 +359,18 @@ int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversatio
         if (!m->used) continue;
         if (m->seq < start_seq) continue;
         if (end_seq > 0 && m->seq > end_seq) continue;
-        char item[1536];
+        char item[2048];
+        char e_mid[128], e_cid[256], e_sid[128], e_ct[1100];
+        json_escape_str(m->msg_id, e_mid, sizeof(e_mid));
+        json_escape_str(m->conversation_id, e_cid, sizeof(e_cid));
+        json_escape_str(m->sender_id, e_sid, sizeof(e_sid));
+        json_escape_str(m->content, e_ct, sizeof(e_ct));
         int n = snprintf(item, sizeof(item),
             "%s{\"msgID\":\"%s\",\"conversationID\":\"%s\",\"sendID\":\"%s\","
             "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%lld,\"seq\":%lld,\"status\":%d}",
             first ? "" : ",",
-            m->msg_id, m->conversation_id, m->sender_id,
-            m->content_type, m->content, (long long)m->send_time,
+            e_mid, e_cid, e_sid,
+            m->content_type, e_ct, (long long)m->send_time,
             (long long)m->seq, m->status);
         if (n < 0) continue;
         if (pos + (size_t)n + 2 > cap) {
@@ -364,8 +396,9 @@ int miku_msg_store_find_one(miku_msg_store_t *store, const char *msg_id,
     if (!store || !msg_id) return -1;
 
     if (store->enabled) {
-        char filter[128];
-        snprintf(filter, sizeof(filter), "{\"msgID\":\"%s\"}", msg_id);
+        char eid[256]; json_escape_str(msg_id, eid, sizeof(eid));
+        char filter[288];
+        snprintf(filter, sizeof(filter), "{\"msgID\":\"%s\"}", eid);
         return miku_mongo_find_one(store->mongo, "messages", filter, result_json);
     }
 
@@ -374,13 +407,18 @@ int miku_msg_store_find_one(miku_msg_store_t *store, const char *msg_id,
         if (result_json) *result_json = strdup("{}");
         return 0;
     }
-    char *buf = (char *)malloc(1536);
+    char e_mid[128], e_cid[256], e_sid[128], e_ct[2048];
+    json_escape_str(m->msg_id, e_mid, sizeof(e_mid));
+    json_escape_str(m->conversation_id, e_cid, sizeof(e_cid));
+    json_escape_str(m->sender_id, e_sid, sizeof(e_sid));
+    json_escape_str(m->content, e_ct, sizeof(e_ct));
+    char *buf = (char *)malloc(4096);
     if (!buf) return -1;
-    snprintf(buf, 1536,
+    snprintf(buf, 4096,
         "{\"msgID\":\"%s\",\"conversationID\":\"%s\",\"sendID\":\"%s\","
         "\"contentType\":%d,\"content\":\"%s\",\"sendTime\":%lld,\"seq\":%lld,\"status\":%d}",
-        m->msg_id, m->conversation_id, m->sender_id,
-        m->content_type, m->content, (long long)m->send_time,
+        e_mid, e_cid, e_sid,
+        m->content_type, e_ct, (long long)m->send_time,
         (long long)m->seq, m->status);
     if (result_json) *result_json = buf;
     else free(buf);
@@ -394,8 +432,9 @@ int miku_msg_store_update_status(miku_msg_store_t *store, const char *msg_id, in
 
     if (!store->enabled) return 0;
 
-    char filter[128], update[128];
-    snprintf(filter, sizeof(filter), "{\"msgID\":\"%s\"}", msg_id);
+    char filter[288], update[128];
+    char eid[256]; json_escape_str(msg_id, eid, sizeof(eid));
+    snprintf(filter, sizeof(filter), "{\"msgID\":\"%s\"}", eid);
     snprintf(update, sizeof(update), "{\"$set\":{\"status\":%d}}", status);
     return miku_mongo_update(store->mongo, "messages", filter, update, false);
 }
@@ -407,8 +446,9 @@ int miku_msg_store_delete(miku_msg_store_t *store, const char *msg_id) {
 
     if (!store->enabled) return 0;
 
-    char filter[128];
-    snprintf(filter, sizeof(filter), "{\"msgID\":\"%s\"}", msg_id);
+    char eid[256]; json_escape_str(msg_id, eid, sizeof(eid));
+    char filter[288];
+    snprintf(filter, sizeof(filter), "{\"msgID\":\"%s\"}", eid);
     return miku_mongo_delete(store->mongo, "messages", filter);
 }
 

@@ -10,10 +10,33 @@
 #include <netdb.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <poll.h>
 #include <fcntl.h>
 #include <errno.h>
+
+static size_t rpc_read_full(int fd, void *buf, size_t len) {
+    size_t total = 0;
+    while (total < len) {
+        ssize_t r = read(fd, (char *)buf + total, len - total);
+        if (r > 0) { total += (size_t)r; continue; }
+        if (r < 0 && errno == EINTR) continue;
+        break;
+    }
+    return total;
+}
+
+static size_t rpc_write_full(int fd, const void *buf, size_t len) {
+    size_t total = 0;
+    while (total < len) {
+        ssize_t w = write(fd, (const char *)buf + total, len - total);
+        if (w > 0) { total += (size_t)w; continue; }
+        if (w < 0 && errno == EINTR) continue;
+        break;
+    }
+    return total;
+}
 
 int miku_rpc_json_add_internal_token(const char *payload_json,
                                       char *out, size_t out_cap) {
@@ -103,22 +126,26 @@ int miku_rpc_call(const char *host, int port, const char *payload_json,
     int fd = connect_host_port(host, port, 500);
     if (fd < 0) return -1;
 
+    struct timeval io_tv = { .tv_sec = 5, .tv_usec = 0 };
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &io_tv, sizeof(io_tv));
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &io_tv, sizeof(io_tv));
+
     uint32_t plen = (uint32_t)strlen(payload);
     uint8_t hdr[16] = {0};
     hdr[0] = 0x4D;
     hdr[1] = 0x4B;
     hdr[4] = 1;
-    if (write(fd, hdr, 16) != 16) { close(fd); return -1; }
+    if (rpc_write_full(fd, hdr, 16) < 16) { close(fd); return -1; }
 
     uint8_t len_buf[4] = {
         (uint8_t)(plen >> 24), (uint8_t)(plen >> 16),
         (uint8_t)(plen >> 8),  (uint8_t)plen
     };
-    if (write(fd, len_buf, 4) != 4) { close(fd); return -1; }
-    if (write(fd, payload, plen) != (ssize_t)plen) { close(fd); return -1; }
+    if (rpc_write_full(fd, len_buf, 4) < 4) { close(fd); return -1; }
+    if (rpc_write_full(fd, payload, plen) < plen) { close(fd); return -1; }
 
     uint8_t resp_len_buf[4];
-    if (read(fd, resp_len_buf, 4) != 4) { close(fd); return -1; }
+    if (rpc_read_full(fd, resp_len_buf, 4) < 4) { close(fd); return -1; }
     uint32_t rlen = ((uint32_t)resp_len_buf[0] << 24) | ((uint32_t)resp_len_buf[1] << 16) |
                     ((uint32_t)resp_len_buf[2] << 8)  | (uint32_t)resp_len_buf[3];
     if (rlen == 0 || rlen >= resp_cap) { close(fd); return -1; }
