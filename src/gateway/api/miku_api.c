@@ -1209,7 +1209,10 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             miku_jss(j, "userID", actor);
     }
     if (strcmp(method, "sendBusinessNotification") == 0) {
-        if (req_token_platform(req) != 5) {
+        /* Direct (no groupID) business notifications require an admin token.
+         * Group-targeted ones are gated by group membership (3003) at the RPC. */
+        const char *gid = miku_json_str(miku_json_get(j, "groupID"));
+        if ((!gid || !gid[0]) && req_token_platform(req) != 5) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
                 "{\"errCode\":403,\"errMsg\":\"admin token required\"}");
@@ -1236,8 +1239,11 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             resp->status = 400;
             return;
         }
-        /* Single chat: mutual friends required; blacklist blocks either direction. */
-        if (rid && rid[0] && (!gid || !gid[0])) {
+        /* Single chat: mutual friends required; blacklist blocks either direction.
+         * Admin business notifications bypass the friend check (system sender). */
+        if (rid && rid[0] && (!gid || !gid[0]) &&
+            !(strcmp(method, "sendBusinessNotification") == 0 &&
+              req_token_platform(req) == 5)) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
             if (!sid || !sid[0] || !c->friend_svc) {
                 miku_json_destroy(j); miku_json_destroy(out);

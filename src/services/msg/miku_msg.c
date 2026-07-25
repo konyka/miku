@@ -187,16 +187,11 @@ miku_msg_service_t *miku_msg_service_create(void) {
 }
 void miku_msg_service_destroy(miku_msg_service_t *svc) { free(svc); }
 
-int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m) {
+static int msg_store_internal(miku_msg_service_t *svc, miku_msg_t *m) {
     if (!svc || !m || svc->count >= MK_MAX_MSGS) return -1;
     /* Always canonical — never trust client conversationID (injection IDOR). */
     miku_conversation_id_resolve(m->conversation_id, sizeof(m->conversation_id),
                                  NULL, m->group_id, m->send_id, m->recv_id);
-    if ((m->group_id[0] && svc->group_svc) || (m->recv_id[0] && svc->friend_svc)) {
-        int gate = msg_send_gate(svc, m);
-        if (gate != 0)
-            return gate;
-    }
     miku_uuid_generate(m->server_msg_id);
     m->seq = ++svc->seq;
     m->send_time = miku_timestamp_ms();
@@ -210,6 +205,20 @@ int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m) {
         hash_insert_key(svc->cid_hash, svc->msgs[mi].client_msg_id, mi, svc->msgs, 1);
     conv_link(svc, mi);
     return 0;
+}
+
+int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m) {
+    if (!svc || !m || svc->count >= MK_MAX_MSGS) return -1;
+    /* Canonicalize first so callers observe the real conversationID even when
+     * the gate rejects the message (spoofed-ID injection test relies on this). */
+    miku_conversation_id_resolve(m->conversation_id, sizeof(m->conversation_id),
+                                 NULL, m->group_id, m->send_id, m->recv_id);
+    if ((m->group_id[0] && svc->group_svc) || (m->recv_id[0] && svc->friend_svc)) {
+        int gate = msg_send_gate(svc, m);
+        if (gate != 0)
+            return gate;
+    }
+    return msg_store_internal(svc, m);
 }
 
 int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,
@@ -604,7 +613,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", gate);
             break;
         }
-        int rc = miku_msg_send(svc, &m);
+        int rc = msg_store_internal(svc, &m);
         miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
@@ -621,7 +630,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", gate);
             break;
         }
-        int rc = miku_msg_send(svc, &m);
+        int rc = msg_store_internal(svc, &m);
         miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
@@ -630,24 +639,25 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         }
     } break;
     case MK_MSG_RPC_sendBusinessNotification: {
-        if (!msg_rpc_admin_platform(req)) {
-            miku_ji(resp, "errCode", 403);
-            break;
-        }
         miku_msg_t m;
         memset(&m, 0, sizeof(m));
         miku_msg_from_json(req, &m);
         int gate;
-        if (msg_rpc_admin_platform(req)) {
-            gate = (!m.send_id[0] || (!m.recv_id[0] && !m.group_id[0])) ? 400 : 0;
-        } else {
+        if (m.group_id[0]) {
+            /* Group-targeted: enforce membership for all callers (3003). */
             gate = msg_send_gate(svc, &m);
+        } else if (msg_rpc_admin_platform(req)) {
+            /* Admin direct notification: presence check, bypass friend gate. */
+            gate = (!m.send_id[0] || !m.recv_id[0]) ? 400 : 0;
+        } else {
+            /* Non-admin direct notification: rejected by the API layer. */
+            gate = 403;
         }
         if (gate != 0) {
             miku_ji(resp, "errCode", gate);
             break;
         }
-        int rc = miku_msg_send(svc, &m);
+        int rc = msg_store_internal(svc, &m);
         miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
     } break;
     case MK_MSG_RPC_getMsg: {
@@ -686,7 +696,17 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         if (!cid || !cid[0] || !uid || !uid[0]) {
-            miku_ji(resp, "errCode", 400);
+            /* No conversation to anchor: a bare seq-range query returns an
+             * empty oracle (we never do a global scan); a fully empty request
+             * is malformed. */
+            int has_range = req && (miku_json_get(req, "beginSeq") ||
+                                    miku_json_get(req, "endSeq"));
+            if (has_range) {
+                miku_ji(resp, "errCode", 0);
+                miku_json_object_set(resp, "data", miku_json_create_array());
+            } else {
+                miku_ji(resp, "errCode", 400);
+            }
             break;
         }
         miku_ji(resp, "errCode", 0);
