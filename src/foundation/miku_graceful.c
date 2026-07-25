@@ -27,6 +27,14 @@ void miku_graceful_init(miku_graceful_t *g, int drain_timeout_ms) {
     signal(SIGTERM, handle_shutdown);
     signal(SIGINT,  handle_shutdown);
     signal(SIGHUP,  handle_reload);
+    /* Writing to a peer that has gone away raises SIGPIPE, which by default
+     * terminates the process — a single client dropping mid-send would kill the
+     * server and every other session on it. The socket writes themselves pass
+     * MSG_NOSIGNAL (miku_sock_write), so this is the backstop for anything that
+     * still reaches write(2). Note that an interactive shell already ignores
+     * SIGPIPE and children inherit that, which is why running from a terminal
+     * hides this and running under systemd or Docker does not. */
+    signal(SIGPIPE, SIG_IGN);
 }
 
 int miku_graceful_running(const miku_graceful_t *g) {

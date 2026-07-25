@@ -1,4 +1,5 @@
 #include "miku_websocket.h"
+#include "miku_io.h"
 #include "miku_log.h"
 #include "miku_sha1.h"
 #include "miku_base64.h"
@@ -249,7 +250,7 @@ static int ws_send_frame(int fd, miku_ws_opcode_t opcode, const uint8_t *data, s
     if (len > sizeof(buf) - 14) return -1;
     size_t out_len = 0;
     if (miku_ws_frame_encode(&f, buf, sizeof(buf), &out_len) != 0) return -1;
-    ssize_t sent = write(fd, buf, out_len);
+    ssize_t sent = miku_sock_write(fd, buf, out_len);
     return (sent == (ssize_t)out_len) ? 0 : -1;
 }
 
@@ -376,7 +377,7 @@ static void ws_accept_conn(int fd, int events, void *data) {
         "Connection: Upgrade\r\n"
         "Sec-WebSocket-Accept: %s\r\n\r\n",
         accept_val);
-    write(client_fd, resp, (size_t)resp_len);
+    miku_sock_write(client_fd, resp, (size_t)resp_len);
 
     miku_set_nonblocking(client_fd);
 

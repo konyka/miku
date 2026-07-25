@@ -1,4 +1,5 @@
 #include "miku_rpc_server.h"
+#include "miku_io.h"
 #include "miku_log.h"
 #include "miku_json.h"
 #include "miku_json_util.h"
@@ -29,7 +30,7 @@ static size_t read_full(int fd, void *buf, size_t len) {
 static size_t write_full(int fd, const void *buf, size_t len) {
     size_t total = 0;
     while (total < len) {
-        ssize_t w = write(fd, (const char *)buf + total, len - total);
+        ssize_t w = miku_sock_write(fd, (const char *)buf + total, len - total);
         if (w > 0) { total += (size_t)w; continue; }
         if (w < 0 && errno == EINTR) continue;
         break;

@@ -1,4 +1,5 @@
 #include "miku_http_server.h"
+#include "miku_io.h"
 #include "miku_log.h"
 #include "miku_string.h"
 #include "miku_stats.h"
@@ -169,10 +170,10 @@ static void handle_client(int fd, int events, void *data) {
         }
     }
 #define MIKU_READ(buf, sz) (ssl ? SSL_read(ssl, buf, sz) : read(fd, buf, sz))
-#define MIKU_WRITE(buf, sz) (ssl ? SSL_write(ssl, buf, sz) : write(fd, buf, sz))
+#define MIKU_WRITE(buf, sz) (ssl ? SSL_write(ssl, buf, sz) : miku_sock_write(fd, buf, sz))
 #else
 #define MIKU_READ(buf, sz) read(fd, buf, sz)
-#define MIKU_WRITE(buf, sz) write(fd, buf, sz)
+#define MIKU_WRITE(buf, sz) miku_sock_write(fd, buf, sz)
 #endif
 
     /* Growable heap buffer so body pointers remain valid for the request lifetime. */

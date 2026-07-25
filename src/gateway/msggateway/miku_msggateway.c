@@ -6,6 +6,7 @@
 #include "miku_token.h"
 #include "miku_io.h"
 #include "miku_hash.h"
+#include <pthread.h>
 #include "miku_seq.h"
 #include <stdlib.h>
 #include <string.h>
@@ -43,11 +44,28 @@ struct miku_msggw_s {
     int64_t              total_msgs_in;
     int64_t              total_msgs_out;
     miku_seq_t          *seq;
+    /* The admin HTTP thread (/internal/kick, /internal/push_msg) reaches the
+     * connection table while the event loop is accepting and tearing down
+     * connections. Worse than a stale read: the admin thread can pick up
+     * clients[idx].fd, the loop can close it and accept() can hand the same fd
+     * number to a new client, so the message lands in the wrong session. The
+     * loop's own callbacks re-enter this table (presence and fan-out both call
+     * send_op_to_user), hence a recursive mutex rather than a plain one. */
+    pthread_mutex_t      lock;
 };
 
 miku_msggw_t *miku_msggw_create(int port) {
     miku_msggw_t *gw = (miku_msggw_t *)calloc(1, sizeof(*gw));
     if (gw) {
+        pthread_mutexattr_t attr;
+        pthread_mutexattr_init(&attr);
+        pthread_mutexattr_settype(&attr, PTHREAD_MUTEX_RECURSIVE);
+        if (pthread_mutex_init(&gw->lock, &attr) != 0) {
+            pthread_mutexattr_destroy(&attr);
+            free(gw);
+            return NULL;
+        }
+        pthread_mutexattr_destroy(&attr);
         gw->port = port;
         gw->listen_fd = -1;
         gw->seq = miku_seq_create();
@@ -63,8 +81,12 @@ void miku_msggw_destroy(miku_msggw_t *gw) {
     if (!gw) return;
     if (gw->io) miku_io_destroy(gw->io);
     miku_seq_destroy(gw->seq);
+    pthread_mutex_destroy(&gw->lock);
     free(gw);
 }
+
+static int miku_msggw_send_op_nolock(miku_msggw_t *gw, int client_idx, int opcode,
+                                     const char *payload, size_t len);
 
 static uint32_t user_bucket(const char *user_id) {
     return (uint32_t)(miku_fnv1a_64(user_id, strlen(user_id)) & (MK_GW_USER_HASH - 1));
@@ -193,11 +215,11 @@ int miku_msggw_stop(miku_msggw_t *gw) {
     return 0;
 }
 
-int miku_msggw_client_count(miku_msggw_t *gw) {
+static int miku_msggw_client_count_nolock(miku_msggw_t *gw) {
     return gw ? gw->online_count : 0;
 }
 
-int miku_msggw_broadcast(miku_msggw_t *gw, const char *msg, size_t len) {
+static int miku_msggw_broadcast_nolock(miku_msggw_t *gw, const char *msg, size_t len) {
     if (!gw || !msg) return -1;
     int sent = 0;
     for (int i = 0; i < gw->client_count; i++) {
@@ -210,7 +232,7 @@ int miku_msggw_broadcast(miku_msggw_t *gw, const char *msg, size_t len) {
     return sent;
 }
 
-int miku_msggw_send_to_user(miku_msggw_t *gw, const char *user_id,
+static int miku_msggw_send_to_user_nolock(miku_msggw_t *gw, const char *user_id,
                              const char *msg, size_t len) {
     if (!gw || !user_id || !msg) return -1;
     int sent = 0;
@@ -226,17 +248,17 @@ int miku_msggw_send_to_user(miku_msggw_t *gw, const char *user_id,
     return sent;
 }
 
-int miku_msggw_send_op_to_user(miku_msggw_t *gw, const char *user_id,
+static int miku_msggw_send_op_to_user_nolock(miku_msggw_t *gw, const char *user_id,
                                  int opcode, const char *payload, size_t len) {
     if (!gw || !user_id) return -1;
     char buf[8192];
     int n = snprintf(buf, sizeof(buf), "{\"reqIdentifier\":%d,\"data\":%.*s}",
                      opcode, (int)len, payload ? payload : "{}");
     if (n < 0 || (size_t)n >= sizeof(buf)) return -1;
-    return miku_msggw_send_to_user(gw, user_id, buf, (size_t)n);
+    return miku_msggw_send_to_user_nolock(gw, user_id, buf, (size_t)n);
 }
 
-int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id, int platform) {
+static int miku_msggw_kick_user_nolock(miku_msggw_t *gw, const char *user_id, int platform) {
     if (!gw || !user_id) return -1;
     static const char kick_payload[] = "{\"reason\":\"forced offline\"}";
     int kicked = 0;
@@ -248,7 +270,7 @@ int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id, int platform) {
             strcmp(gw->clients[idx].user_id, user_id) == 0 &&
             (platform < 0 || gw->clients[idx].platform == platform)) {
             /* Notify SDK before closing so clients can handle force-logout cleanly. */
-            miku_msggw_send_op(gw, idx, MK_WS_OP_KICK_ONLINE,
+            miku_msggw_send_op_nolock(gw, idx, MK_WS_OP_KICK_ONLINE,
                                kick_payload, sizeof(kick_payload) - 1);
             miku_ws_send_close(gw->clients[idx].fd, 1000, "kicked");
             client_offline(gw, idx);
@@ -277,7 +299,7 @@ void miku_msggw_on_presence(miku_msggw_t *gw, miku_msggw_on_presence_fn fn, void
     gw->on_presence_ctx = ctx;
 }
 
-int miku_msggw_send_op(miku_msggw_t *gw, int client_idx, int opcode,
+static int miku_msggw_send_op_nolock(miku_msggw_t *gw, int client_idx, int opcode,
                          const char *payload, size_t len) {
     if (!gw || client_idx < 0 || client_idx >= gw->client_count) return -1;
     miku_msggw_client_t *c = &gw->clients[client_idx];
@@ -292,7 +314,7 @@ int miku_msggw_send_op(miku_msggw_t *gw, int client_idx, int opcode,
     return 0;
 }
 
-int miku_msggw_broadcast_op(miku_msggw_t *gw, int opcode,
+static int miku_msggw_broadcast_op_nolock(miku_msggw_t *gw, int opcode,
                               const char *payload, size_t len) {
     if (!gw) return -1;
     char buf[8192];
@@ -344,13 +366,13 @@ int64_t miku_msggw_get_user_read(miku_msggw_t *gw, const char *user_id,
     return miku_seq_get_user_read(gw->seq, user_id, cid);
 }
 
-int miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background) {
+static int miku_msggw_set_background_nolock(miku_msggw_t *gw, int client_idx, bool background) {
     if (!gw || client_idx < 0 || client_idx >= gw->client_count) return -1;
     gw->clients[client_idx].is_background = background;
     return 0;
 }
 
-int miku_msggw_disconnect_client(miku_msggw_t *gw, int client_idx) {
+static int miku_msggw_disconnect_client_nolock(miku_msggw_t *gw, int client_idx) {
     if (!gw || client_idx < 0 || client_idx >= gw->client_count) return -1;
     if (!gw->clients[client_idx].online) return 0;
     if (gw->clients[client_idx].upgraded)
@@ -359,7 +381,7 @@ int miku_msggw_disconnect_client(miku_msggw_t *gw, int client_idx) {
     return 0;
 }
 
-int miku_msggw_get_client_user_id(miku_msggw_t *gw, int client_idx,
+static int miku_msggw_get_client_user_id_nolock(miku_msggw_t *gw, int client_idx,
                                     char *out, size_t out_cap) {
     if (!gw || !out || out_cap == 0 || client_idx < 0 || client_idx >= gw->client_count)
         return -1;
@@ -467,7 +489,7 @@ static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *pla
             "Connection: close\r\n"
             "Content-Length: 47\r\n\r\n"
             "{\"errCode\":401,\"errMsg\":\"token required\"}";
-        write(fd, deny, strlen(deny));
+        miku_sock_write(fd, deny, strlen(deny));
         return -1;
     }
 
@@ -481,7 +503,7 @@ static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *pla
             "Connection: close\r\n"
             "Content-Length: 47\r\n\r\n"
             "{\"errCode\":401,\"errMsg\":\"invalid token\"}";
-        write(fd, deny, strlen(deny));
+        miku_sock_write(fd, deny, strlen(deny));
         return -1;
     }
 
@@ -494,7 +516,7 @@ static int do_ws_upgrade(int fd, char *user_id_out, size_t user_id_cap, int *pla
         "Upgrade: websocket\r\n"
         "Connection: Upgrade\r\n"
         "Sec-WebSocket-Accept: %s\r\n\r\n", accept);
-    if (write(fd, resp, (size_t)rlen) < 0) return -1;
+    if (miku_sock_write(fd, resp, (size_t)rlen) < 0) return -1;
 
     if (user_id_out && user_id_cap > 0) {
         strncpy(user_id_out, uid, user_id_cap - 1);
@@ -569,8 +591,7 @@ static void read_client_frames(miku_msggw_t *gw, int idx) {
     miku_ws_frame_destroy(frame);
 }
 
-static void on_client_io(int fd, int events, void *data) {
-    miku_msggw_t *gw = (miku_msggw_t *)data;
+static void on_client_io_locked(int fd, int events, miku_msggw_t *gw) {
     int idx = find_client_by_fd(gw, fd);
     if (idx < 0) {
         if (gw->io) miku_io_del(gw->io, fd);
@@ -601,9 +622,18 @@ static void on_client_io(int fd, int events, void *data) {
     }
 }
 
-static void on_listen_io(int fd, int events, void *data) {
-    (void)events;
+/* Both entry points hold the lock across every callback they invoke, so the
+ * table cannot change under the admin thread mid-event. All client fds are
+ * non-blocking, so no I/O here can stall while holding it. */
+static void on_client_io(int fd, int events, void *data) {
     miku_msggw_t *gw = (miku_msggw_t *)data;
+    if (!gw) return;
+    pthread_mutex_lock(&gw->lock);
+    on_client_io_locked(fd, events, gw);
+    pthread_mutex_unlock(&gw->lock);
+}
+
+static void on_listen_io_locked(int fd, miku_msggw_t *gw) {
     /* Edge-triggered: drain accept queue */
     for (;;) {
         int cfd = accept(fd, NULL, NULL);
@@ -642,6 +672,15 @@ static void on_listen_io(int fd, int events, void *data) {
     }
 }
 
+static void on_listen_io(int fd, int events, void *data) {
+    (void)events;
+    miku_msggw_t *gw = (miku_msggw_t *)data;
+    if (!gw) return;
+    pthread_mutex_lock(&gw->lock);
+    on_listen_io_locked(fd, gw);
+    pthread_mutex_unlock(&gw->lock);
+}
+
 int miku_msggw_poll(miku_msggw_t *gw, int timeout_ms) {
     if (!gw || !gw->running || !gw->io) return -1;
 
@@ -652,4 +691,93 @@ int miku_msggw_poll(miku_msggw_t *gw, int timeout_ms) {
     }
 
     return miku_io_poll(gw->io, timeout_ms);
+}
+
+/* Public entry points: the admin thread calls these while the event loop may
+ * be mutating the table, so each takes the same recursive lock the loop holds.
+ * Recursive because the loop's fan-out path re-enters send_op_to_user. */
+
+int miku_msggw_client_count(miku_msggw_t *gw) {
+    if (!gw) return 0; /* not -1: callers report this as a gauge */
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_client_count_nolock(gw);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_broadcast(miku_msggw_t *gw, const char *msg, size_t len) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_broadcast_nolock(gw, msg, len);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_send_to_user(miku_msggw_t *gw, const char *user_id,
+                             const char *msg, size_t len) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_send_to_user_nolock(gw, user_id, msg, len);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_send_op_to_user(miku_msggw_t *gw, const char *user_id,
+                               int opcode, const char *payload, size_t len) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_send_op_to_user_nolock(gw, user_id, opcode, payload, len);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_kick_user(miku_msggw_t *gw, const char *user_id, int platform) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_kick_user_nolock(gw, user_id, platform);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_send_op(miku_msggw_t *gw, int client_idx, int opcode,
+                       const char *payload, size_t len) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_send_op_nolock(gw, client_idx, opcode, payload, len);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_broadcast_op(miku_msggw_t *gw, int opcode,
+                            const char *payload, size_t len) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_broadcast_op_nolock(gw, opcode, payload, len);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_set_background(miku_msggw_t *gw, int client_idx, bool background) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_set_background_nolock(gw, client_idx, background);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_disconnect_client(miku_msggw_t *gw, int client_idx) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_disconnect_client_nolock(gw, client_idx);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
+}
+
+int miku_msggw_get_client_user_id(miku_msggw_t *gw, int client_idx,
+                                  char *out, size_t out_cap) {
+    if (!gw) return -1;
+    pthread_mutex_lock(&gw->lock);
+    int rc = miku_msggw_get_client_user_id_nolock(gw, client_idx, out, out_cap);
+    pthread_mutex_unlock(&gw->lock);
+    return rc;
 }

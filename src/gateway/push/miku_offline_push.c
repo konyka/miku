@@ -1,4 +1,5 @@
 #include "miku_offline_push.h"
+#include "miku_io.h"
 #include "miku_hash.h"
 #include "miku_log.h"
 #include "miku_json_util.h"
@@ -189,7 +190,7 @@ static int http_post_json(const char *url, const char *payload) {
 
     size_t sent = 0;
     while (sent < (size_t)n) {
-        ssize_t w = write(fd, req + sent, (size_t)n - sent);
+        ssize_t w = miku_sock_write(fd, req + sent, (size_t)n - sent);
         if (w <= 0) { close(fd); return -1; }
         sent += (size_t)w;
     }

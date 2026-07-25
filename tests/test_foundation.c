@@ -10,6 +10,7 @@
 #include "miku_stats.h"
 #include "miku_json_util.h"
 #include "miku_uuid.h"
+#include <signal.h>
 #include "miku_crc32.h"
 #include "miku_base64.h"
 #include "miku_rbtree.h"
@@ -376,6 +377,27 @@ void test_graceful_lifecycle(void) {
     miku_graceful_cleanup(&g);
 }
 
+void test_graceful_ignores_sigpipe(void) {
+    /* The socket writes pass MSG_NOSIGNAL, but a service must not die from a
+     * SIGPIPE reaching it by any other route either, so init installs SIG_IGN.
+     * Assert on the disposition rather than raising the signal, which would
+     * depend on whatever the surrounding test process inherited. */
+    struct sigaction prev;
+    memset(&prev, 0, sizeof(prev));
+    sigaction(SIGPIPE, NULL, &prev);
+
+    miku_graceful_t g;
+    miku_graceful_init(&g, 0);
+
+    struct sigaction cur;
+    memset(&cur, 0, sizeof(cur));
+    mk_assert_int_eq(0, sigaction(SIGPIPE, NULL, &cur));
+    mk_assert(cur.sa_handler == SIG_IGN);
+
+    miku_graceful_cleanup(&g);
+    sigaction(SIGPIPE, &prev, NULL);
+}
+
 void test_stats_basic(void) {
     miku_stats_t s;
     miku_stats_init(&s, "test-svc", 9999);
@@ -477,6 +499,7 @@ int main(void) {
     mk_run_test(test_service_config);
     mk_run_test(test_service_config_push_disabled);
     mk_run_test(test_graceful_lifecycle);
+    mk_run_test(test_graceful_ignores_sigpipe);
     mk_run_test(test_stats_basic);
     mk_run_test(test_stats_snapshot);
     mk_run_test(test_stats_uptime);

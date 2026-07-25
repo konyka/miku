@@ -21,6 +21,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <pthread.h>
+#include <signal.h>
 
 /* ── HTTP Parser Tests ────────────────────────── */
 
@@ -740,6 +741,64 @@ void test_ws_frame_read_multi_segment_payload(void) {
     close(sv[1]);
 }
 
+static volatile sig_atomic_t g_sigpipe_raised = 0;
+static void count_sigpipe(int sig) { (void)sig; g_sigpipe_raised = 1; }
+
+void test_ws_send_to_dead_peer_no_sigpipe(void) {
+    /* A client that vanishes (killed app, lost radio) leaves the server writing
+     * into a socket whose peer is gone. write(2) then raises SIGPIPE, and its
+     * default action terminates the process -- so one client could take the
+     * gateway down along with every other session on it. This is invisible when
+     * run from a shell, because an interactive shell sets SIGPIPE to SIG_IGN and
+     * children inherit that; under systemd or Docker the default applies.
+     *
+     * Installing a handler detects the signal being *generated*, which is what
+     * would be fatal under the default disposition, without the test having to
+     * die to prove it. */
+    struct sigaction act, prev;
+    memset(&act, 0, sizeof(act));
+    act.sa_handler = count_sigpipe;
+    mk_assert_int_eq(0, sigaction(SIGPIPE, &act, &prev));
+    g_sigpipe_raised = 0;
+
+    int ln = socket(AF_INET, SOCK_STREAM, 0);
+    mk_assert(ln >= 0);
+    int one = 1;
+    setsockopt(ln, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET;
+    a.sin_port = htons(19781);
+    inet_pton(AF_INET, "127.0.0.1", &a.sin_addr);
+    mk_assert_int_eq(0, bind(ln, (struct sockaddr *)&a, sizeof(a)));
+    mk_assert_int_eq(0, listen(ln, 8));
+
+    int cli = socket(AF_INET, SOCK_STREAM, 0);
+    mk_assert(cli >= 0);
+    mk_assert_int_eq(0, connect(cli, (struct sockaddr *)&a, sizeof(a)));
+    int srv = accept(ln, NULL, NULL);
+    mk_assert(srv >= 0);
+
+    close(cli);
+    usleep(30000);
+    /* The first send lands in the socket buffer and only draws a RST; the second
+     * is the one that raises the signal, so both are needed. */
+    miku_ws_send_text(srv, "hello", 5);
+    usleep(30000);
+    miku_ws_send_text(srv, "hello", 5);
+    /* Close frames travel the same path, e.g. kick_user on a stale connection. */
+    miku_ws_send_close(srv, 1000, "bye");
+
+    /* Restore before asserting: a failing assert returns early, and a leaked
+     * handler would make later tests see SIGPIPE where they inherit SIG_IGN. */
+    int raised = (int)g_sigpipe_raised;
+    close(srv);
+    close(ln);
+    sigaction(SIGPIPE, &prev, NULL);
+
+    mk_assert_int_eq(0, raised);
+}
+
 void test_ws_handshake(void) {
     const char *key = "dGhlIHNhbXBsZSBub25jZQ==";
     char accept[64];
@@ -958,6 +1017,7 @@ void run_protocol_tests(void) {
     mk_run_test(test_ws_frame_read_oversized_no_desync);
     mk_run_test(test_ws_frame_read_split_header);
     mk_run_test(test_ws_frame_read_multi_segment_payload);
+    mk_run_test(test_ws_send_to_dead_peer_no_sigpipe);
     mk_run_test(test_ws_handshake);
     mk_run_test(test_rpc_header_codec);
     mk_run_test(test_rpc_json_internal_token);

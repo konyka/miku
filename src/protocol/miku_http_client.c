@@ -1,4 +1,5 @@
 #include "miku_http_client.h"
+#include "miku_io.h"
 #include "miku_token.h"
 #include <stdlib.h>
 #include <string.h>
@@ -127,7 +128,7 @@ static int post_json_resp_impl(const char *url, const char *payload,
 
     size_t sent = 0;
     while (sent < (size_t)n) {
-        ssize_t w = write(fd, req + sent, (size_t)n - sent);
+        ssize_t w = miku_sock_write(fd, req + sent, (size_t)n - sent);
         if (w <= 0) { close(fd); return -1; }
         sent += (size_t)w;
     }

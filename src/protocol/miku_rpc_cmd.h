@@ -22,6 +22,8 @@ int main(int argc, char **argv) { \
     } \
     signal(SIGTERM, signal_handler); \
     signal(SIGINT,  signal_handler); \
+    /* An RPC peer disconnecting mid-reply would otherwise kill this process. */ \
+    signal(SIGPIPE, SIG_IGN); \
     miku_log_init(NULL, MK_LOG_DEBUG); \
     MK_LOG_INFO("%s starting on :%d", svc_name, port); \
 \

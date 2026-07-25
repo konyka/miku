@@ -286,6 +286,8 @@ RFC 6455 完整实现：
   因为跳过其载荷会使后续字节被误当作帧头解析
 - 帧头、扩展长度、掩码、载荷均使用完整读取：客户端 fd 为非阻塞，帧被 TCP 分片时
   会在帧内等待剩余字节（5 秒上限），帧边界上无数据则立即返回
+- 所有发送经 `miku_sock_write`（`send` + `MSG_NOSIGNAL`）而非 `write`：对端消失后
+  写入会产生 SIGPIPE，其默认动作是终止进程，一个客户端掉线即可带走整个服务进程
 
 #### 3.4 二进制 RPC 协议（miku_rpc）
 
@@ -532,6 +534,14 @@ WebSocket 消息网关，支持 4096 并发客户端：
 - 消息广播与定向推送
 - 用户踢出
 - 后台/前台状态切换
+
+**线程安全**：连接表（`clients`、`fd_map`、用户索引链、空闲栈）由一把递归
+`pthread_mutex_t` 保护。网关在事件循环之外还跑一个 admin HTTP 线程处理
+`/internal/*`，两者触达同一张表；admin 线程取到 `clients[idx].fd` 后，事件循环
+可能已关闭该 fd 并让 `accept` 把同一 fd 号分配给新连接，消息就会投递到错误的会话。
+事件循环的两个入口（`on_client_io`、`on_listen_io`）在其整个回调链上持锁，公开
+API 各自加锁；锁为递归型，因为扇出与上下线通知会回调 `send_op_to_user` 重入本表。
+无竞争时加解锁 5.3 ns，`send_op_to_user` 整条路径 406 ns，占 1.31%。
 
 #### 6.3 消息传输（miku-msgtransfer）
 
@@ -969,14 +979,14 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 
 | 分类 | 测试数 | 说明 |
 |------|--------|------|
-| Foundation | 23 | 内存池、Arena、Slab、日志、配置、HashMap（墓碑回收）、字符串、UUID 等 |
+| Foundation | 24 | 内存池、Arena、Slab、日志、配置、HashMap（墓碑回收）、字符串、UUID、SIGPIPE 处置 等 |
 | Runtime | 9 | 协程、线程池、调度器、通道、定时器 |
-| Protocol | 50 | HTTP 解析、响应头 CRLF 过滤、JSON 编解码转义、WebSocket 分帧、RPC、PB、中间件、203 路由校验 |
+| Protocol | 51 | HTTP 解析、响应头 CRLF 过滤、JSON 编解码转义、WebSocket 分帧与对端消失写入、RPC、PB、中间件、203 路由校验 |
 | Storage | 9 | LRU 缓存、服务发现 |
 | Services | 57 | 模型、7 个 RPC 服务、集成测试、认证中间件、好友/群成员并发安全 |
 | New Modules | 67 | IM 消息、消息管道、限流、Webhook、WS ops、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **220** | 215 功能 + 5 基准 |
+| **总计** | **222** | 217 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
@@ -1019,6 +1029,8 @@ timeout 60 ./build/bin/miku_tests
 | HashMap 删除 | 开放寻址 + 墓碑，按「占用+墓碑」水位重建 | 避免指针链，cache-friendly；负载因子只看存活数会让 put/del churn 耗尽空槽，使查找退化为全表扫描（LRU 缓存实测退化 ~380 倍） |
 | ID 随机源 | `getrandom(2)` 填充 4 KiB 线程本地池 | msg_id/group_id/token nonce 需不可预测；批量摊薄系统调用后比原时钟种子 LCG 还略快（33.4M vs 32.3M ops/sec） |
 | Friend/Group 服务并发 | 每服务一把 `pthread_rwlock_t`，公开 API 为加锁包装 | msggateway 的 admin 线程改成员/黑名单，主 WS 循环同时用 `is_member`/`is_black` 鉴权；删除会先清空索引再重建，无锁时鉴权判定会反转（实测 60.7% 的黑名单检查失效）。读多写少，无竞争读锁零开销（加锁 58.08M vs 无锁 57.98M ops/sec，在噪声内） |
+| Socket 写入 | 统一走 `miku_sock_write`（`send` + `MSG_NOSIGNAL`），服务另设 `SIGPIPE` 为 `SIG_IGN` | 对端消失后写入产生的 SIGPIPE 默认终止进程，任一客户端掉线即可杀死整个网关；逐调用抑制而非全局 `SIG_IGN`，使链接本库不改变宿主程序的信号处置。与 `write` 同速（2.38M vs 2.19M ops/sec） |
+| 网关连接表并发 | 一把递归 `pthread_mutex_t`，事件循环入口整链持锁 | admin 线程与事件循环共享连接表，取到 fd 后该 fd 可能已关闭并被 `accept` 复用，消息会投递到错误会话；扇出与上下线通知会重入本表，故用递归锁。占推送路径 1.31%（5.3 ns / 406 ns） |
 | Token 格式 | `miku\|uid\|platform\|ts_ms\|nonce\|sig` | HMAC-SHA1 签名（截断为 64 位），24h 过期；`force_logout` 吊销后立即失效 |
 | Token 密钥 | `"openIM123"` | 兼容 OpenIM 默认配置 |
 | 错误响应 | `{"errCode":N,"errMsg":"...","errDmg":"..."}` | 兼容 OpenIM 错误格式 |
