@@ -763,7 +763,7 @@ void run_protocol_tests(void) {
 }
 
 static miku_http_request_t *make_req(const char *method, const char *path, const char *body) {
-    char buf[4096];
+    static char buf[4096];
     int len;
     if (body) {
         len = snprintf(buf, sizeof(buf), "%s %s HTTP/1.1\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s", method, path, strlen(body), body);
@@ -776,7 +776,7 @@ static miku_http_request_t *make_req(const char *method, const char *path, const
 }
 
 static miku_http_request_t *make_req_with_token(const char *method, const char *path, const char *body, const char *token) {
-    char buf[4096];
+    static char buf[4096];
     int len;
     if (body) {
         len = snprintf(buf, sizeof(buf), "%s %s HTTP/1.1\r\nContent-Type: application/json\r\ntoken: %s\r\nContent-Length: %zu\r\n\r\n%s", method, path, token, strlen(body), body);
