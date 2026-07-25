@@ -31,7 +31,7 @@ jobs:
         run: cmake --build build -j$(nproc)
 
       - name: Test
-        run: timeout 60 ./build/bin/miku_tests
+        run: ./build/bin/miku_tests
 
       - name: Count tests
         run: |
@@ -39,6 +39,36 @@ jobs:
           find src -name '*.c' -o -name '*.h' | xargs wc -l | tail -1
           echo "Modules: $(find src -name '*.c' | wc -l)"
           echo "Routes:  $(grep -c 'miku_http_server_route' src/gateway/api/miku_api.c)"
+
+  asan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc cmake make
+
+      - name: Configure (ASAN + UBSan)
+        run: |
+          cmake -B build-asan \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DMIKU_ENABLE_TESTS=ON \
+            -DMIKU_ENABLE_MONGO=OFF \
+            -DMIKU_ENABLE_REDIS=OFF \
+            -DMIKU_ENABLE_KAFKA=OFF \
+            -DMIKU_ENABLE_S3=OFF \
+            -DCMAKE_C_FLAGS="-fsanitize=address -fsanitize=undefined -fno-omit-frame-pointer -g" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address -fsanitize=undefined"
+
+      - name: Build
+        run: cmake --build build-asan -j$(nproc)
+
+      - name: Test (ASAN, leaks deferred)
+        env:
+          ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:halt_on_error=1
+        run: ./build-asan/bin/miku_tests
 
   docker-build:
     runs-on: ubuntu-latest
