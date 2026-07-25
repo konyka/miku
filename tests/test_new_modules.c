@@ -798,6 +798,8 @@ static void test_dispatch_no_404_helper(void *svc, const char **methods, int cou
         char msg[128];
         snprintf(msg, sizeof(msg), "method %s returned errCode %lld (expected != 404)", methods[i], (long long)ec);
         mk_assert_msg(ec != 404, msg);
+        miku_json_destroy(resp);
+        miku_json_destroy(req);
     }
 }
 

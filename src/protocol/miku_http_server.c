@@ -24,6 +24,7 @@
 #define MAX_MIDDLEWARE 16
 #define READ_BUF   65536
 #define READ_CHUNK 8192
+#define READ_INIT  (READ_CHUNK * 2)  /* initial per-request buffer; grows up to READ_BUF+ */
 #define MIKU_HTTP_FD_MAP 65536
 
 typedef struct {
@@ -175,7 +176,7 @@ static void handle_client(int fd, int events, void *data) {
 #endif
 
     /* Growable heap buffer so body pointers remain valid for the request lifetime. */
-    size_t cap = READ_BUF;
+    size_t cap = READ_INIT;
     size_t n = 0;
     char *buf = (char *)malloc(cap);
     if (!buf) {

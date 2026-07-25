@@ -97,26 +97,7 @@ void miku_rpc_server_stop(miku_rpc_server_t *srv) {
     srv->running = 0;
 }
 
-int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
-    if (!srv || !srv->running || srv->listen_fd < 0) return -1;
-
-    fd_set fds;
-    FD_ZERO(&fds);
-    FD_SET(srv->listen_fd, &fds);
-
-    struct timeval tv;
-    tv.tv_sec = timeout_ms / 1000;
-    tv.tv_usec = (timeout_ms % 1000) * 1000;
-
-    int ret = select(srv->listen_fd + 1, &fds, NULL, NULL, &tv);
-    if (ret <= 0) return ret;
-
-    struct sockaddr_in cli;
-    socklen_t cli_len = sizeof(cli);
-    int fd = accept(srv->listen_fd, (struct sockaddr *)&cli, &cli_len);
-    if (fd < 0) return -1;
-    if (srv->stats) miku_stats_conn_open(srv->stats);
-
+static int handle_one_connection(miku_rpc_server_t *srv, int fd) {
     uint8_t hdr_buf[16];
     ssize_t n = read(fd, hdr_buf, 16);
     if (n < 16) { close(fd); return -1; }
@@ -162,6 +143,36 @@ int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
     free(payload);
     close(fd);
     return 1;
+}
+
+int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
+    if (!srv || !srv->running || srv->listen_fd < 0) return -1;
+
+    fd_set fds;
+    FD_ZERO(&fds);
+    FD_SET(srv->listen_fd, &fds);
+
+    struct timeval tv;
+    tv.tv_sec = timeout_ms / 1000;
+    tv.tv_usec = (timeout_ms % 1000) * 1000;
+
+    int ret = select(srv->listen_fd + 1, &fds, NULL, NULL, &tv);
+    if (ret <= 0) return ret;
+
+    /* Drain the accept queue (bounded by listen backlog) so a burst of
+     * concurrent RPCs is handled in one poll cycle, not one-per-cycle. */
+    int handled = 0;
+    struct sockaddr_in cli;
+    socklen_t cli_len = sizeof(cli);
+    while (handled < 64) {
+        int fd = accept(srv->listen_fd, (struct sockaddr *)&cli, &cli_len);
+        if (fd < 0) break;
+        if (srv->stats) miku_stats_conn_open(srv->stats);
+        handle_one_connection(srv, fd);
+        handled++;
+        cli_len = sizeof(cli);
+    }
+    return handled ? handled : -1;
 }
 
 void miku_rpc_server_set_internal_token(miku_rpc_server_t *srv, const char *token) {

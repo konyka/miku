@@ -53,6 +53,8 @@ dkms.conf
 
 # Build directory
 build/
+build-asan/
+build-review/
 
 # IDE
 .vscode/

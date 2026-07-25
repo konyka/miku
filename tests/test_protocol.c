@@ -410,7 +410,9 @@ void test_json_get_missing(void) {
     miku_json_val_t *obj = miku_json_create_object();
     mk_assert_null(miku_json_get(obj, "nonexistent"));
     mk_assert_null(miku_json_at(obj, 99));
-    mk_assert_int_eq(0, (int)miku_json_size(miku_json_create_null()));
+    miku_json_val_t *null_val = miku_json_create_null();
+    mk_assert_int_eq(0, (int)miku_json_size(null_val));
+    miku_json_destroy(null_val);
 
     mk_assert_int_eq((int)MK_JSON_NULL, (int)miku_json_type(NULL));
     mk_assert_int_eq(0, (int)miku_json_int(NULL));
@@ -889,9 +891,11 @@ void test_api_route_handler_responds(void) {
         miku_http_request_t *req = make_req_with_token("POST", paths[i], "{}", "miku_user_abc_1");
         miku_http_response_t *resp = miku_http_response_create();
 
-        miku_friend_handle_rpc(ctx->friend_svc, "getFriendList",
-                               miku_json_parse_str("{}"),
-                               miku_json_create_object());
+        miku_json_val_t *rpc_req = miku_json_parse_str("{}");
+        miku_json_val_t *rpc_resp = miku_json_create_object();
+        miku_friend_handle_rpc(ctx->friend_svc, "getFriendList", rpc_req, rpc_resp);
+        miku_json_destroy(rpc_resp);
+        miku_json_destroy(rpc_req);
 
         mk_assert_not_null(resp);
         miku_http_request_destroy(req);

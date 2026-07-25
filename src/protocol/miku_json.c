@@ -187,9 +187,12 @@ static miku_json_val_t *parse_array(json_parser_t *p) {
         miku_json_val_t *item = parse_value(p);
         if (!item) { miku_json_destroy(v); return NULL; }
         if (v->u.array.count >= v->u.array.capacity) {
-            v->u.array.capacity *= 2;
-            v->u.array.items = (miku_json_val_t **)realloc(v->u.array.items,
-                v->u.array.capacity * sizeof(miku_json_val_t *));
+            size_t ncap = v->u.array.capacity * 2;
+            miku_json_val_t **ni = (miku_json_val_t **)realloc(v->u.array.items,
+                ncap * sizeof(miku_json_val_t *));
+            if (!ni) { miku_json_destroy(item); miku_json_destroy(v); return NULL; }
+            v->u.array.items = ni;
+            v->u.array.capacity = ncap;
         }
         v->u.array.items[v->u.array.count++] = item;
         char c = peek(p);
@@ -225,9 +228,12 @@ static miku_json_val_t *parse_object(json_parser_t *p) {
         if (!val) { free(key); miku_json_destroy(v); return NULL; }
 
         if (v->u.object.count >= v->u.object.capacity) {
-            v->u.object.capacity *= 2;
-            v->u.object.pairs = (miku_json_pair_t *)realloc(v->u.object.pairs,
-                v->u.object.capacity * sizeof(miku_json_pair_t));
+            size_t ncap = v->u.object.capacity * 2;
+            miku_json_pair_t *np = (miku_json_pair_t *)realloc(v->u.object.pairs,
+                ncap * sizeof(miku_json_pair_t));
+            if (!np) { free(key); miku_json_destroy(val); miku_json_destroy(v); return NULL; }
+            v->u.object.pairs = np;
+            v->u.object.capacity = ncap;
         }
         v->u.object.pairs[v->u.object.count].key = key;
         v->u.object.pairs[v->u.object.count].val = val;

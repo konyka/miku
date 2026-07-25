@@ -684,7 +684,7 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
     char path[128];
     api_req_path(req, path, sizeof(path));
     if (strcmp(path, "/auth/user_token") == 0) {
-        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         const char *secret = miku_json_str(miku_json_get(j, "secret"));
         int64_t plat = miku_json_int(miku_json_get(j, "platformID"));
@@ -709,7 +709,7 @@ static void handle_auth(miku_http_request_t *req, miku_http_response_t *resp, vo
             miku_jss(out, "errMsg", "invalid token");
         }
     } else if (strcmp(path, "/auth/admin_token") == 0) {
-        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "secret", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
         const char *uid = miku_json_str(miku_json_get(j, "userID"));
         const char *secret = miku_json_str(miku_json_get(j, "secret"));
         char token[512] = {0};
@@ -776,7 +776,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
     }
     if (strcmp(method, "registerUser") == 0 || strcmp(method, "updateUserInfo") == 0
         || strcmp(method, "updateUserInfoEx") == 0 || strcmp(method, "setGlobalRecvMessageOpt") == 0) {
-        if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
     } else if (strcmp(method, "getAllUsers") == 0 || strcmp(method, "getAllUsersUID") == 0
                || strcmp(method, "getUserCount") == 0
                || strcmp(method, "getUsersOnlineTokenDetail") == 0
@@ -791,7 +791,7 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
             return;
         }
     } else if (strcmp(method, "searchUser") == 0) {
-        if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
     }
     if (plat != 5 && actor[0]) {
         if (strcmp(method, "getUsersOnlineStatus") == 0) {
@@ -878,11 +878,11 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
     }
     if (strcmp(method, "addFriend") == 0 || strcmp(method, "addBlack") == 0
         || strcmp(method, "deleteFriend") == 0 || strcmp(method, "removeBlack") == 0) {
-        if (require_fields(j, resp, "ownerUserID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "ownerUserID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
     } else if (strcmp(method, "setFriendRemark") == 0) {
-        if (require_fields(j, resp, "ownerUserID", "friendUserID", "remark", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "ownerUserID", "friendUserID", "remark", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
     } else if (strcmp(method, "isFriend") == 0) {
-        if (require_fields(j, resp, "userID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "friendUserID", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
     } else if (strcmp(method, "importFriend") == 0) {
         if (plat != 5) {
             miku_json_destroy(j); miku_json_destroy(out);
@@ -959,15 +959,15 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
         }
     }
     if (strcmp(method, "createGroup") == 0) {
-        if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "ownerUserID", "groupName", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
         const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
         if (owner && owner[0]) filter_group_invitee_ids(c, owner, j);
     } else if (strcmp(method, "joinGroup") == 0 || strcmp(method, "quitGroup") == 0
                || strcmp(method, "dismissGroup") == 0
                || strcmp(method, "transferGroupOwner") == 0) {
-        if (require_fields(j, resp, "userID", "groupID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "userID", "groupID", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
     } else if (strcmp(method, "inviteToGroup") == 0 || strcmp(method, "kickGroupMember") == 0) {
-        if (require_fields(j, resp, "groupID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "groupID", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
         if (!miku_json_get(j, "userID") && !miku_json_get(j, "invitedUserIDs") &&
             !miku_json_get(j, "kickedUserIDs")) {
             miku_json_destroy(j); miku_json_destroy(out);
@@ -1142,7 +1142,7 @@ static void handle_conv(miku_http_request_t *req, miku_http_response_t *resp, vo
         miku_jss(j, "userID", actor);
     }
     if (strcmp(method, "setConversation") == 0 || strcmp(method, "deleteConversation") == 0) {
-        if (require_fields(j, resp, "conversationID", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "conversationID", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
         const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
         if (!owner || !owner[0]) owner = miku_json_str(miku_json_get(j, "userID"));
         if (!owner || !owner[0]) {
@@ -1225,10 +1225,10 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         || strcmp(method, "sendBusinessNotification") == 0) {
         if (strcmp(method, "sendBusinessNotification") != 0) {
             if (require_fields(j, resp, "sendID", "content", (const char *)NULL)) {
-                miku_json_destroy(j); return;
+                miku_json_destroy(j); miku_json_destroy(out); return;
             }
         } else if (require_fields(j, resp, "sendID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *rid = miku_json_str(miku_json_get(j, "recvID"));
         const char *gid = miku_json_str(miku_json_get(j, "groupID"));
@@ -1282,7 +1282,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "deleteMsg") == 0 || strcmp(method, "revokeMsg") == 0) {
         if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));
         if (!actor[0] || !cmid || !cmid[0] ||
@@ -1292,7 +1292,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             return;
         }
     } else if (strcmp(method, "searchMsg") == 0) {
-        if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); return; }
+        if (require_fields(j, resp, "keyword", (const char *)NULL)) { miku_json_destroy(j); miku_json_destroy(out); return; }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (req_token_platform(req) != 5 && (!cid || !cid[0])) {
             miku_json_destroy(j); miku_json_destroy(out);
@@ -1307,7 +1307,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
     } else if (strcmp(method, "getMsgByConv") == 0 || strcmp(method, "pullMsgBySeq") == 0
                || strcmp(method, "getMsgBySeq") == 0) {
         if (require_fields(j, resp, "conversationID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
@@ -1327,7 +1327,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "getNewestSeq") == 0) {
         if (require_fields(j, resp, "conversationID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
@@ -1341,7 +1341,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                || strcmp(method, "markMsgAsRead") == 0
                || strcmp(method, "clearConversationMsg") == 0) {
         if (require_fields(j, resp, "conversationID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
@@ -1360,7 +1360,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "userClearAllMsg") == 0) {
         if (require_fields(j, resp, "userID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         if (!actor[0]) {
             miku_json_destroy(j); miku_json_destroy(out);
@@ -1371,7 +1371,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "getMsg") == 0) {
         if (require_fields(j, resp, "serverMsgID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         if (!actor[0]) {
             miku_json_destroy(j); miku_json_destroy(out);
@@ -1398,7 +1398,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "getConversationsHasReadAndMaxSeq") == 0) {
         if (require_fields(j, resp, "userID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         if (!actor[0]) {
             miku_json_destroy(j); miku_json_destroy(out);
@@ -1411,7 +1411,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                || strcmp(method, "addMessageReactionExtensions") == 0
                || strcmp(method, "deleteMessageReactionExtensions") == 0) {
         if (require_fields(j, resp, "conversationID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
@@ -1423,7 +1423,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "getMessageListReactionExtensions") == 0) {
         if (require_fields(j, resp, "conversationID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !api_may_access_conv(c, actor, cid)) {
@@ -1451,7 +1451,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "deleteMsgPhysical") == 0) {
         if (require_fields(j, resp, "userID", "clientMsgID", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));
         if (!actor[0] || !cmid || !cmid[0] ||
@@ -1462,7 +1462,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     } else if (strcmp(method, "deleteMsgPhysicalBySeq") == 0) {
         if (require_fields(j, resp, "userID", "conversationID", "seq", (const char *)NULL)) {
-            miku_json_destroy(j); return;
+            miku_json_destroy(j); miku_json_destroy(out); return;
         }
         const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
         if (!actor[0] || !cid || !cid[0] || !api_may_access_conv(c, actor, cid)) {

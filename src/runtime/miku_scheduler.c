@@ -54,8 +54,11 @@ miku_coro_t *miku_scheduler_spawn(miku_scheduler_t *sched, miku_coro_fn fn, void
     if (!coro) return NULL;
 
     if (sched->coro_count >= sched->coro_cap) {
-        sched->coro_cap *= 2;
-        sched->coros = (miku_coro_t **)realloc(sched->coros, sched->coro_cap * sizeof(miku_coro_t *));
+        size_t ncap = sched->coro_cap * 2;
+        miku_coro_t **nc = (miku_coro_t **)realloc(sched->coros, ncap * sizeof(miku_coro_t *));
+        if (!nc) { miku_coro_destroy(coro); return NULL; }
+        sched->coros = nc;
+        sched->coro_cap = ncap;
     }
     coro->id = (int64_t)sched->coro_count;
     sched->coros[sched->coro_count++] = coro;
