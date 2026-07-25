@@ -1,4 +1,5 @@
 #include "miku_conversation.h"
+#include <pthread.h>
 #include "miku_hash.h"
 #include "miku_json_util.h"
 #include <stdlib.h>
@@ -13,6 +14,13 @@ struct miku_conv_service_s {
     int16_t pair_hash[MK_CONV_HASH];  /* -1 empty, else convs[] index */
     int16_t owner_hash[MK_CONV_HASH]; /* owner → first conv index */
     int16_t owner_next[MK_MAX_CONVS]; /* intrusive list per owner */
+    /* Reached from the WS event loop (touch_on_send on every delivery) and from
+     * the admin HTTP thread via /internal/push_msg. Two hazards, both silent:
+     * touch_on_send is a get-modify-update, so concurrent bumps lose unread
+     * counts; and miku_conv_create takes its slot with `svc->count++`, so two
+     * concurrent creates can claim the same index and overwrite each other's
+     * conversation entry. */
+    pthread_rwlock_t lock;
 };
 
 static uint32_t conv_pair_slot(const char *owner, const char *conv_id) {
@@ -83,6 +91,10 @@ static int conv_hash_find(miku_conv_service_t *svc, const char *owner, const cha
 miku_conv_service_t *miku_conv_service_create(void) {
     miku_conv_service_t *svc = (miku_conv_service_t *)calloc(1, sizeof(*svc));
     if (svc) {
+        if (pthread_rwlock_init(&svc->lock, NULL) != 0) {
+            free(svc);
+            return NULL;
+        }
         for (int i = 0; i < MK_CONV_HASH; i++) {
             svc->pair_hash[i] = -1;
             svc->owner_hash[i] = -1;
@@ -91,9 +103,13 @@ miku_conv_service_t *miku_conv_service_create(void) {
     }
     return svc;
 }
-void miku_conv_service_destroy(miku_conv_service_t *svc) { free(svc); }
+void miku_conv_service_destroy(miku_conv_service_t *svc) {
+    if (!svc) return;
+    pthread_rwlock_destroy(&svc->lock);
+    free(svc);
+}
 
-int miku_conv_create(miku_conv_service_t *svc, const miku_conversation_t *c) {
+static int miku_conv_create_nolock(miku_conv_service_t *svc, const miku_conversation_t *c) {
     if (!svc || !c || svc->count >= MK_MAX_CONVS) return -1;
     if (conv_hash_find(svc, c->owner_user_id, c->conversation_id) >= 0) return -2;
     int ci = svc->count++;
@@ -103,7 +119,7 @@ int miku_conv_create(miku_conv_service_t *svc, const miku_conversation_t *c) {
     return 0;
 }
 
-int miku_conv_get(miku_conv_service_t *svc, const char *owner, const char *conv_id, miku_conversation_t *out) {
+static int miku_conv_get_nolock(miku_conv_service_t *svc, const char *owner, const char *conv_id, miku_conversation_t *out) {
     if (!svc || !owner || !conv_id || !out) return -1;
     int ci = conv_hash_find(svc, owner, conv_id);
     if (ci < 0) return -2;
@@ -111,7 +127,7 @@ int miku_conv_get(miku_conv_service_t *svc, const char *owner, const char *conv_
     return 0;
 }
 
-int miku_conv_get_all(miku_conv_service_t *svc, const char *owner, miku_conversation_t *out, int max) {
+static int miku_conv_get_all_nolock(miku_conv_service_t *svc, const char *owner, miku_conversation_t *out, int max) {
     if (!svc || !owner || !out) return 0;
     int n = 0;
     for (int ci = owner_head(svc, owner); ci >= 0 && n < max; ci = svc->owner_next[ci])
@@ -119,7 +135,7 @@ int miku_conv_get_all(miku_conv_service_t *svc, const char *owner, miku_conversa
     return n;
 }
 
-int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c) {
+static int miku_conv_update_nolock(miku_conv_service_t *svc, const miku_conversation_t *c) {
     if (!svc || !c) return -1;
     int ci = conv_hash_find(svc, c->owner_user_id, c->conversation_id);
     if (ci < 0) return -2;
@@ -127,7 +143,7 @@ int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c) {
     return 0;
 }
 
-void miku_conv_touch_on_send(miku_conv_service_t *svc, const char *owner,
+static void conv_touch_on_send_nolock(miku_conv_service_t *svc, const char *owner,
                              const char *cid, int conv_type,
                              const char *peer_user_id, const char *group_id,
                              int64_t send_time, const char *content,
@@ -135,7 +151,7 @@ void miku_conv_touch_on_send(miku_conv_service_t *svc, const char *owner,
     if (!svc || !owner || !owner[0] || !cid || !cid[0]) return;
     miku_conversation_t c;
     memset(&c, 0, sizeof(c));
-    if (miku_conv_get(svc, owner, cid, &c) != 0) {
+    if (miku_conv_get_nolock(svc, owner, cid, &c) != 0) {
         strncpy(c.owner_user_id, owner, sizeof(c.owner_user_id) - 1);
         strncpy(c.conversation_id, cid, sizeof(c.conversation_id) - 1);
         c.conversation_type = conv_type;
@@ -148,8 +164,8 @@ void miku_conv_touch_on_send(miku_conv_service_t *svc, const char *owner,
     if (content && content[0])
         strncpy(c.latest_msg_content, content, sizeof(c.latest_msg_content) - 1);
     if (bump_unread) c.unread_count++;
-    if (miku_conv_update(svc, &c) == -2)
-        miku_conv_create(svc, &c);
+    if (miku_conv_update_nolock(svc, &c) == -2)
+        miku_conv_create_nolock(svc, &c);
 }
 
 static void indexes_rebuild(miku_conv_service_t *svc) {
@@ -176,7 +192,11 @@ static int conv_delete(miku_conv_service_t *svc, const char *owner, const char *
 }
 
 int miku_conv_delete(miku_conv_service_t *svc, const char *owner, const char *conv_id) {
-    return conv_delete(svc, owner, conv_id);
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = conv_delete(svc, owner, conv_id);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
 }
 
 /* API often sends userID as the conversation owner (not peer). */
@@ -291,7 +311,7 @@ static void conv_owner_to_json_arr(miku_conv_service_t *svc, const char *owner,
     }
 }
 
-void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
+static void conv_handle_rpc_nolock(miku_conv_service_t *svc, const char *method,
                            const miku_json_val_t *req, miku_json_val_t *resp) {
     if (!svc || !method || !resp) return;
     switch (conv_rpc_id(method)) {
@@ -310,7 +330,7 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         const char *owner = conv_req_owner(req);
         const char *cid = req ? miku_json_str(miku_json_get(req, "conversationID")) : NULL;
         miku_conversation_t c;
-        int rc = miku_conv_get(svc, owner, cid, &c);
+        int rc = miku_conv_get_nolock(svc, owner, cid, &c);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 4001);
         if (rc == 0) miku_json_object_set(resp, "data", miku_conversation_to_json(&c));
     } break;
@@ -320,8 +340,8 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         memset(&c, 0, sizeof(c));
         miku_conversation_from_json(req, &c);
         conv_normalize_owner(&c, req);
-        int rc = miku_conv_update(svc, &c);
-        if (rc == -2) rc = miku_conv_create(svc, &c);
+        int rc = miku_conv_update_nolock(svc, &c);
+        if (rc == -2) rc = miku_conv_create_nolock(svc, &c);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 500);
     } break;
     case MK_CONV_RPC_setConversations:
@@ -330,8 +350,8 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         memset(&c, 0, sizeof(c));
         miku_conversation_from_json(req, &c);
         conv_normalize_owner(&c, req);
-        if (miku_conv_update(svc, &c) == -2)
-            miku_conv_create(svc, &c);
+        if (miku_conv_update_nolock(svc, &c) == -2)
+            miku_conv_create_nolock(svc, &c);
         miku_ji(resp, "errCode", 0);
     } break;
     case MK_CONV_RPC_deleteConversation:
@@ -384,9 +404,9 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
         int rc = -1;
         if (owner && cid) {
             miku_conversation_t c;
-            if (miku_conv_get(svc, owner, cid, &c) == 0) {
+            if (miku_conv_get_nolock(svc, owner, cid, &c) == 0) {
                 c.unread_count = 0;
-                rc = miku_conv_update(svc, &c);
+                rc = miku_conv_update_nolock(svc, &c);
             }
         }
         miku_ji(resp, "errCode", rc == 0 ? 0 : 4001);
@@ -519,3 +539,58 @@ void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
     }
 }
 
+/* Locked public entry points. touch_on_send and handle_rpc each take one write
+ * lock for their whole body: both interleave lookups with mutations, so locking
+ * per inner call would leave exactly the torn states this is meant to remove. */
+
+int miku_conv_create(miku_conv_service_t *svc, const miku_conversation_t *c) {
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = miku_conv_create_nolock(svc, c);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+int miku_conv_get(miku_conv_service_t *svc, const char *owner, const char *conv_id, miku_conversation_t *out) {
+    if (!svc) return -1;
+    pthread_rwlock_rdlock(&svc->lock);
+    int rc = miku_conv_get_nolock(svc, owner, conv_id, out);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+int miku_conv_get_all(miku_conv_service_t *svc, const char *owner, miku_conversation_t *out, int max) {
+    if (!svc) return 0;
+    pthread_rwlock_rdlock(&svc->lock);
+    int rc = miku_conv_get_all_nolock(svc, owner, out, max);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+int miku_conv_update(miku_conv_service_t *svc, const miku_conversation_t *c) {
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = miku_conv_update_nolock(svc, c);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+void miku_conv_touch_on_send(miku_conv_service_t *svc, const char *owner,
+                             const char *cid, int conv_type,
+                             const char *peer_user_id, const char *group_id,
+                             int64_t send_time, const char *content,
+                             int bump_unread) {
+    if (!svc) return;
+    pthread_rwlock_wrlock(&svc->lock);
+    conv_touch_on_send_nolock(svc, owner, cid, conv_type, peer_user_id, group_id,
+                              send_time, content, bump_unread);
+    pthread_rwlock_unlock(&svc->lock);
+}
+
+void miku_conv_handle_rpc(miku_conv_service_t *svc, const char *method,
+                          const miku_json_val_t *req, miku_json_val_t *resp) {
+    if (!svc) return;
+    pthread_rwlock_wrlock(&svc->lock);
+    conv_handle_rpc_nolock(svc, method, req, resp);
+    pthread_rwlock_unlock(&svc->lock);
+}

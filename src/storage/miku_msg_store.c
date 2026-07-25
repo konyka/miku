@@ -1,4 +1,5 @@
 #include "miku_msg_store.h"
+#include <pthread.h>
 #include "miku_log.h"
 #include "miku_uuid.h"
 #include "miku_common.h"
@@ -35,11 +36,25 @@ struct miku_msg_store_s {
     int          *id_hash;      /* msg_id hash → slot, -1 empty */
     int          *conv_hash;    /* conversation_id → head slot */
     int          *conv_next;    /* intrusive list within a conversation */
+    int           evict_cursor; /* next slot to overwrite once the ring is full */
+    /* miku-msggateway inserts from two threads: the WS event loop for SEND_MSG
+     * and the admin HTTP thread for /internal/push_msg (both via
+     * miku_msggw_ws_deliver_msg). mem_alloc_slot hands out slots with
+     * `free_stack[--free_top]`, which is not atomic, so two concurrent inserts
+     * could take the same slot -- the second message overwrites the first while
+     * both callers get errCode 0 and a valid serverMsgID, and the first id then
+     * resolves to the second message's content. Writes are frequent here, but
+     * reads (pull-by-seq, pull-by-id) are more so, hence a rwlock. */
+    pthread_rwlock_t lock;
 };
 
 miku_msg_store_t *miku_msg_store_create(miku_mongo_t *mongo) {
     miku_msg_store_t *s = (miku_msg_store_t *)calloc(1, sizeof(*s));
     if (!s) return NULL;
+    if (pthread_rwlock_init(&s->lock, NULL) != 0) {
+        free(s);
+        return NULL;
+    }
     s->mongo = mongo;
     s->enabled = (mongo != NULL);
     s->mem_cap = MK_MSG_MEM_CAP;
@@ -73,6 +88,7 @@ void miku_msg_store_destroy(miku_msg_store_t *store) {
     free(store->id_hash);
     free(store->conv_hash);
     free(store->conv_next);
+    pthread_rwlock_destroy(&store->lock);
     free(store);
 }
 
@@ -245,13 +261,18 @@ static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
     if (store->free_top > 0) {
         slot = store->free_stack[--store->free_top];
     } else {
-        /* Evict oldest by send_time — rare path when full */
-        int oldest = 0;
-        for (int i = 1; i < store->mem_cap; i++) {
-            if (store->mem[i].send_time < store->mem[oldest].send_time)
-                oldest = i;
-        }
-        mem_free_slot(store, oldest);
+        /* Evict in insertion order with a rotating cursor. This is not the rare
+         * path the previous comment assumed: once the ring is full it stays full,
+         * so *every* insert took it, and it scanned all mem_cap slots for the
+         * lowest send_time — 670 ns/insert became 16.9 us, permanently, after the
+         * first 8192 messages (minutes of traffic). Now that inserts hold the
+         * write lock, that scan also blocks every concurrent read. FIFO is the
+         * same heuristic for a bounded ring — messages arrive in roughly send_time
+         * order, so the oldest slot is the next one to be overwritten anyway — and
+         * it is O(1). */
+        slot = store->evict_cursor;
+        store->evict_cursor = (store->evict_cursor + 1) % store->mem_cap;
+        mem_free_slot(store, slot);
         slot = store->free_stack[--store->free_top];
     }
     memset(&store->mem[slot], 0, sizeof(store->mem[slot]));
@@ -264,11 +285,11 @@ static int mem_slot_of(miku_msg_store_t *store, mem_msg_t *m) {
     return (int)(m - store->mem);
 }
 
-int miku_msg_store_count(miku_msg_store_t *store) {
+static int miku_msg_store_count_nolock(miku_msg_store_t *store) {
     return store ? store->mem_count : 0;
 }
 
-int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
+static int miku_msg_store_insert_nolock(miku_msg_store_t *store, const char *conversation_id,
                            const char *sender_id, int content_type,
                            const char *content, int64_t send_time, int64_t seq,
                            char *out_msg_id, size_t msg_id_cap) {
@@ -314,7 +335,7 @@ int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
     return miku_mongo_insert(store->mongo, "messages", doc);
 }
 
-int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversation_id,
+static int miku_msg_store_find_by_conv_nolock(miku_msg_store_t *store, const char *conversation_id,
                                   int64_t start_seq, int64_t end_seq,
                                   char **results_json) {
     if (!store || !conversation_id) return -1;
@@ -371,7 +392,7 @@ int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversatio
     return 0;
 }
 
-int miku_msg_store_find_one(miku_msg_store_t *store, const char *msg_id,
+static int miku_msg_store_find_one_nolock(miku_msg_store_t *store, const char *msg_id,
                               char **result_json) {
     if (!store || !msg_id) return -1;
 
@@ -405,7 +426,7 @@ int miku_msg_store_find_one(miku_msg_store_t *store, const char *msg_id,
     return 0;
 }
 
-int miku_msg_store_update_status(miku_msg_store_t *store, const char *msg_id, int status) {
+static int miku_msg_store_update_status_nolock(miku_msg_store_t *store, const char *msg_id, int status) {
     if (!store || !msg_id) return -1;
     mem_msg_t *m = mem_find(store, msg_id);
     if (m) m->status = status;
@@ -419,7 +440,7 @@ int miku_msg_store_update_status(miku_msg_store_t *store, const char *msg_id, in
     return miku_mongo_update(store->mongo, "messages", filter, update, false);
 }
 
-int miku_msg_store_delete(miku_msg_store_t *store, const char *msg_id) {
+static int miku_msg_store_delete_nolock(miku_msg_store_t *store, const char *msg_id) {
     if (!store || !msg_id) return -1;
     mem_msg_t *m = mem_find(store, msg_id);
     if (m) mem_free_slot(store, mem_slot_of(store, m));
@@ -432,7 +453,7 @@ int miku_msg_store_delete(miku_msg_store_t *store, const char *msg_id) {
     return miku_mongo_delete(store->mongo, "messages", filter);
 }
 
-int miku_msg_store_purge_older_than(miku_msg_store_t *store, int64_t cutoff_ms) {
+static int miku_msg_store_purge_older_than_nolock(miku_msg_store_t *store, int64_t cutoff_ms) {
     if (!store) return -1;
     int removed = 0;
     for (int i = 0; i < store->mem_cap; i++) {
@@ -446,7 +467,7 @@ int miku_msg_store_purge_older_than(miku_msg_store_t *store, int64_t cutoff_ms) 
     return removed;
 }
 
-int miku_msg_store_clear_user(miku_msg_store_t *store, const char *user_id) {
+static int miku_msg_store_clear_user_nolock(miku_msg_store_t *store, const char *user_id) {
     if (!store || !user_id) return -1;
     int removed = 0;
     for (int i = 0; i < store->mem_cap; i++) {
@@ -457,4 +478,77 @@ int miku_msg_store_clear_user(miku_msg_store_t *store, const char *user_id) {
     }
     if (removed) rebuild_conv_chains(store);
     return removed;
+}
+
+/* Locked public entry points over the _nolock internals above. */
+
+int miku_msg_store_count(miku_msg_store_t *store) {
+    if (!store) return 0;
+    pthread_rwlock_rdlock(&store->lock);
+    int rc = miku_msg_store_count_nolock(store);
+    pthread_rwlock_unlock(&store->lock);
+    return rc;
+}
+
+int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
+                           const char *sender_id, int content_type,
+                           const char *content, int64_t send_time, int64_t seq,
+                           char *out_msg_id, size_t msg_id_cap) {
+    if (!store) return -1;
+    pthread_rwlock_wrlock(&store->lock);
+    int rc = miku_msg_store_insert_nolock(store, conversation_id, sender_id, content_type, content, send_time, seq, out_msg_id, msg_id_cap);
+    pthread_rwlock_unlock(&store->lock);
+    return rc;
+}
+
+int miku_msg_store_find_by_conv(miku_msg_store_t *store, const char *conversation_id,
+                                 int64_t start_seq, int64_t end_seq,
+                                 char **results_json) {
+    if (!store) return -1;
+    pthread_rwlock_rdlock(&store->lock);
+    int rc = miku_msg_store_find_by_conv_nolock(store, conversation_id, start_seq, end_seq, results_json);
+    pthread_rwlock_unlock(&store->lock);
+    return rc;
+}
+
+int miku_msg_store_find_one(miku_msg_store_t *store, const char *msg_id,
+                             char **result_json) {
+    if (!store) return -1;
+    pthread_rwlock_rdlock(&store->lock);
+    int rc = miku_msg_store_find_one_nolock(store, msg_id, result_json);
+    pthread_rwlock_unlock(&store->lock);
+    return rc;
+}
+
+int miku_msg_store_update_status(miku_msg_store_t *store, const char *msg_id,
+                                  int status) {
+    if (!store) return -1;
+    pthread_rwlock_wrlock(&store->lock);
+    int rc = miku_msg_store_update_status_nolock(store, msg_id, status);
+    pthread_rwlock_unlock(&store->lock);
+    return rc;
+}
+
+int miku_msg_store_delete(miku_msg_store_t *store, const char *msg_id) {
+    if (!store) return -1;
+    pthread_rwlock_wrlock(&store->lock);
+    int rc = miku_msg_store_delete_nolock(store, msg_id);
+    pthread_rwlock_unlock(&store->lock);
+    return rc;
+}
+
+int miku_msg_store_purge_older_than(miku_msg_store_t *store, int64_t cutoff_ms) {
+    if (!store) return -1;
+    pthread_rwlock_wrlock(&store->lock);
+    int rc = miku_msg_store_purge_older_than_nolock(store, cutoff_ms);
+    pthread_rwlock_unlock(&store->lock);
+    return rc;
+}
+
+int miku_msg_store_clear_user(miku_msg_store_t *store, const char *user_id) {
+    if (!store) return -1;
+    pthread_rwlock_wrlock(&store->lock);
+    int rc = miku_msg_store_clear_user_nolock(store, user_id);
+    pthread_rwlock_unlock(&store->lock);
+    return rc;
 }

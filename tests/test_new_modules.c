@@ -756,6 +756,117 @@ void test_mt_pipeline_read_seq(void) {
     miku_mt_pipeline_destroy(p);
 }
 
+#define MK_STORE_RACE_PER 3000
+typedef struct {
+    miku_msg_store_t *store;
+    int               base;
+    int               ok;
+    char              ids[MK_STORE_RACE_PER][64];
+} store_race_ctx_t;
+
+static void *store_race_worker(void *arg) {
+    store_race_ctx_t *c = (store_race_ctx_t *)arg;
+    for (int i = 0; i < MK_STORE_RACE_PER; i++) {
+        char conv[64], body[64];
+        snprintf(conv, sizeof(conv), "si_c%d", c->base + i);
+        snprintf(body, sizeof(body), "m%d_%d", c->base, i);
+        if (miku_msg_store_insert(c->store, conv, "sender", 101, body,
+                                  1700000000000LL + i, i + 1,
+                                  c->ids[i], sizeof(c->ids[i])) == 0)
+            c->ok++;
+    }
+    return NULL;
+}
+
+void test_msg_store_concurrent_insert(void) {
+    /* miku_msggw_ws_deliver_msg inserts from the WS event loop and from the admin
+     * HTTP thread (/internal/push_msg). mem_alloc_slot takes its slot with
+     * `free_stack[--free_top]`, which is not atomic, so two concurrent inserts
+     * could take the same one: the second message overwrote the first, both
+     * senders still got errCode 0 with a valid serverMsgID, and the first id then
+     * resolved to the second message's content -- one client fetching by
+     * serverMsgID would read another conversation's message. Measured pre-fix:
+     * ~6% of 6000 inserts lost, ~90 ids resolving to the wrong content. */
+    static store_race_ctx_t a, b;
+    miku_msg_store_t *s = miku_msg_store_create(NULL);
+    mk_assert_not_null(s);
+    memset(&a, 0, sizeof(a));
+    memset(&b, 0, sizeof(b));
+    a.store = s; a.base = 0;
+    b.store = s; b.base = 100000;
+
+    pthread_t t1, t2;
+    mk_assert_int_eq(0, pthread_create(&t1, NULL, store_race_worker, &a));
+    mk_assert_int_eq(0, pthread_create(&t2, NULL, store_race_worker, &b));
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    int inserted = a.ok + b.ok;
+    mk_assert_int_eq(2 * MK_STORE_RACE_PER, inserted);
+    /* Every accepted insert must occupy its own slot. */
+    mk_assert_int_eq(inserted, miku_msg_store_count(s));
+
+    /* And every returned id must resolve to the content it was returned for. */
+    for (int k = 0; k < 2; k++) {
+        store_race_ctx_t *c = k ? &b : &a;
+        for (int i = 0; i < MK_STORE_RACE_PER; i++) {
+            mk_assert_int_ne(0, (int)c->ids[i][0]);
+            char *j = NULL;
+            mk_assert_int_eq(0, miku_msg_store_find_one(s, c->ids[i], &j));
+            mk_assert_not_null(j);
+            char want[80];
+            snprintf(want, sizeof(want), "\"m%d_%d\"", c->base, i);
+            mk_assert(strstr(j, want) != NULL);
+            free(j);
+        }
+    }
+    miku_msg_store_destroy(s);
+}
+
+void test_msg_store_insert_when_full(void) {
+    /* The ring holds 8192 messages, which a busy gateway fills in minutes, and
+     * once full it stays full — so the eviction branch is taken by every insert
+     * from then on, not "rarely" as its comment claimed. It used to scan all
+     * slots for the lowest send_time: 690 ns/insert became 16.9 us, and since
+     * inserts hold the write lock that stall blocks every concurrent read too.
+     * Measured after the fix: 901 ns/insert, i.e. the same order as the
+     * not-full path. */
+    miku_msg_store_t *s = miku_msg_store_create(NULL);
+    mk_assert_not_null(s);
+
+    char id[64];
+    const int FILL = 8192, EXTRA = 20000;
+    for (int i = 0; i < FILL; i++) {
+        char conv[48];
+        snprintf(conv, sizeof(conv), "si_%d", i & 255);
+        mk_assert_int_eq(0, miku_msg_store_insert(s, conv, "u", 101, "b",
+                                                  1700000000000LL + i, i + 1,
+                                                  id, sizeof(id)));
+    }
+
+    int64_t t0 = miku_timestamp_ms();
+    for (int i = 0; i < EXTRA; i++) {
+        char conv[48];
+        snprintf(conv, sizeof(conv), "si_%d", i & 255);
+        mk_assert_int_eq(0, miku_msg_store_insert(s, conv, "u", 101, "b",
+                                                  1700000000000LL + FILL + i,
+                                                  i + 1, id, sizeof(id)));
+    }
+    int64_t elapsed = miku_timestamp_ms() - t0;
+
+    /* The ring stays at capacity and the newest message is still retrievable. */
+    mk_assert_int_eq(FILL, miku_msg_store_count(s));
+    char *j = NULL;
+    mk_assert_int_eq(0, miku_msg_store_find_one(s, id, &j));
+    mk_assert_not_null(j);
+    free(j);
+
+    /* ~338 ms before the fix, ~18 ms after (Debug); the bound leaves room for
+     * ASAN, which is several times slower. */
+    mk_assert(elapsed < 250);
+    miku_msg_store_destroy(s);
+}
+
 void test_msg_store_stub(void) {
     miku_msg_store_t *s = miku_msg_store_create(NULL);
     mk_assert_not_null(s);
@@ -3435,6 +3546,8 @@ void run_new_module_tests(void) {
     mk_run_test(test_mt_pipeline_submit_flush);
     mk_run_test(test_mt_pipeline_read_seq);
     mk_run_test(test_msg_store_stub);
+    mk_run_test(test_msg_store_concurrent_insert);
+    mk_run_test(test_msg_store_insert_when_full);
     mk_run_test(test_session_cache_stub);
     mk_run_test(test_rpc_user_dispatch);
     mk_run_test(test_rpc_friend_dispatch);

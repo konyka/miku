@@ -507,6 +507,78 @@ static void test_group_create_and_members(void) {
     miku_group_service_destroy(svc);
 }
 
+typedef struct {
+    miku_conv_service_t *svc;
+    int                  base;
+    int                  n;
+} conv_race_ctx_t;
+
+static void *conv_race_bumper(void *arg) {
+    conv_race_ctx_t *c = (conv_race_ctx_t *)arg;
+    for (int i = 0; i < c->n; i++)
+        miku_conv_touch_on_send(c->svc, "victim", "si_a_b", 1, "peer", NULL,
+                                1700000000000LL + i, "hi", 1);
+    return NULL;
+}
+
+static void *conv_race_creator(void *arg) {
+    conv_race_ctx_t *c = (conv_race_ctx_t *)arg;
+    for (int i = 0; i < c->n; i++) {
+        char cid[64];
+        snprintf(cid, sizeof(cid), "si_x%d_%d", c->base, i);
+        miku_conv_touch_on_send(c->svc, "owner_c", cid, 1, "p", NULL,
+                                1700000000000LL, "x", 0);
+    }
+    return NULL;
+}
+
+static void test_conv_touch_concurrent_no_lost_update(void) {
+    /* touch_on_send runs on every delivery, from the WS event loop and from the
+     * admin thread via /internal/push_msg. It is a get-modify-update, so
+     * unsynchronised bumps lose unread counts outright (48.3% of 8000 in a
+     * two-thread run), and create claims its slot with `count++`, so concurrent
+     * creates can overwrite each other's conversation -- the entry then never
+     * appears in the owner's list at all. */
+    const int N = 4000;
+    miku_conv_service_t *svc = miku_conv_service_create();
+    mk_assert_not_null(svc);
+
+    conv_race_ctx_t a = { svc, 0, N }, b = { svc, 1, N };
+    pthread_t t1, t2;
+    mk_assert_int_eq(0, pthread_create(&t1, NULL, conv_race_bumper, &a));
+    mk_assert_int_eq(0, pthread_create(&t2, NULL, conv_race_bumper, &b));
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    miku_conversation_t c;
+    memset(&c, 0, sizeof(c));
+    mk_assert_int_eq(0, miku_conv_get(svc, "victim", "si_a_b", &c));
+    mk_assert_int_eq(2 * N, c.unread_count);
+    miku_conv_service_destroy(svc);
+
+    /* Distinct conversations created concurrently must all be retrievable. */
+    svc = miku_conv_service_create();
+    mk_assert_not_null(svc);
+    conv_race_ctx_t d = { svc, 7, N }, e = { svc, 9, N };
+    mk_assert_int_eq(0, pthread_create(&t1, NULL, conv_race_creator, &d));
+    mk_assert_int_eq(0, pthread_create(&t2, NULL, conv_race_creator, &e));
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    int found = 0;
+    for (int k = 0; k < 2; k++) {
+        int base = k ? 9 : 7;
+        for (int i = 0; i < N; i++) {
+            char cid[64];
+            snprintf(cid, sizeof(cid), "si_x%d_%d", base, i);
+            miku_conversation_t o;
+            if (miku_conv_get(svc, "owner_c", cid, &o) == 0) found++;
+        }
+    }
+    mk_assert_int_eq(2 * N, found);
+    miku_conv_service_destroy(svc);
+}
+
 static void test_conv_create_and_get(void) {
     miku_conv_service_t *svc = miku_conv_service_create();
     mk_assert_not_null(svc);
@@ -3142,6 +3214,7 @@ void run_service_tests(void) {
     mk_run_test(test_group_membership_concurrent_removal);
     mk_run_test(test_group_create_and_members);
     mk_run_test(test_conv_create_and_get);
+    mk_run_test(test_conv_touch_concurrent_no_lost_update);
     mk_run_test(test_msg_send_and_query);
     mk_run_test(test_msg_get_group_member_gate);
     mk_run_test(test_msg_get_si_mutual_gate);

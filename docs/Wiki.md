@@ -983,10 +983,10 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 | Runtime | 9 | 协程、线程池、调度器、通道、定时器 |
 | Protocol | 51 | HTTP 解析、响应头 CRLF 过滤、JSON 编解码转义、WebSocket 分帧与对端消失写入、RPC、PB、中间件、203 路由校验 |
 | Storage | 9 | LRU 缓存、服务发现 |
-| Services | 57 | 模型、7 个 RPC 服务、集成测试、认证中间件、好友/群成员并发安全 |
-| New Modules | 67 | IM 消息、消息管道、限流、Webhook、WS ops、E2E 等 |
+| Services | 58 | 模型、7 个 RPC 服务、集成测试、认证中间件、好友/群成员/会话并发安全 |
+| New Modules | 69 | IM 消息、消息管道、限流、Webhook、WS ops、消息存储并发与满载淘汰、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **222** | 217 功能 + 5 基准 |
+| **总计** | **225** | 220 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
@@ -1031,6 +1031,8 @@ timeout 60 ./build/bin/miku_tests
 | Friend/Group 服务并发 | 每服务一把 `pthread_rwlock_t`，公开 API 为加锁包装 | msggateway 的 admin 线程改成员/黑名单，主 WS 循环同时用 `is_member`/`is_black` 鉴权；删除会先清空索引再重建，无锁时鉴权判定会反转（实测 60.7% 的黑名单检查失效）。读多写少，无竞争读锁零开销（加锁 58.08M vs 无锁 57.98M ops/sec，在噪声内） |
 | Socket 写入 | 统一走 `miku_sock_write`（`send` + `MSG_NOSIGNAL`），服务另设 `SIGPIPE` 为 `SIG_IGN` | 对端消失后写入产生的 SIGPIPE 默认终止进程，任一客户端掉线即可杀死整个网关；逐调用抑制而非全局 `SIG_IGN`，使链接本库不改变宿主程序的信号处置。与 `write` 同速（2.38M vs 2.19M ops/sec） |
 | 网关连接表并发 | 一把递归 `pthread_mutex_t`，事件循环入口整链持锁 | admin 线程与事件循环共享连接表，取到 fd 后该 fd 可能已关闭并被 `accept` 复用，消息会投递到错误会话；扇出与上下线通知会重入本表，故用递归锁。占推送路径 1.31%（5.3 ns / 406 ns） |
+| 消息存储淘汰 | 环形游标 FIFO，非全表找最旧 `send_time` | 8192 条的环填满后就一直满，淘汰分支每次插入都会走（原注释误判为罕见路径），全表扫描使插入永久退化到 16.9 us；写锁下这段扫描还会阻塞所有读。消息大致按 send_time 到达，FIFO 对有界环是同一启发式且 O(1)（901 ns） |
+| 消息存储/会话服务并发 | 各一把 `pthread_rwlock_t` | 两者都被 WS 事件循环与 admin `/internal/push_msg` 线程共享：`mem_alloc_slot` 的 `free_stack[--free_top]` 非原子，并发插入会取到同一 slot（实测 6% 消息丢失，且约 90 个 msg_id 解析到别人的内容）；`touch_on_send` 是 get-modify-update，未读计数实测丢失 48.3% |
 | Token 格式 | `miku\|uid\|platform\|ts_ms\|nonce\|sig` | HMAC-SHA1 签名（截断为 64 位），24h 过期；`force_logout` 吊销后立即失效 |
 | Token 密钥 | `"openIM123"` | 兼容 OpenIM 默认配置 |
 | 错误响应 | `{"errCode":N,"errMsg":"...","errDmg":"..."}` | 兼容 OpenIM 错误格式 |
