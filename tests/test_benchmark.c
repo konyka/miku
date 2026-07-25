@@ -49,7 +49,7 @@ static void bench_json_stringify(void) {
 }
 
 static void bench_hashmap(void) {
-    miku_hashmap_t *hm = miku_hashmap_create(1024, NULL);
+    miku_hashmap_t *hm = miku_hashmap_create(1024, free);
     int64_t start = bench_now();
     int count = 0;
     while (bench_now() - start < 1000) {
@@ -66,7 +66,7 @@ static void bench_hashmap(void) {
 }
 
 static void bench_cache(void) {
-    miku_cache_t *c = miku_cache_create(10000, NULL);
+    miku_cache_t *c = miku_cache_create(10000, free);
     int64_t start = bench_now();
     int count = 0;
     while (bench_now() - start < 1000) {
