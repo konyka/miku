@@ -1,0 +1,30 @@
+# Build artifacts
+build/
+build-asan/
+*.o
+*.a
+*.so
+*.exe
+
+# VCS and agent state
+.git/
+.gitignore
+.sisyphus/
+.qoder/
+.github/
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Local dev notes not needed in the image
+notes.html
+
+# Docker metadata
+Dockerfile
+.dockerignore
+deploy/
