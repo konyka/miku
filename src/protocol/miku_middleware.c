@@ -131,7 +131,19 @@ miku_mw_result_t miku_mw_request_id(miku_http_request_t *req,
     if (req->headers) {
         const char *existing = (const char *)miku_hashmap_get(req->headers, "operationid");
         if (!existing) existing = (const char *)miku_hashmap_get(req->headers, "x-request-id");
-        if (existing) strncpy(rid, existing, sizeof(rid) - 1);
+        /* Copy printable ASCII only, stopping at the first other byte. The
+         * request parser splits header lines on CRLF but not on a bare CR or LF,
+         * so an unsanitised value would let a client inject headers into this
+         * response (and newlines into the access log below). */
+        if (existing) {
+            size_t n = 0;
+            for (; existing[n] && n < sizeof(rid) - 1; n++) {
+                unsigned char c = (unsigned char)existing[n];
+                if (c < 0x20 || c > 0x7E) break;
+                rid[n] = existing[n];
+            }
+            rid[n] = '\0';
+        }
     }
     if (rid[0] == '\0') miku_uuid_generate(rid);
 

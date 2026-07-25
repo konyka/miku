@@ -97,6 +97,51 @@ void test_hashmap(void) {
     miku_hashmap_destroy(m);
 }
 
+void test_hashmap_churn_reclaims_tombstones(void) {
+    /* put/del churn at a stable live count used to consume every HM_EMPTY slot
+     * (neither operation restores one), after which each lookup miss and each
+     * insert scanned the entire table. Correctness held but throughput collapsed
+     * (~380x on a capacity-bound LRU cache), so this asserts both the results
+     * and a time bound. */
+    miku_hashmap_t *m = miku_hashmap_create(8192, free);
+    mk_assert_not_null(m);
+
+    char key[32];
+    const int LIVE = 4096;
+    for (int i = 0; i < LIVE; i++) {
+        snprintf(key, sizeof(key), "k_%d", i);
+        miku_hashmap_put(m, key, strdup("v"));
+    }
+    mk_assert_int_eq(LIVE, (int)miku_hashmap_size(m));
+
+    int64_t t0 = miku_timestamp_ms();
+    const int ROUNDS = 50000;
+    for (int i = 0; i < ROUNDS; i++) {
+        snprintf(key, sizeof(key), "k_%d", i);
+        miku_hashmap_del(m, key);
+        snprintf(key, sizeof(key), "k_%d", i + LIVE);
+        miku_hashmap_put(m, key, strdup("v"));
+    }
+    int64_t elapsed = miku_timestamp_ms() - t0;
+
+    /* Live set is exactly the last LIVE keys inserted. */
+    mk_assert_int_eq(LIVE, (int)miku_hashmap_size(m));
+    for (int i = ROUNDS; i < ROUNDS + LIVE; i++) {
+        snprintf(key, sizeof(key), "k_%d", i);
+        mk_assert_not_null(miku_hashmap_get(m, key));
+    }
+    snprintf(key, sizeof(key), "k_%d", ROUNDS - 1);
+    mk_assert_null(miku_hashmap_get(m, key));
+    mk_assert_null(miku_hashmap_get(m, "never_inserted"));
+
+    /* The degradation scales with table size, so the bound needs a table near
+     * production cache sizes to be meaningful. Measured: 646 ms before the fix,
+     * 13 ms after (Debug), 46 ms after (ASAN). */
+    mk_assert(elapsed < 400);
+
+    miku_hashmap_destroy(m);
+}
+
 void test_string(void) {
     miku_string_t *s = miku_str_create("hello");
     mk_assert_not_null(s);
@@ -146,7 +191,36 @@ void test_uuid(void) {
     miku_uuid_generate(u2);
     mk_assert_int_eq(36, (int)strlen(u1));
     mk_assert_int_eq(4, u1[14] - '0');
-    mk_assert(u1[0] != u2[0] || u1[1] != u2[1]);
+
+    /* RFC 9562 §4.1 layout: hyphens fixed, everything else lowercase hex. */
+    const int hyphens[] = {8, 13, 18, 23};
+    for (int i = 0; i < 4; i++) mk_assert_int_eq('-', u1[hyphens[i]]);
+    for (int i = 0; i < 36; i++) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) continue;
+        mk_assert_not_null(strchr("0123456789abcdef", u1[i]));
+    }
+    /* Variant must be 10xx. */
+    mk_assert_not_null(strchr("89ab", u1[19]));
+
+    /* Compare the whole value: asserting on the first byte alone failed ~0.4%
+     * of runs even for a perfect generator. */
+    mk_assert(strcmp(u1, u2) != 0);
+}
+
+void test_uuid_no_duplicates(void) {
+    /* Unpredictability is a property of the source (getrandom, see
+     * miku_uuid.c) and cannot be asserted from outside — a clock-seeded LCG
+     * passes any black-box distribution check. What is testable is that a burst
+     * of IDs, as a busy gateway produces, stays collision-free: these back
+     * message IDs and group IDs. */
+    const int N = 8192;
+    char (*ids)[37] = malloc((size_t)N * 37);
+    mk_assert_not_null(ids);
+    for (int i = 0; i < N; i++) miku_uuid_generate(ids[i]);
+    for (int i = 0; i < N; i++)
+        for (int k = i + 1; k < N && k < i + 64; k++)
+            mk_assert(strcmp(ids[i], ids[k]) != 0);
+    free(ids);
 }
 
 void test_crc32(void) {
@@ -387,10 +461,12 @@ int main(void) {
     mk_run_test(test_arena);
     mk_run_test(test_slab);
     mk_run_test(test_hashmap);
+    mk_run_test(test_hashmap_churn_reclaims_tombstones);
     mk_run_test(test_string);
     mk_run_test(test_error);
     mk_run_test(test_config);
     mk_run_test(test_uuid);
+    mk_run_test(test_uuid_no_duplicates);
     mk_run_test(test_crc32);
     mk_run_test(test_base64);
     mk_run_test(test_rbtree);

@@ -1,4 +1,5 @@
 #include "miku_http.h"
+#include "miku_log.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -102,9 +103,24 @@ void miku_http_response_set_json(miku_http_response_t *resp, const char *json) {
     miku_hashmap_put(resp->headers, "Content-Type", strdup("application/json"));
 }
 
+/* A CR or LF in a header name or value would inject a header or terminate the
+ * header block early (RFC 7230 §3.2.4 forbids both). Callers are expected to
+ * sanitise at the source; dropping the header here is the backstop that keeps a
+ * missed one from reaching the wire. */
+static bool header_is_safe(const char *s) {
+    for (; s && *s; s++)
+        if (*s == '\r' || *s == '\n') return false;
+    return true;
+}
+
 static void add_header_cb(const char *key, void *val, void *ctx) {
     miku_string_t *s = (miku_string_t *)ctx;
-    miku_str_printf(s, "%s: %s\r\n", key, (const char *)val);
+    const char *v = (const char *)val;
+    if (!header_is_safe(key) || !header_is_safe(v)) {
+        MK_LOG_WARN("http: dropping header with CR/LF in name or value");
+        return;
+    }
+    miku_str_printf(s, "%s: %s\r\n", key, v);
 }
 
 miku_string_t *miku_http_response_serialize(const miku_http_response_t *resp) {

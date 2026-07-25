@@ -15,7 +15,8 @@ typedef struct {
 struct miku_hashmap_s {
     miku_hm_entry_t *entries;
     size_t           cap;
-    size_t           count;
+    size_t           count; /* HM_OCCUPIED slots */
+    size_t           used;  /* HM_OCCUPIED + HM_DELETED slots */
     miku_free_fn     val_free;
 };
 
@@ -28,8 +29,14 @@ static uint64_t fnv1a(const char *key) {
     return h;
 }
 
+/* Rebuild the table, dropping tombstones. Grows only when live entries alone
+ * exceed the load factor; a table that is merely full of tombstones is rehashed
+ * at the same capacity. Without this, deletes leak probe-sequence slots: neither
+ * put nor del ever restores an HM_EMPTY, so a churning map (an LRU cache evicts
+ * one entry per insert) drifts to zero empty slots, after which every lookup
+ * miss and every insert scans the whole table. */
 static int hm_resize(miku_hashmap_t *map) {
-    size_t newcap = map->cap * 2;
+    size_t newcap = (map->count * 4 >= map->cap * 3) ? map->cap * 2 : map->cap;
     miku_hm_entry_t *ne = (miku_hm_entry_t *)calloc(newcap, sizeof(*ne));
     if (!ne) return -1;
     for (size_t i = 0; i < map->cap; i++) {
@@ -41,6 +48,7 @@ static int hm_resize(miku_hashmap_t *map) {
     free(map->entries);
     map->entries = ne;
     map->cap = newcap;
+    map->used = map->count;
     return 0;
 }
 
@@ -71,7 +79,8 @@ void miku_hashmap_destroy(miku_hashmap_t *map) {
 
 int miku_hashmap_put(miku_hashmap_t *map, const char *key, void *val) {
     if (!map || !key) return -1;
-    if (map->count * 4 >= map->cap * 3) {
+    /* Gate on occupied + tombstoned slots: those are what lengthen probes. */
+    if (map->used * 4 >= map->cap * 3) {
         if (hm_resize(map) != 0) return -1;
     }
     uint64_t h = fnv1a(key) & (map->cap - 1);
@@ -93,8 +102,8 @@ int miku_hashmap_put(miku_hashmap_t *map, const char *key, void *val) {
     while (map->entries[h].state == HM_OCCUPIED) {
         h = (h + 1) & (map->cap - 1);
     }
-    if (map->entries[h].state == HM_DELETED) {
-    }
+    /* Reusing a tombstone keeps `used` flat; claiming an empty slot grows it. */
+    if (map->entries[h].state == HM_EMPTY) map->used++;
     map->entries[h].key = strdup(key);
     map->entries[h].val = val;
     map->entries[h].state = HM_OCCUPIED;

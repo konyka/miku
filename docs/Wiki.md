@@ -134,7 +134,7 @@ Miku 采用两级内存分配策略：
 
 | 模块 | 文件 | 说明 |
 |------|------|------|
-| HashMap | `miku_hashmap.h/c` | FNV-1a 哈希，开放寻址，tombstone 删除，cache-friendly |
+| HashMap | `miku_hashmap.h/c` | FNV-1a 哈希，开放寻址，tombstone 删除并按「占用+墓碑」触发重建回收，cache-friendly |
 | RBTree | `miku_rbtree.h/c` | 红黑树，用于定时器和有序集合 |
 | List | `miku_list.h` | 侵入式双向链表 |
 | String | `miku_string.h/c` | SDS-like 字符串缓冲区，支持零拷贝视图 `miku_str_t` |
@@ -147,7 +147,7 @@ Miku 采用两级内存分配策略：
 | `miku_thread.h/c` | 线程、互斥锁、条件变量、读写锁封装 |
 | `miku_spinlock.h` | 自旋锁（C11 atomic + GCC fallback） |
 | `miku_atomic.h` | 原子操作封装 |
-| `miku_uuid.h/c` | UUID v4 生成 |
+| `miku_uuid.h/c` | UUID v4 生成（`getrandom(2)` 批量线程本地池） |
 | `miku_crc32.h/c` | CRC32 校验 |
 | `miku_base64.h/c` | Base64 编解码 |
 | `miku_sha1.h/c` | SHA-1 哈希 |
@@ -343,9 +343,9 @@ CORS → RequestID → Logging → Auth → Stats → Route Handler
 | 中间件 | 功能 |
 |--------|------|
 | `miku_mw_cors` | 设置 `Access-Control-Allow-*` 头 |
-| `miku_mw_request_id` | 生成 UUID v4 请求 ID，传播到响应 |
+| `miku_mw_request_id` | 生成 UUID v4 请求 ID，传播到响应（回显客户端 ID 时仅保留可打印 ASCII） |
 | `miku_mw_logging` | 访问日志：方法、路径、状态码、延迟、请求 ID |
-| `miku_mw_auth` | Token 密码学验证（`miku\|uid\|platform\|ts\|nonce\|sig`，FNV-1a 签名），失败返回 401。公开：`/auth/user_token`、`/auth/admin_token`、`/auth/parse_token`、`/admin/health`、`/admin/metrics`、`/version`、`/prometheus*`。`force_logout` 需鉴权 |
+| `miku_mw_auth` | Token 密码学验证（`miku\|uid\|platform\|ts\|nonce\|sig`，HMAC-SHA1 签名），失败返回 401。公开：`/auth/user_token`、`/auth/admin_token`、`/auth/parse_token`、`/admin/health`、`/admin/metrics`、`/version`、`/prometheus*`。`force_logout` 需鉴权 |
 | `miku_mw_stats` | 递增请求/错误计数器 |
 
 #### 3.9 速率限制（miku_ratelimit）
@@ -438,7 +438,7 @@ Redis 会话缓存封装。
 #### 5.1 Auth 服务（miku-rpc-auth, 端口 10100）
 
 认证与令牌管理：
-- `userToken` — 生成用户 Token（格式 `miku|uid|platform|ts|nonce|sig`，FNV-1a 签名）
+- `userToken` — 生成用户 Token（格式 `miku|uid|platform|ts|nonce|sig`，HMAC-SHA1 签名）
 - `parseToken` — 解析验证 Token，提取 userID
 - `forceLogout` / `forceLogoutAll` — 强制下线
 - Token 密钥：`"openIM123"`（兼容 OpenIM）
@@ -961,14 +961,14 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 
 | 分类 | 测试数 | 说明 |
 |------|--------|------|
-| Foundation | 21 | 内存池、Arena、Slab、日志、配置、HashMap、字符串、UUID 等 |
+| Foundation | 23 | 内存池、Arena、Slab、日志、配置、HashMap（墓碑回收）、字符串、UUID 等 |
 | Runtime | 9 | 协程、线程池、调度器、通道、定时器 |
-| Protocol | 48 | HTTP 解析、JSON 编解码转义、WebSocket 分帧、RPC、PB、中间件、203 路由校验 |
+| Protocol | 50 | HTTP 解析、响应头 CRLF 过滤、JSON 编解码转义、WebSocket 分帧、RPC、PB、中间件、203 路由校验 |
 | Storage | 9 | LRU 缓存、服务发现 |
 | Services | 55 | 模型、7 个 RPC 服务、集成测试、认证中间件 |
 | New Modules | 67 | IM 消息、消息管道、限流、Webhook、WS ops、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **214** | 209 功能 + 5 基准 |
+| **总计** | **218** | 213 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
@@ -1008,8 +1008,9 @@ timeout 60 ./build/bin/miku_tests
 
 | 决策 | 选择 | 理由 |
 |------|------|------|
-| HashMap 删除 | 开放寻址 + 墓碑 | 避免指针链，cache-friendly |
-| Token 格式 | `miku\|uid\|platform\|ts_ms\|nonce\|sig` | FNV-1a 签名，24h 过期；`force_logout` 吊销后立即失效 |
+| HashMap 删除 | 开放寻址 + 墓碑，按「占用+墓碑」水位重建 | 避免指针链，cache-friendly；负载因子只看存活数会让 put/del churn 耗尽空槽，使查找退化为全表扫描（LRU 缓存实测退化 ~380 倍） |
+| ID 随机源 | `getrandom(2)` 填充 4 KiB 线程本地池 | msg_id/group_id/token nonce 需不可预测；批量摊薄系统调用后比原时钟种子 LCG 还略快（33.4M vs 32.3M ops/sec） |
+| Token 格式 | `miku\|uid\|platform\|ts_ms\|nonce\|sig` | HMAC-SHA1 签名（截断为 64 位），24h 过期；`force_logout` 吊销后立即失效 |
 | Token 密钥 | `"openIM123"` | 兼容 OpenIM 默认配置 |
 | 错误响应 | `{"errCode":N,"errMsg":"...","errDmg":"..."}` | 兼容 OpenIM 错误格式 |
 | HTTP 服务器模型 | 同步/阻塞（主线程）+ epoll I/O | 简单正确 |

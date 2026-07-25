@@ -908,6 +908,8 @@ void test_pb_fixed_roundtrip(void) {
     miku_pb_buf_destroy(buf);
 }
 
+void test_mw_request_id_rejects_crlf(void);
+void test_http_response_header_crlf_stripped(void);
 void test_mw_auth_skips_auth_paths(void);
 void test_mw_auth_skips_health_and_version(void);
 void test_mw_auth_rejects_no_token(void);
@@ -966,6 +968,8 @@ void run_protocol_tests(void) {
     mk_run_test(test_pb_fixed_roundtrip);
 
     printf("\n");
+    mk_run_test(test_mw_request_id_rejects_crlf);
+    mk_run_test(test_http_response_header_crlf_stripped);
     mk_run_test(test_mw_auth_skips_auth_paths);
     mk_run_test(test_mw_auth_skips_health_and_version);
     mk_run_test(test_mw_auth_rejects_no_token);
@@ -1003,6 +1007,58 @@ static miku_http_request_t *make_req_with_token(const char *method, const char *
     miku_http_request_t *req = miku_http_request_create();
     miku_http_request_parse(req, buf, (size_t)len);
     return req;
+}
+
+void test_mw_request_id_rejects_crlf(void) {
+    /* operationID is client-supplied and miku_mw_request_id echoes it into the
+     * X-Request-ID response header, before any auth middleware runs. The request
+     * parser splits header lines on CRLF, so a full CRLF cannot survive it — but
+     * a bare LF does, and RFC 7230 §3.5 notes recipients may accept a lone LF as
+     * a line terminator, so it must not reach the serialised header block. */
+    static char buf[1024];
+    int len = snprintf(buf, sizeof(buf),
+        "GET /version HTTP/1.1\r\n"
+        "operationID: abc\nX-Injected: evil\r\n"
+        "\r\n");
+    miku_http_request_t *req = miku_http_request_create();
+    miku_http_request_parse(req, buf, (size_t)len);
+
+    /* Confirm the parser really did hand the middleware an LF-bearing value. */
+    const char *raw_hdr = (const char *)miku_hashmap_get(req->headers, "operationid");
+    mk_assert_not_null(raw_hdr);
+    mk_assert_not_null(strchr(raw_hdr, '\n'));
+
+    miku_http_response_t *resp = miku_http_response_create();
+    mk_assert_int_eq((int)MK_MW_CONTINUE, (int)miku_mw_request_id(req, resp, NULL));
+
+    miku_string_t *raw = miku_http_response_serialize(resp);
+    mk_assert_not_null(raw);
+    mk_assert_null(strstr(raw->data, "X-Injected"));
+    /* The header block must still terminate exactly once, at its real end. */
+    const char *sep = strstr(raw->data, "\r\n\r\n");
+    mk_assert_not_null(sep);
+    mk_assert_null(strstr(sep + 4, "\r\n\r\n"));
+
+    miku_str_destroy(raw);
+    miku_http_response_destroy(resp);
+    miku_http_request_destroy(req);
+}
+
+void test_http_response_header_crlf_stripped(void) {
+    /* Backstop at the serialiser: even if a caller puts a raw CRLF value into
+     * resp->headers, the wire format must not gain an extra header or an early
+     * end-of-headers. */
+    miku_http_response_t *resp = miku_http_response_create();
+    miku_hashmap_put(resp->headers, "X-Test",
+                     strdup("ok\r\nX-Smuggled: 1\r\n\r\nbody"));
+    miku_string_t *raw = miku_http_response_serialize(resp);
+    mk_assert_not_null(raw);
+    mk_assert_null(strstr(raw->data, "X-Smuggled"));
+    const char *sep = strstr(raw->data, "\r\n\r\n");
+    mk_assert_not_null(sep);
+    mk_assert_null(strstr(sep + 4, "\r\n\r\n"));
+    miku_str_destroy(raw);
+    miku_http_response_destroy(resp);
 }
 
 void test_mw_auth_skips_auth_paths(void) {
