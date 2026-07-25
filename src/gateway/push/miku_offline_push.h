@@ -17,6 +17,8 @@ MIKU_API void                 miku_offline_push_destroy(miku_offline_push_t *op)
 
 /* Optional HTTP gateway URL (http:// only). When set, non-DUMMY providers POST JSON. */
 MIKU_API int  miku_offline_push_set_endpoint(miku_offline_push_t *op, const char *url);
+/* FCM credentials path or JSON (forwarded to push gateway when provider is FCM). */
+MIKU_API int  miku_offline_push_set_service_account(miku_offline_push_t *op, const char *path_or_json);
 
 MIKU_API int  miku_offline_push_send(miku_offline_push_t *op, const char *user_id,
                                        int platform, const char *title,

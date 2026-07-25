@@ -29,6 +29,7 @@ typedef struct {
     int  push_enable;
     char push_provider[16];
     char push_endpoint[512];
+    char push_fcm_service_account[512];
 } miku_service_config_t;
 
 int  miku_service_config_load(miku_service_config_t *out, const char *config_dir);

@@ -269,6 +269,7 @@ void test_service_config(void) {
     mk_assert_int_eq(1, sc.push_enable);
     mk_assert_str_eq("dummy", sc.push_provider);
     mk_assert_str_eq("", sc.push_endpoint);
+    mk_assert_str_eq("", sc.push_fcm_service_account);
 }
 
 void test_graceful_lifecycle(void) {

@@ -88,6 +88,9 @@ int miku_service_config_load(miku_service_config_t *out, const char *config_dir)
     safe_strcpy(out->push_endpoint,
                 miku_config_get_str(cfg, "push.endpoint", ""),
                 sizeof(out->push_endpoint));
+    safe_strcpy(out->push_fcm_service_account,
+                miku_config_get_str(cfg, "push.fcm.serviceAccount", ""),
+                sizeof(out->push_fcm_service_account));
 
     miku_config_destroy(cfg);
     return 0;

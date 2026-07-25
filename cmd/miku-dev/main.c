@@ -150,6 +150,8 @@ int main(int argc, char **argv) {
     miku_offline_push_t *offline = miku_offline_push_create(push_prov);
     if (offline && sc.push_endpoint[0])
         miku_offline_push_set_endpoint(offline, sc.push_endpoint);
+    if (offline && sc.push_fcm_service_account[0])
+        miku_offline_push_set_service_account(offline, sc.push_fcm_service_account);
 
     miku_crontask_t *cron = miku_crontask_create();
     g_cron_impl = miku_cron_tasks_create();

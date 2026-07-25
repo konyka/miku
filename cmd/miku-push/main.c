@@ -35,6 +35,8 @@ int main(int argc, char **argv) {
         if (miku_offline_push_set_endpoint(offline, sc.push_endpoint) != 0)
             MK_LOG_WARN("miku-push: invalid push.endpoint %s", sc.push_endpoint);
     }
+    if (sc.push_fcm_service_account[0])
+        miku_offline_push_set_service_account(offline, sc.push_fcm_service_account);
 
     miku_push_start(push);
 

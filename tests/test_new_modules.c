@@ -1424,6 +1424,34 @@ static void test_offline_push_http_payload_escape(void) {
     miku_http_server_destroy(srv);
 }
 
+static void test_offline_push_fcm_service_account(void) {
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19787);
+    mk_assert_not_null(srv);
+    miku_http_server_route(srv, "POST", "/push", offline_push_echo_handler, NULL);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(100000);
+
+    miku_offline_push_t *op = miku_offline_push_create(MK_PUSH_PROVIDER_FCM);
+    mk_assert_not_null(op);
+    mk_assert_int_eq(0, miku_offline_push_set_endpoint(op, "http://127.0.0.1:19787/push"));
+    mk_assert_int_eq(0, miku_offline_push_set_service_account(op, "/etc/fcm-sa.json"));
+    mk_assert_int_eq(0, miku_offline_push_set_token(op, "u1", 1, "tok1"));
+
+    g_offline_push_last_body[0] = '\0';
+    mk_assert_int_eq(0, miku_offline_push_send(op, "u1", 1, "t", "b", NULL));
+
+    miku_json_val_t *j = miku_json_parse_str(g_offline_push_last_body);
+    mk_assert_not_null(j);
+    mk_assert_str_eq("/etc/fcm-sa.json", miku_json_str(miku_json_get(j, "serviceAccount")));
+    miku_json_destroy(j);
+
+    miku_offline_push_destroy(op);
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+}
+
 static int http_post_to(int port, const char *path, const char *body, char *resp, int cap) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
@@ -3358,6 +3386,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_offline_push_token);
     mk_run_test(test_offline_push_provider_from_str);
     mk_run_test(test_offline_push_http_payload_escape);
+    mk_run_test(test_offline_push_fcm_service_account);
     mk_run_test(test_cron_tasks_basic);
     mk_run_test(test_ws_subscription_basic);
     mk_run_test(test_msggw_ws_resolve_conv);

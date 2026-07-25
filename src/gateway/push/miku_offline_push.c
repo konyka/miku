@@ -35,6 +35,7 @@ struct miku_offline_push_s {
     int64_t              total_http_ok;
     int64_t              total_http_fail;
     char                 endpoint[512];
+    char                 service_account[512];
 };
 
 static uint32_t token_pair_slot(const char *user_id, int platform) {
@@ -85,6 +86,13 @@ int miku_offline_push_set_endpoint(miku_offline_push_t *op, const char *url) {
         return -1;
     }
     strncpy(op->endpoint, url, sizeof(op->endpoint) - 1);
+    return 0;
+}
+
+int miku_offline_push_set_service_account(miku_offline_push_t *op, const char *path_or_json) {
+    if (!op) return -1;
+    if (!path_or_json) { op->service_account[0] = '\0'; return 0; }
+    strncpy(op->service_account, path_or_json, sizeof(op->service_account) - 1);
     return 0;
 }
 
@@ -208,15 +216,29 @@ static int offline_push_build_body(miku_offline_push_t *op, const char *user_id,
                                    const char *title, const char *content,
                                    const char *client_url,
                                    char *body, size_t body_cap) {
-    char strings[1536];
-    if (miku_json_build_str_obj(strings, sizeof(strings),
-                                "provider", miku_offline_push_provider_name(op->provider),
-                                "userID", user_id,
-                                "token", token,
-                                "title", title ? title : "",
-                                "content", content ? content : "",
-                                "ex", client_url ? client_url : "",
-                                NULL) < 0)
+    char strings[2048];
+    int blen;
+    if (op->service_account[0]) {
+        blen = miku_json_build_str_obj(strings, sizeof(strings),
+                                       "provider", miku_offline_push_provider_name(op->provider),
+                                       "userID", user_id,
+                                       "token", token,
+                                       "title", title ? title : "",
+                                       "content", content ? content : "",
+                                       "ex", client_url ? client_url : "",
+                                       "serviceAccount", op->service_account,
+                                       NULL);
+    } else {
+        blen = miku_json_build_str_obj(strings, sizeof(strings),
+                                       "provider", miku_offline_push_provider_name(op->provider),
+                                       "userID", user_id,
+                                       "token", token,
+                                       "title", title ? title : "",
+                                       "content", content ? content : "",
+                                       "ex", client_url ? client_url : "",
+                                       NULL);
+    }
+    if (blen < 0)
         return -1;
     int n = snprintf(body, body_cap, "{\"platform\":%d,%s", platform, strings + 1);
     return (n < 0 || (size_t)n >= body_cap) ? -1 : 0;
