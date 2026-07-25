@@ -2380,8 +2380,8 @@ static void test_msggateway_unwrap_op_data(void) {
     mk_assert_int_eq(-1, miku_msggw_unwrap_op_data("{}", &opcode, &data, &len));
 }
 
-static void test_op_reply_cb(int client_idx, int opcode, const char *payload, size_t len, void *ctx) {
-    (void)payload; (void)len;
+static void test_op_reply_cb(int client_idx, int opcode, miku_json_val_t *data, void *ctx) {
+    (void)data;
     miku_msggw_t *gw = (miku_msggw_t *)ctx;
     if (opcode != MK_WS_OP_GET_NEWEST_SEQ) return;
     int64_t seq = 0;

@@ -3,6 +3,7 @@
 
 #include "miku_common.h"
 #include "miku_websocket.h"
+#include "miku_json.h"
 
 #define MK_GW_MAX_CLIENTS 4096
 
@@ -21,7 +22,7 @@
 #define MK_WS_OP_DATA_ERROR           3001
 
 typedef void (*miku_msggw_on_msg_fn)(const char *user_id, const char *msg, size_t len, void *ctx);
-typedef void (*miku_msggw_on_op_fn)(int client_idx, int opcode, const char *payload, size_t len, void *ctx);
+typedef void (*miku_msggw_on_op_fn)(int client_idx, int opcode, miku_json_val_t *data, void *ctx);
 /* online=1 after handshake; online=0 before session teardown */
 typedef void (*miku_msggw_on_presence_fn)(const char *user_id, int platform, int online, void *ctx);
 

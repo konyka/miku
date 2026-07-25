@@ -8,8 +8,34 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <errno.h>
+
+/* Loop until exactly len bytes are read. Returns total read (0..len);
+ * caller treats < len as failure. Retries on EINTR. */
+static size_t read_full(int fd, void *buf, size_t len) {
+    size_t total = 0;
+    while (total < len) {
+        ssize_t r = read(fd, (char *)buf + total, len - total);
+        if (r > 0) { total += (size_t)r; continue; }
+        if (r < 0 && errno == EINTR) continue;
+        break;
+    }
+    return total;
+}
+
+/* Loop until exactly len bytes are written. Returns total written. */
+static size_t write_full(int fd, const void *buf, size_t len) {
+    size_t total = 0;
+    while (total < len) {
+        ssize_t w = write(fd, (const char *)buf + total, len - total);
+        if (w > 0) { total += (size_t)w; continue; }
+        if (w < 0 && errno == EINTR) continue;
+        break;
+    }
+    return total;
+}
 
 static void rpc_write_json_response(int fd, miku_json_val_t *resp, miku_stats_t *stats) {
     miku_string_t *resp_str = miku_json_stringify(resp);
@@ -19,8 +45,8 @@ static void rpc_write_json_response(int fd, miku_json_val_t *resp, miku_stats_t 
         (uint8_t)(resp_len >> 24), (uint8_t)(resp_len >> 16),
         (uint8_t)(resp_len >> 8),  (uint8_t)resp_len
     };
-    write(fd, resp_len_buf, 4);
-    write(fd, resp_str->data, resp_str->len);
+    write_full(fd, resp_len_buf, 4);
+    write_full(fd, resp_str->data, resp_str->len);
     if (stats) {
         miku_stats_bytes_sent(stats, (int64_t)resp_str->len);
         miku_stats_conn_close(stats);
@@ -99,28 +125,22 @@ void miku_rpc_server_stop(miku_rpc_server_t *srv) {
 
 static int handle_one_connection(miku_rpc_server_t *srv, int fd) {
     uint8_t hdr_buf[16];
-    ssize_t n = read(fd, hdr_buf, 16);
-    if (n < 16) { close(fd); return -1; }
+    if (read_full(fd, hdr_buf, 16) < 16) { close(fd); return -1; }
 
     miku_rpc_header_t hdr;
     miku_rpc_header_decode(&hdr, hdr_buf);
 
     uint8_t len_buf[4];
-    n = read(fd, len_buf, 4);
-    if (n < 4) { close(fd); return -1; }
+    if (read_full(fd, len_buf, 4) < 4) { close(fd); return -1; }
     uint32_t payload_len = ((uint32_t)len_buf[0] << 24) | ((uint32_t)len_buf[1] << 16) |
                            ((uint32_t)len_buf[2] << 8)  | (uint32_t)len_buf[3];
 
     char *payload = NULL;
     if (payload_len > 0 && payload_len < 65536) {
         payload = (char *)malloc((size_t)payload_len + 1);
-        ssize_t total = 0;
-        while (total < (ssize_t)payload_len) {
-            ssize_t r = read(fd, payload + total, (size_t)(payload_len - (uint32_t)total));
-            if (r <= 0) break;
-            total += r;
-        }
-        payload[total] = '\0';
+        if (!payload) { close(fd); return -1; }
+        size_t got = read_full(fd, payload, payload_len);
+        payload[got] = '\0';
     }
 
     miku_json_val_t *req = payload ? miku_json_parse_str(payload) : miku_json_create_object();
@@ -167,6 +187,11 @@ int miku_rpc_server_poll(miku_rpc_server_t *srv, int timeout_ms) {
     while (handled < 64) {
         int fd = accept(srv->listen_fd, (struct sockaddr *)&cli, &cli_len);
         if (fd < 0) break;
+        /* Bound blocking reads/writes so a slow or stuck client cannot
+         * stall the single-threaded accept+dispatch loop. */
+        struct timeval io_tv = { .tv_sec = 5, .tv_usec = 0 };
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &io_tv, sizeof(io_tv));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &io_tv, sizeof(io_tv));
         if (srv->stats) miku_stats_conn_open(srv->stats);
         handle_one_connection(srv, fd);
         handled++;

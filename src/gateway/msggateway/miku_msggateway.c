@@ -541,19 +541,9 @@ static void read_client_frames(miku_msggw_t *gw, int idx) {
                 int64_t req_op = miku_json_int(miku_json_get(j, "reqIdentifier"));
                 if (req_op > 0 && gw->on_op) {
                     miku_json_val_t *data = miku_json_get(j, "data");
-                    if (data) {
-                        miku_string_t *s = miku_json_stringify(data);
-                        if (s && s->data)
-                            gw->on_op(idx, (int)req_op, s->data, s->len, gw->on_op_ctx);
-                        else
-                            gw->on_op(idx, (int)req_op, "{}", 2, gw->on_op_ctx);
-                        miku_str_destroy(s);
-                    } else {
-                        /* Non-envelope frames: pass whole payload */
-                        gw->on_op(idx, (int)req_op,
-                                  (const char *)frame->payload, frame->payload_len,
-                                  gw->on_op_ctx);
-                    }
+                    /* Pass the parsed JSON subtree directly to the handler,
+                     * avoiding a stringify→re-parse round-trip per message. */
+                    gw->on_op(idx, (int)req_op, data ? data : j, gw->on_op_ctx);
                     miku_json_destroy(j);
                 } else {
                     if (gw->on_msg) {

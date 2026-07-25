@@ -292,23 +292,48 @@ static void json_resp(miku_http_response_t *resp, miku_json_val_t *j) {
     miku_json_destroy(j);
 }
 
-static int check_ratelimit(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_response_t *resp) {
-    if (!c->ratelimit) return 0;
-    /* Prefer token-derived user id (no extra JSON parse). Fall back to body fields. */
-    char key_buf[128];
-    snprintf(key_buf, sizeof(key_buf), "global");
+/* Per-request token parse cache. The HTTP server dispatches handlers
+ * sequentially in its epoll thread, so a thread-local keyed by the token
+ * string avoids re-running HMAC verification across check_ratelimit /
+ * verify_token / req_token_uid / req_token_platform (was up to 4× per request). */
+static __thread struct {
+    char token[512];
+    char uid[128];
+    int  platform;
+    int  valid;
+    int  have_token;
+} s_req_auth;
+
+static void req_auth_ensure(miku_http_request_t *req) {
     const char *token = NULL;
-    if (req->headers) {
+    if (req && req->headers) {
         token = (const char *)miku_hashmap_get(req->headers, "token");
         if (!token) token = (const char *)miku_hashmap_get(req->headers, "authorization");
     }
-    if (token && token[0]) {
-        if (strncmp(token, "Bearer ", 7) == 0) token += 7;
-        char uid[128] = {0};
-        if (miku_auth_parse_token(c->auth, token, uid, sizeof(uid)) == 0 && uid[0])
-            snprintf(key_buf, sizeof(key_buf), "%s", uid);
+    if (token && strncmp(token, "Bearer ", 7) == 0) token += 7;
+
+    if (s_req_auth.have_token && token && token[0] &&
+        strncmp(token, s_req_auth.token, sizeof(s_req_auth.token)) == 0)
+        return;
+
+    s_req_auth.have_token = (token && token[0]) ? 1 : 0;
+    s_req_auth.uid[0] = '\0';
+    s_req_auth.platform = -1;
+    s_req_auth.valid = 0;
+    s_req_auth.token[0] = '\0';
+    if (s_req_auth.have_token) {
+        strncpy(s_req_auth.token, token, sizeof(s_req_auth.token) - 1);
+        s_req_auth.valid = (miku_token_verify_ex(token, miku_token_default_secret(),
+                                s_req_auth.uid, sizeof(s_req_auth.uid),
+                                &s_req_auth.platform, NULL) == 0) ? 1 : 0;
     }
-    if (!miku_ratelimit_allow(c->ratelimit, key_buf)) {
+}
+
+static int check_ratelimit(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_response_t *resp) {
+    if (!c->ratelimit) return 0;
+    req_auth_ensure(req);
+    const char *key = (s_req_auth.valid && s_req_auth.uid[0]) ? s_req_auth.uid : "global";
+    if (!miku_ratelimit_allow(c->ratelimit, key)) {
         resp->status = 429;
         miku_json_val_t *body = miku_json_create_object();
         miku_ji(body, "errCode", 429);
@@ -371,23 +396,11 @@ static int verify_token(miku_api_ctx_t *c, miku_http_request_t *req, miku_http_r
         if (req->path.len == 13 && strncmp(req->path.data, "/admin/health", 13) == 0) return 0;
         if (req->path.len == 8 && strncmp(req->path.data, "/version", 8) == 0) return 0;
     }
-    const char *token = NULL;
-    if (req->headers) token = (const char *)miku_hashmap_get(req->headers, "token");
-    if (!token && req->headers) token = (const char *)miku_hashmap_get(req->headers, "authorization");
-    if (token && strncmp(token, "Bearer ", 7) == 0) token += 7;
-    if (!token || !token[0]) {
+    req_auth_ensure(req);
+    if (!s_req_auth.have_token || !s_req_auth.valid) {
         miku_json_val_t *body = miku_json_create_object();
         miku_ji(body, "errCode", 401);
-        miku_jss(body, "errMsg", "missing token header");
-        resp->status = 401;
-        json_resp(resp, body);
-        return -1;
-    }
-    char uid[128] = {0};
-    if (miku_auth_parse_token(c->auth, token, uid, sizeof(uid)) != 0) {
-        miku_json_val_t *body = miku_json_create_object();
-        miku_ji(body, "errCode", 401);
-        miku_jss(body, "errMsg", "invalid token");
+        miku_jss(body, "errMsg", s_req_auth.have_token ? "invalid token" : "missing token header");
         resp->status = 401;
         json_resp(resp, body);
         return -1;
@@ -400,26 +413,18 @@ static int req_token_uid(miku_api_ctx_t *c, miku_http_request_t *req, char *uid,
     if (!uid || cap == 0) return -1;
     uid[0] = '\0';
     if (!c || !c->auth || !req || !req->headers) return -1;
-    const char *token = (const char *)miku_hashmap_get(req->headers, "token");
-    if (!token) token = (const char *)miku_hashmap_get(req->headers, "authorization");
-    if (token && strncmp(token, "Bearer ", 7) == 0) token += 7;
-    if (!token || !token[0]) return -1;
-    return miku_auth_parse_token(c->auth, token, uid, cap);
+    req_auth_ensure(req);
+    if (!s_req_auth.valid) return -1;
+    strncpy(uid, s_req_auth.uid, cap);
+    uid[cap - 1] = '\0';
+    return 0;
 }
 
 /* Return token platformID, or -1 on failure. Admin tokens use platform 5. */
 static int req_token_platform(miku_http_request_t *req) {
     if (!req || !req->headers) return -1;
-    const char *token = (const char *)miku_hashmap_get(req->headers, "token");
-    if (!token) token = (const char *)miku_hashmap_get(req->headers, "authorization");
-    if (token && strncmp(token, "Bearer ", 7) == 0) token += 7;
-    if (!token || !token[0]) return -1;
-    char uid[128] = {0};
-    int plat = -1;
-    if (miku_token_verify_ex(token, miku_token_default_secret(), uid, sizeof(uid),
-                             &plat, NULL) != 0)
-        return -1;
-    return plat;
+    req_auth_ensure(req);
+    return s_req_auth.platform;
 }
 
 static int api_may_access_conv(miku_api_ctx_t *c, const char *uid, const char *conv) {

@@ -249,7 +249,7 @@ void miku_msggw_ws_on_presence(const char *user_id, int platform, int online, vo
 }
 
 void miku_msggw_ws_on_opcode(int client_idx, int opcode,
-                             const char *payload, size_t len, void *ctx) {
+                             miku_json_val_t *data, void *ctx) {
     miku_msggw_ws_ctx_t *gc = (miku_msggw_ws_ctx_t *)ctx;
     if (!gc || !gc->gw) return;
 
@@ -259,13 +259,9 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
     switch (opcode) {
     case MK_WS_OP_GET_NEWEST_SEQ: {
         char conv[128] = {0};
-        if (payload && len > 0) {
-            miku_json_val_t *j = miku_json_parse(payload, len);
-            if (j) {
-                const char *c = miku_json_str(miku_json_get(j, "conversationID"));
-                if (c) strncpy(conv, c, sizeof(conv) - 1);
-                miku_json_destroy(j);
-            }
+        if (data) {
+            const char *c = miku_json_str(miku_json_get(data, "conversationID"));
+            if (c) strncpy(conv, c, sizeof(conv) - 1);
         }
         if (conv[0] && !ws_may_access_conv(gc, uid, conv)) {
             reply_json(gc->gw, client_idx, opcode,
@@ -292,17 +288,13 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
     case MK_WS_OP_PULL_MSG: {
         char conv[128] = {0};
         int64_t begin_seq = 0, end_seq = 0;
-        if (payload && len > 0) {
-            miku_json_val_t *j = miku_json_parse(payload, len);
-            if (j) {
-                const char *c = miku_json_str(miku_json_get(j, "conversationID"));
-                if (c) strncpy(conv, c, sizeof(conv) - 1);
-                begin_seq = miku_json_int(miku_json_get(j, "beginSeq"));
-                if (begin_seq == 0)
-                    begin_seq = miku_json_int(miku_json_get(j, "startSeq"));
-                end_seq = miku_json_int(miku_json_get(j, "endSeq"));
-                miku_json_destroy(j);
-            }
+        if (data) {
+            const char *c = miku_json_str(miku_json_get(data, "conversationID"));
+            if (c) strncpy(conv, c, sizeof(conv) - 1);
+            begin_seq = miku_json_int(miku_json_get(data, "beginSeq"));
+            if (begin_seq == 0)
+                begin_seq = miku_json_int(miku_json_get(data, "startSeq"));
+            end_seq = miku_json_int(miku_json_get(data, "endSeq"));
         }
         if (!conv[0] || !ws_may_access_conv(gc, uid, conv)) {
             reply_json(gc->gw, client_idx, opcode,
@@ -327,14 +319,12 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         break;
     }
     case MK_WS_OP_SEND_MSG: {
-        miku_json_val_t *j = (payload && len > 0) ? miku_json_parse(payload, len) : NULL;
         miku_im_msg_t im;
         miku_im_msg_init(&im);
         int64_t has_read_seq = 0;
-        if (j) {
-            miku_im_msg_from_json(&im, j);
-            has_read_seq = miku_json_int(miku_json_get(j, "hasReadSeq"));
-            miku_json_destroy(j);
+        if (data) {
+            miku_im_msg_from_json(&im, data);
+            has_read_seq = miku_json_int(miku_json_get(data, "hasReadSeq"));
         }
         /* Always bind sendID to the authenticated WS session user. */
         if (uid[0]) {
@@ -418,13 +408,9 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
     }
     case MK_WS_OP_PULL_CONV_LAST_MSG: {
         char conv[128] = {0};
-        if (payload && len > 0) {
-            miku_json_val_t *j = miku_json_parse(payload, len);
-            if (j) {
-                const char *c = miku_json_str(miku_json_get(j, "conversationID"));
-                if (c) strncpy(conv, c, sizeof(conv) - 1);
-                miku_json_destroy(j);
-            }
+        if (data) {
+            const char *c = miku_json_str(miku_json_get(data, "conversationID"));
+            if (c) strncpy(conv, c, sizeof(conv) - 1);
         }
         if (!conv[0] || !ws_may_access_conv(gc, uid, conv)) {
             reply_json(gc->gw, client_idx, opcode,
@@ -455,11 +441,9 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         miku_json_val_t *map = miku_json_create_object();
         miku_ji(out, "errCode", 0);
 
-        miku_json_val_t *j = (payload && len > 0) ? miku_json_parse(payload, len) : NULL;
-
-        if (j) {
-            miku_json_val_t *ids = miku_json_get(j, "conversationIDs");
-            if (!ids) ids = miku_json_get(j, "conversationIDList");
+        if (data) {
+            miku_json_val_t *ids = miku_json_get(data, "conversationIDs");
+            if (!ids) ids = miku_json_get(data, "conversationIDList");
             if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
                 size_t n = miku_json_size(ids);
                 for (size_t i = 0; i < n; i++) {
@@ -468,19 +452,18 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                         fill_read_seq_entry(gc->gw, uid, cid, map);
                 }
             } else {
-                const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
+                const char *cid = miku_json_str(miku_json_get(data, "conversationID"));
                 if (cid && cid[0] && ws_may_access_conv(gc, uid, cid))
                     fill_read_seq_entry(gc->gw, uid, cid, map);
             }
             /* Optional mark-as-read in same round-trip: hasReadSeq + conversationID */
-            const char *mark_cid = miku_json_str(miku_json_get(j, "conversationID"));
-            int64_t mark_seq = miku_json_int(miku_json_get(j, "hasReadSeq"));
+            const char *mark_cid = miku_json_str(miku_json_get(data, "conversationID"));
+            int64_t mark_seq = miku_json_int(miku_json_get(data, "hasReadSeq"));
             if (mark_cid && mark_cid[0] && mark_seq > 0 && uid[0]
                 && ws_may_access_conv(gc, uid, mark_cid)) {
                 miku_msggw_set_user_read(gc->gw, uid, mark_cid, mark_seq);
                 fill_read_seq_entry(gc->gw, uid, mark_cid, map);
             }
-            miku_json_destroy(j);
         }
 
         miku_json_object_set(out, "maxReadSeqs", map);
@@ -505,13 +488,8 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
         break;
     case MK_WS_OP_SET_BACKGROUND: {
         int bg = 0;
-        if (payload && len > 0) {
-            miku_json_val_t *j = miku_json_parse(payload, len);
-            if (j) {
-                bg = (int)miku_json_int(miku_json_get(j, "isBackground"));
-                miku_json_destroy(j);
-            }
-        }
+        if (data)
+            bg = (int)miku_json_int(miku_json_get(data, "isBackground"));
         miku_msggw_set_background(gc->gw, client_idx, bg != 0);
         reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         MK_LOG_INFO("ws_op[%d]: SET_BACKGROUND client=%d bg=%d", opcode, client_idx, bg);
@@ -523,11 +501,9 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                        "{\"errCode\":401,\"errMsg\":\"authentication required\"}");
             break;
         }
-        miku_json_val_t *j = (payload && len > 0) ? miku_json_parse(payload, len) : NULL;
-        const char *target = j ? miku_json_str(miku_json_get(j, "userID")) : NULL;
-        const char *action = j ? miku_json_str(miku_json_get(j, "action")) : NULL;
-        if (!j || !target || !target[0] || !action || !action[0]) {
-            if (j) miku_json_destroy(j);
+        const char *target = data ? miku_json_str(miku_json_get(data, "userID")) : NULL;
+        const char *action = data ? miku_json_str(miku_json_get(data, "action")) : NULL;
+        if (!target || !target[0] || !action || !action[0]) {
             reply_json(gc->gw, client_idx, opcode,
                        "{\"errCode\":400,\"errMsg\":\"missing userID or action\"}");
             break;
@@ -537,7 +513,6 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                 if (strcmp(uid, target) != 0
                     && (!gc->friend_svc
                         || !miku_friend_is_mutual(gc->friend_svc, uid, target))) {
-                    miku_json_destroy(j);
                     reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
                     break;
                 }
@@ -549,13 +524,11 @@ void miku_msggw_ws_on_opcode(int client_idx, int opcode,
                 MK_LOG_INFO("ws_op[%d]: SUB_USER_STATUS unsubscribe %s→%s",
                             opcode, uid, target);
             } else {
-                miku_json_destroy(j);
                 reply_json(gc->gw, client_idx, opcode,
                            "{\"errCode\":400,\"errMsg\":\"invalid action\"}");
                 break;
             }
         }
-        miku_json_destroy(j);
         reply_json(gc->gw, client_idx, opcode, "{\"errCode\":0}");
         break;
     }

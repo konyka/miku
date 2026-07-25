@@ -37,6 +37,6 @@ MIKU_API void miku_msggw_ws_sub_notify(const char *subscriber, const char *paylo
 MIKU_API void miku_msggw_ws_on_presence(const char *user_id, int platform,
                                         int online, void *ctx);
 MIKU_API void miku_msggw_ws_on_opcode(int client_idx, int opcode,
-                                      const char *payload, size_t len, void *ctx);
+                                      miku_json_val_t *data, void *ctx);
 
 #endif
