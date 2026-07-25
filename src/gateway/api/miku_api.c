@@ -1010,7 +1010,7 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
         }
     }
     API_FRIEND_RPC(c, method, j, out);
-    if (strcmp(method, "isFriend") == 0 && plat != 5 && actor[0]) {
+    if (strcmp(method, "isFriend") == 0 && plat != 5 && actor[0] && c->friend_svc) {
         const char *fuid = miku_json_str(miku_json_get(j, "friendUserID"));
         if (!fuid) fuid = miku_json_str(miku_json_get(j, "userID2"));
         int mutual = fuid && miku_friend_is_mutual(c->friend_svc, actor, fuid);
@@ -1109,8 +1109,8 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
                || strcmp(method, "getRecvGroupApplicationList") == 0
                || strcmp(method, "getGroupApplicationUnhandledCount") == 0) {
         const char *gid = miku_json_str(miku_json_get(j, "groupID"));
-        if (!actor[0] || !gid || !gid[0]
-            || !miku_group_is_member(c->group_svc, gid, actor)) {
+        if (c->group_svc && (!actor[0] || !gid || !gid[0]
+            || !miku_group_is_member(c->group_svc, gid, actor))) {
             miku_json_destroy(j); miku_json_destroy(out);
             miku_http_response_set_json(resp,
                 "{\"errCode\":3003,\"errMsg\":\"not a group member\"}");
@@ -1143,7 +1143,7 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
     miku_group_member_t dismiss_members[256];
     int dismiss_n = 0;
     const char *dismiss_gid = NULL;
-    if (strcmp(method, "dismissGroup") == 0) {
+    if (strcmp(method, "dismissGroup") == 0 && c->group_svc) {
         dismiss_gid = miku_json_str(miku_json_get(j, "groupID"));
         if (dismiss_gid)
             dismiss_n = miku_group_get_members(c->group_svc, dismiss_gid,
@@ -1354,13 +1354,13 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
          * Admin business notifications bypass the friend check (system sender). */
         if (rid && rid[0] && (!gid || !gid[0]) &&
             !(strcmp(method, "sendBusinessNotification") == 0 &&
-              req_token_platform(req) == 5)) {
+              req_token_platform(req) == 5) && c->friend_svc) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
-            if (!sid || !sid[0] || !c->friend_svc) {
+            if (!sid || !sid[0]) {
                 miku_json_destroy(j); miku_json_destroy(out);
                 miku_http_response_set_json(resp,
-                    "{\"errCode\":6002,\"errMsg\":\"not mutual friends\"}");
-                resp->status = 403;
+                    "{\"errCode\":400,\"errMsg\":\"missing required fields: sendID\"}");
+                resp->status = 400;
                 return;
             }
             if (!miku_friend_is_mutual(c->friend_svc, sid, rid)) {
@@ -1379,10 +1379,10 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                 return;
             }
         }
-        /* Group chat: sender must be a member. */
-        if (gid && gid[0]) {
+        /* Group chat: sender must be a member (local gate only when embedded). */
+        if (gid && gid[0] && c->group_svc) {
             const char *sid = miku_json_str(miku_json_get(j, "sendID"));
-            if (!sid || !sid[0] || !c->group_svc ||
+            if (!sid || !sid[0] ||
                 !miku_group_is_member(c->group_svc, gid, sid)) {
                 miku_json_destroy(j); miku_json_destroy(out);
                 miku_http_response_set_json(resp,
@@ -1612,15 +1612,18 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             char cid[MK_CONV_ID_LEN];
             if (send_id && group_id && group_id[0]) {
                 miku_conversation_id_resolve(cid, sizeof(cid), NULL, group_id, send_id, NULL);
-                group_conv_upsert_ctx_t gctx = {
-                    .svc = c->conv, .cid = cid, .gid = group_id,
-                    .send_id = send_id, .send_time = send_time, .content = content,
-                };
-                miku_group_foreach_member(c->group_svc, group_id, upsert_group_member_conv, &gctx);
-                /* Ensure sender has a row even if not yet in group_svc (split race). */
-                upsert_conv_on_send(c->conv, send_id, cid, MK_IM_CONV_GROUP,
-                                   NULL, group_id, send_time, content, 0);
-            } else if (send_id && recv_id && recv_id[0]) {
+                if (c->conv) {
+                    group_conv_upsert_ctx_t gctx = {
+                        .svc = c->conv, .cid = cid, .gid = group_id,
+                        .send_id = send_id, .send_time = send_time, .content = content,
+                    };
+                    if (c->group_svc)
+                        miku_group_foreach_member(c->group_svc, group_id, upsert_group_member_conv, &gctx);
+                    /* Ensure sender has a row even if not yet in group_svc (split race). */
+                    upsert_conv_on_send(c->conv, send_id, cid, MK_IM_CONV_GROUP,
+                                       NULL, group_id, send_time, content, 0);
+                }
+            } else if (send_id && recv_id && recv_id[0] && c->conv) {
                 miku_conversation_id_resolve(cid, sizeof(cid), NULL, NULL, send_id, recv_id);
                 upsert_conv_on_send(c->conv, send_id, cid, MK_IM_CONV_SINGLE,
                                    recv_id, NULL, send_time, content, 0);
@@ -1648,7 +1651,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
                     if (im.msg_id[0]) miku_jss(out, "serverMsgID", im.msg_id);
                     if (im.client_msg_id[0] && (im.seq > 0 || im.msg_id[0])) {
                         const char *sid = miku_json_str(miku_json_get(j, "sendID"));
-                        if (sid && sid[0])
+                        if (sid && sid[0] && c->msg)
                             miku_msg_update_delivery(c->msg, sid, im.client_msg_id, im.seq,
                                                      im.msg_id, im.send_time);
                     }
@@ -1665,7 +1668,7 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             const char *owner = miku_json_str(miku_json_get(j, "userID"));
             if (!owner || !owner[0]) owner = miku_json_str(miku_json_get(j, "ownerUserID"));
             const char *cid = miku_json_str(miku_json_get(j, "conversationID"));
-            if (owner && owner[0] && cid && cid[0]) {
+            if (owner && owner[0] && cid && cid[0] && c->conv) {
                 miku_conversation_t cv;
                 if (miku_conv_get(c->conv, owner, cid, &cv) == 0) {
                     cv.unread_count = 0;

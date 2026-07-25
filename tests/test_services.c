@@ -2219,6 +2219,25 @@ static void test_api_configure_rpc_drops_embedded(void) {
     miku_api_ctx_destroy(ctx);
 }
 
+static void test_api_configure_rpc_drops_conv_msg(void) {
+    miku_service_config_t sc;
+    memset(&sc, 0, sizeof(sc));
+    strncpy(sc.rpc_host, "127.0.0.1", sizeof(sc.rpc_host) - 1);
+    sc.rpc_conversation_port = 10240;
+    sc.rpc_msg_port = 10300;
+
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    mk_assert_not_null(ctx->conv);
+    mk_assert_not_null(ctx->msg);
+
+    miku_api_configure_rpc(ctx, &sc);
+    mk_assert(ctx->conv == NULL);
+    mk_assert(ctx->msg == NULL);
+
+    miku_api_ctx_destroy(ctx);
+}
+
 static void test_msggateway_lifecycle(void) {
     miku_msggw_t *gw = miku_msggw_create(19100);
     mk_assert_not_null(gw);
@@ -2976,6 +2995,7 @@ void run_service_tests(void) {
     mk_run_test(test_rpc_client_call);
     mk_run_test(test_api_remote_user_rpc);
     mk_run_test(test_api_configure_rpc_drops_embedded);
+    mk_run_test(test_api_configure_rpc_drops_conv_msg);
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
     mk_run_test(test_msggateway_kick_by_platform);

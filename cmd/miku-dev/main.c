@@ -105,6 +105,7 @@ int main(int argc, char **argv) {
 
     miku_api_ctx_t *ctx = miku_api_ctx_create();
     if (!ctx) { MK_LOG_ERROR("Failed to create API context"); return 1; }
+    miku_api_configure_rpc(ctx, &sc);
     ctx->stats.port = api_port;
 
     miku_http_server_t *srv = miku_http_server_create(sc.listen_ip, api_port);
