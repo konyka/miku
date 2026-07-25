@@ -292,6 +292,34 @@ static void json_resp(miku_http_response_t *resp, miku_json_val_t *j) {
     miku_json_destroy(j);
 }
 
+/* Build webhook JSON with RFC 8259-escaped string values (key names are fixed literals). */
+static void webhook_fire_json(miku_webhook_t *wh, miku_webhook_event_t ev,
+                              const char *event, ...) {
+    if (!wh || !event) return;
+    char payload[1024];
+    char ee[64];
+    miku_json_escape_str(event, ee, sizeof(ee));
+    size_t pos = (size_t)snprintf(payload, sizeof(payload), "{\"event\":\"%s\"", ee);
+    va_list ap;
+    va_start(ap, event);
+    for (;;) {
+        const char *key = va_arg(ap, const char *);
+        if (!key) break;
+        const char *val = va_arg(ap, const char *);
+        char ev[512];
+        miku_json_escape_str(val ? val : "", ev, sizeof(ev));
+        int n = snprintf(payload + pos, sizeof(payload) - pos, ",\"%s\":\"%s\"", key, ev);
+        if (n <= 0 || pos + (size_t)n >= sizeof(payload)) break;
+        pos += (size_t)n;
+    }
+    va_end(ap);
+    if (pos + 2 <= sizeof(payload)) {
+        payload[pos++] = '}';
+        payload[pos] = '\0';
+        miku_webhook_fire(wh, ev, payload);
+    }
+}
+
 /* Per-request token parse cache. The HTTP server dispatches handlers
  * sequentially in its epoll thread, so a thread-local keyed by the token
  * string avoids re-running HMAC verification across check_ratelimit /
@@ -833,9 +861,8 @@ static void handle_user(miku_http_request_t *req, miku_http_response_t *resp, vo
         int64_t err = miku_json_int(miku_json_get(out, "errCode"));
         if (err == 0) {
             const char *uid = miku_json_str(miku_json_get(j, "userID"));
-            char payload[256];
-            snprintf(payload, sizeof(payload), "{\"event\":\"userRegistered\",\"userID\":\"%s\"}", uid ? uid : "");
-            miku_webhook_fire(c->webhook, MK_WH_USER_ONLINE, payload);
+            webhook_fire_json(c->webhook, MK_WH_USER_ONLINE, "userRegistered",
+                              "userID", uid, NULL);
         }
     }
         miku_json_destroy(j);
@@ -917,10 +944,8 @@ static void handle_friend(miku_http_request_t *req, miku_http_response_t *resp, 
         if (err == 0) {
             const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
             const char *fuid = miku_json_str(miku_json_get(j, "friendUserID"));
-            char payload[512];
-            snprintf(payload, sizeof(payload), "{\"event\":\"friendAdded\",\"ownerUserID\":\"%s\",\"friendUserID\":\"%s\"}",
-                     owner ? owner : "", fuid ? fuid : "");
-            miku_webhook_fire(c->webhook, MK_WH_AFTER_ADD_FRIEND, payload);
+            webhook_fire_json(c->webhook, MK_WH_AFTER_ADD_FRIEND, "friendAdded",
+                              "ownerUserID", owner, "friendUserID", fuid, NULL);
         }
     }
         miku_json_destroy(j);
@@ -1111,17 +1136,13 @@ static void handle_group(miku_http_request_t *req, miku_http_response_t *resp, v
         if (err == 0 && strcmp(method, "createGroup") == 0) {
             const char *owner = miku_json_str(miku_json_get(j, "ownerUserID"));
             const char *gid = miku_json_str(miku_json_get(out, "data"));
-            char payload[512];
-            snprintf(payload, sizeof(payload), "{\"event\":\"groupCreated\",\"ownerUserID\":\"%s\",\"groupID\":\"%s\"}",
-                     owner ? owner : "", gid ? gid : "");
-            miku_webhook_fire(c->webhook, MK_WH_AFTER_CREATE_GROUP, payload);
+            webhook_fire_json(c->webhook, MK_WH_AFTER_CREATE_GROUP, "groupCreated",
+                              "ownerUserID", owner, "groupID", gid, NULL);
         } else if (err == 0 && strcmp(method, "joinGroup") == 0) {
             const char *uid = miku_json_str(miku_json_get(j, "userID"));
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));
-            char payload[512];
-            snprintf(payload, sizeof(payload), "{\"event\":\"groupJoined\",\"userID\":\"%s\",\"groupID\":\"%s\"}",
-                     uid ? uid : "", gid ? gid : "");
-            miku_webhook_fire(c->webhook, MK_WH_AFTER_JOIN_GROUP, payload);
+            webhook_fire_json(c->webhook, MK_WH_AFTER_JOIN_GROUP, "groupJoined",
+                              "userID", uid, "groupID", gid, NULL);
         }
     }
     if (actor[0] && strcmp(method, "getGroupsInfo") == 0)
@@ -1574,17 +1595,13 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
             const char *rid = miku_json_str(miku_json_get(j, "recvID"));
             const char *gid = miku_json_str(miku_json_get(j, "groupID"));
             const char *smid = miku_json_str(miku_json_get(out, "serverMsgID"));
-            char payload[1024];
-            snprintf(payload, sizeof(payload),
-                     "{\"event\":\"msgSent\",\"sendID\":\"%s\",\"recvID\":\"%s\","
-                     "\"groupID\":\"%s\",\"serverMsgID\":\"%s\"}",
-                     sid ? sid : "", rid ? rid : "", gid ? gid : "", smid ? smid : "");
-            miku_webhook_fire(c->webhook, MK_WH_AFTER_SEND_MSG, payload);
+            webhook_fire_json(c->webhook, MK_WH_AFTER_SEND_MSG, "msgSent",
+                              "sendID", sid, "recvID", rid, "groupID", gid,
+                              "serverMsgID", smid, NULL);
         } else if (wh_err == 0 && strcmp(method, "revokeMsg") == 0) {
             const char *cmid = miku_json_str(miku_json_get(j, "clientMsgID"));
-            char payload[512];
-            snprintf(payload, sizeof(payload), "{\"event\":\"msgRevoked\",\"clientMsgID\":\"%s\"}", cmid ? cmid : "");
-            miku_webhook_fire(c->webhook, MK_WH_MSG_REVOKE, payload);
+            webhook_fire_json(c->webhook, MK_WH_MSG_REVOKE, "msgRevoked",
+                              "clientMsgID", cmid, NULL);
         }
     }
 

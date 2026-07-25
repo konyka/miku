@@ -2462,6 +2462,43 @@ static void test_webhook_group_create_trigger(void) {
     miku_api_ctx_destroy(ctx);
 }
 
+static void test_webhook_payload_escape(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    wh_trigger_count = 0;
+    wh_trigger_last_payload[0] = '\0';
+    miku_webhook_set_handler(ctx->webhook, wh_trigger_handler, NULL);
+
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19784);
+    miku_api_register_routes(srv, ctx);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(200000);
+
+    char admin_auth[8192] = {0};
+    http_post_to(19784, "/auth/admin_token",
+        "{\"userID\":\"wh_admin\",\"secret\":\"openIMAdmin456\"}", admin_auth, sizeof(admin_auth));
+    miku_json_val_t *admin_r = miku_json_parse_str(extract_json_body(admin_auth));
+    const char *admin_tok = admin_r ? miku_json_str(miku_json_get(admin_r, "token")) : NULL;
+    mk_assert(admin_tok && admin_tok[0]);
+
+    char resp[8192] = {0};
+    http_post_with_token(19784, "/user/register", admin_tok,
+        "{\"userID\":\"u\\\"quote\",\"nickname\":\"n\"}", resp, sizeof(resp));
+
+    mk_assert_int_eq(1, wh_trigger_count);
+    miku_json_val_t *pj = miku_json_parse_str(wh_trigger_last_payload);
+    mk_assert_not_null(pj);
+    mk_assert_str_eq("userRegistered", miku_json_str(miku_json_get(pj, "event")));
+    mk_assert_str_eq("u\"quote", miku_json_str(miku_json_get(pj, "userID")));
+    miku_json_destroy(pj);
+    if (admin_r) miku_json_destroy(admin_r);
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+    miku_api_ctx_destroy(ctx);
+}
+
 static int g_gm_sync_count;
 static char g_gm_last_gid[64];
 static char g_gm_last_uid[64];
@@ -3300,6 +3337,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_webhook_msg_send_trigger);
     mk_run_test(test_webhook_friend_add_trigger);
     mk_run_test(test_webhook_group_create_trigger);
+    mk_run_test(test_webhook_payload_escape);
     mk_run_test(test_group_member_sync_callback);
 
     mk_run_test(test_ratelimit_per_key);
