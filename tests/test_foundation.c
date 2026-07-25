@@ -342,6 +342,12 @@ void test_json_util(void) {
     mk_assert_str_eq("bad request", miku_json_str(miku_json_get(o, "errMsg")));
     mk_assert_str_eq("", miku_json_str(miku_json_get(o, "errDmg")));
     miku_json_destroy(o);
+
+    char esc[64];
+    miku_json_escape_str("a\"b\\c", esc, sizeof(esc));
+    mk_assert_str_eq("a\\\"b\\\\c", esc);
+    miku_json_escape_str("plain", esc, sizeof(esc));
+    mk_assert_str_eq("plain", esc);
 }
 
 int main(void) {

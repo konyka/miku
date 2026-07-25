@@ -1,5 +1,6 @@
 #include "miku_session_cache.h"
 #include "miku_log.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -36,7 +37,9 @@ int miku_session_set_token(miku_session_cache_t *cache, const char *user_id,
     snprintf(key, sizeof(key), "%s%s:%d", token_prefix, user_id, platform);
 
     char val[512];
-    snprintf(val, sizeof(val), "{\"token\":\"%s\",\"platform\":%d}", token, platform);
+    char etok[256];
+    miku_json_escape_str(token, etok, sizeof(etok));
+    snprintf(val, sizeof(val), "{\"token\":\"%s\",\"platform\":%d}", etok, platform);
 
     int rc = miku_redis_set(cache->redis, key, val, ttl_ms);
     return rc;
