@@ -28,8 +28,9 @@ bool miku_error_is_ok(miku_error_t err) {
     return err.code == MK_OK;
 }
 
-const char *miku_error_msg(miku_error_t err) {
-    return err.msg[0] ? err.msg : "ok";
+const char *miku_error_msg(const miku_error_t *err) {
+    if (!err) return "ok";
+    return err->msg[0] ? err->msg : "ok";
 }
 
 int miku_error_code(miku_error_t err) {

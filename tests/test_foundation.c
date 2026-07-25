@@ -22,6 +22,12 @@ extern void run_service_tests(void);
 extern void run_benchmarks(void);
 extern void run_new_module_tests(void);
 
+int mk_tests_run    = 0;
+int mk_tests_passed = 0;
+int mk_tests_failed = 0;
+int mk_assertions   = 0;
+int mk_test_failed  = 0;
+
 void test_arena(void) {
     miku_arena_t *a = miku_arena_create(4096);
     mk_assert_not_null(a);
@@ -116,7 +122,7 @@ void test_error(void) {
     miku_error_t err = miku_error_new(MK_ERR_MEMORY, "alloc failed for %d bytes", 1024);
     mk_assert_false(miku_error_is_ok(err));
     mk_assert_int_eq(MK_ERR_MEMORY, miku_error_code(err));
-    mk_assert_str_eq("alloc failed for 1024 bytes", miku_error_msg(err));
+    mk_assert_str_eq("alloc failed for 1024 bytes", miku_error_msg(&err));
 }
 
 void test_config(void) {

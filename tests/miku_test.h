@@ -27,10 +27,12 @@
 #include <math.h>
 
 /* ── Test State ───────────────────────────────────────────── */
-static int mk_tests_run    = 0;
-static int mk_tests_passed = 0;
-static int mk_tests_failed = 0;
-static int mk_assertions   = 0;
+/* Shared across all translation units (defined in test_foundation.c). */
+extern int mk_tests_run;
+extern int mk_tests_passed;
+extern int mk_tests_failed;
+extern int mk_assertions;
+extern int mk_test_failed;  /* per-test flag, set by assertions before early-return */
 
 /* ── Colors (ANSI) ────────────────────────────────────────── */
 #define MK_COLOR_RED     "\033[31m"
@@ -42,8 +44,9 @@ static int mk_assertions   = 0;
 #define MK_ASSERT_IMPL(cond, file, line, msg) do {                        \
     mk_assertions++;                                                       \
     if (!(cond)) {                                                         \
-        fprintf(stderr, MK_COLOR_RED "  FAIL" MK_COLOR_RESET              \
-                " %s:%d: %s\n", file, line, msg);                         \
+        mk_test_failed = 1;                                                \
+        printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                          \
+                " %s:%d: %s\n", file, line, msg);                          \
         return;                                                            \
     }                                                                      \
 } while (0)
@@ -51,7 +54,8 @@ static int mk_assertions   = 0;
 #define MK_ASSERT_EQ_IMPL(a, b, fmt, file, line) do {                     \
     mk_assertions++;                                                       \
     if ((a) != (b)) {                                                      \
-        fprintf(stderr, MK_COLOR_RED "  FAIL" MK_COLOR_RESET              \
+        mk_test_failed = 1;                                                \
+        printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                          \
                 " %s:%d: expected " fmt ", got " fmt "\n",                 \
                 file, line, (a), (b));                                     \
         return;                                                            \
@@ -74,7 +78,8 @@ static int mk_assertions   = 0;
 #define mk_assert_str_eq(expected, actual) do {                            \
     mk_assertions++;                                                        \
     if (strcmp((expected), (actual)) != 0) {                                \
-        fprintf(stderr, MK_COLOR_RED "  FAIL" MK_COLOR_RESET               \
+        mk_test_failed = 1;                                                 \
+        printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                           \
                 " %s:%d: expected \"%s\", got \"%s\"\n",                    \
                 __FILE__, __LINE__, (expected), (actual));                  \
         return;                                                             \
@@ -84,7 +89,8 @@ static int mk_assertions   = 0;
 #define mk_assert_float_eq(expected, actual, epsilon) do {                \
     mk_assertions++;                                                       \
     if (fabs((expected) - (actual)) > (epsilon)) {                         \
-        fprintf(stderr, MK_COLOR_RED "  FAIL" MK_COLOR_RESET              \
+        mk_test_failed = 1;                                                \
+        printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                          \
                 " %s:%d: expected %f, got %f\n",                           \
                 __FILE__, __LINE__, (double)(expected), (double)(actual)); \
         return;                                                            \
@@ -94,7 +100,8 @@ static int mk_assertions   = 0;
 #define mk_assert_mem_eq(expected, actual, len) do {                      \
     mk_assertions++;                                                       \
     if (memcmp((expected), (actual), (len)) != 0) {                        \
-        fprintf(stderr, MK_COLOR_RED "  FAIL" MK_COLOR_RESET              \
+        mk_test_failed = 1;                                                \
+        printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                          \
                 " %s:%d: memory mismatch (len=%zu)\n",                     \
                 __FILE__, __LINE__, (size_t)(len));                        \
         return;                                                            \
@@ -106,16 +113,14 @@ static int mk_assertions   = 0;
     mk_tests_run++;                                                        \
     printf(MK_COLOR_YELLOW "  TEST" MK_COLOR_RESET " %s ... ", #test_fn); \
     fflush(stdout);                                                        \
-    int _assertions_before = mk_assertions;                                \
+    mk_test_failed = 0;                                                    \
     test_fn();                                                             \
-    if (mk_assertions > _assertions_before + 1 ||                         \
-        /* test passed if it didn't early-return */                        \
-        1) {                                                               \
-        /* Check if test returned early (failure) by checking assertions */\
-        /* This is a simple heuristic; we just count passed tests */       \
+    if (mk_test_failed) {                                                  \
+        mk_tests_failed++;                                                 \
+    } else {                                                               \
+        mk_tests_passed++;                                                 \
+        printf(MK_COLOR_GREEN "OK" MK_COLOR_RESET "\n");                   \
     }                                                                      \
-    mk_tests_passed++;                                                     \
-    printf(MK_COLOR_GREEN "OK" MK_COLOR_RESET "\n");                       \
 } while (0)
 
 static inline int mk_test_summary(void) {
