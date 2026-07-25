@@ -775,6 +775,7 @@ static void api_drop_group_conv(miku_conv_service_t *conv, const char *uid, cons
 static void filter_group_invitee_ids(miku_api_ctx_t *c, const char *from,
                                     miku_json_val_t *j) {
     if (!c || !from || !from[0] || !j) return;
+    if (!c->friend_svc) return;
     static const char *keys[] = {"memberUserIDs", "invitedUserIDs"};
     for (size_t k = 0; k < sizeof(keys) / sizeof(keys[0]); k++) {
         miku_json_val_t *ids = miku_json_get(j, keys[k]);
@@ -2281,4 +2282,10 @@ int miku_api_may_view_user_for_test(miku_api_ctx_t *c, int plat,
 int miku_api_may_access_conv_for_test(miku_api_ctx_t *c,
                                       const char *uid, const char *conv) {
     return api_may_access_conv(c, uid, conv);
+}
+
+void miku_api_filter_group_invitee_ids_for_test(miku_api_ctx_t *c,
+                                                const char *from,
+                                                miku_json_val_t *j) {
+    filter_group_invitee_ids(c, from, j);
 }

@@ -2262,6 +2262,41 @@ static void test_api_remote_read_acl_defers(void) {
     miku_api_ctx_destroy(ctx);
 }
 
+static miku_json_val_t *invitee_list(const char *a, const char *b) {
+    miku_json_val_t *ids = miku_json_create_array();
+    if (a) miku_json_array_push(ids, miku_json_create_str(a));
+    if (b) miku_json_array_push(ids, miku_json_create_str(b));
+    return ids;
+}
+
+static void test_api_remote_invitee_filter_defers(void) {
+    miku_api_ctx_t *ctx = miku_api_ctx_create();
+    mk_assert_not_null(ctx);
+    mk_assert_int_eq(0, miku_friend_add(ctx->friend_svc, "owner", "friend", ""));
+    mk_assert_int_eq(0, miku_friend_add(ctx->friend_svc, "friend", "owner", ""));
+
+    miku_json_val_t *j = miku_json_create_object();
+    miku_json_object_set(j, "invitedUserIDs", invitee_list("friend", "stranger"));
+    miku_api_filter_group_invitee_ids_for_test(ctx, "owner", j);
+    mk_assert_int_eq(1, (int)miku_json_size(miku_json_get(j, "invitedUserIDs")));
+
+    miku_service_config_t sc;
+    memset(&sc, 0, sizeof(sc));
+    strncpy(sc.rpc_host, "127.0.0.1", sizeof(sc.rpc_host) - 1);
+    sc.rpc_friend_port = 10120;
+    miku_api_configure_rpc(ctx, &sc);
+    mk_assert(ctx->friend_svc == NULL);
+
+    miku_json_destroy(j);
+    j = miku_json_create_object();
+    miku_json_object_set(j, "invitedUserIDs", invitee_list("friend", "stranger"));
+    miku_api_filter_group_invitee_ids_for_test(ctx, "owner", j);
+    mk_assert_int_eq(2, (int)miku_json_size(miku_json_get(j, "invitedUserIDs")));
+
+    miku_json_destroy(j);
+    miku_api_ctx_destroy(ctx);
+}
+
 static void test_msggateway_lifecycle(void) {
     miku_msggw_t *gw = miku_msggw_create(19100);
     mk_assert_not_null(gw);
@@ -3021,6 +3056,7 @@ void run_service_tests(void) {
     mk_run_test(test_api_configure_rpc_drops_embedded);
     mk_run_test(test_api_configure_rpc_drops_conv_msg);
     mk_run_test(test_api_remote_read_acl_defers);
+    mk_run_test(test_api_remote_invitee_filter_defers);
     mk_run_test(test_msggateway_lifecycle);
     mk_run_test(test_msggateway_slot_reuse);
     mk_run_test(test_msggateway_kick_by_platform);

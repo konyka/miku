@@ -71,5 +71,8 @@ MIKU_API int miku_api_may_view_user_for_test(miku_api_ctx_t *c, int plat,
                                              const char *actor, const char *uid);
 MIKU_API int miku_api_may_access_conv_for_test(miku_api_ctx_t *c,
                                               const char *uid, const char *conv);
+MIKU_API void miku_api_filter_group_invitee_ids_for_test(miku_api_ctx_t *c,
+                                                         const char *from,
+                                                         miku_json_val_t *j);
 
 #endif

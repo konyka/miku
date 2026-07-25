@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 205 tests, 67 modules — `/loop` pass 18; split-deploy read ACL defer.
+> **Status**: 203 API routes, 206 tests, 67 modules — `/loop` pass 19; split-deploy invitee filter defer.
 
 ### Review loop (Cursor `/loop`)
 
