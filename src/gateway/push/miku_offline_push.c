@@ -1,6 +1,7 @@
 #include "miku_offline_push.h"
 #include "miku_hash.h"
 #include "miku_log.h"
+#include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -201,6 +202,25 @@ static int http_post_json(const char *url, const char *payload) {
     return (status >= 200 && status < 300) ? 0 : -1;
 }
 
+static int offline_push_build_body(miku_offline_push_t *op, const char *user_id,
+                                   int platform, const char *token,
+                                   const char *title, const char *content,
+                                   const char *client_url,
+                                   char *body, size_t body_cap) {
+    char strings[1536];
+    if (miku_json_build_str_obj(strings, sizeof(strings),
+                                "provider", miku_offline_push_provider_name(op->provider),
+                                "userID", user_id,
+                                "token", token,
+                                "title", title ? title : "",
+                                "content", content ? content : "",
+                                "ex", client_url ? client_url : "",
+                                NULL) < 0)
+        return -1;
+    int n = snprintf(body, body_cap, "{\"platform\":%d,%s", platform, strings + 1);
+    return (n < 0 || (size_t)n >= body_cap) ? -1 : 0;
+}
+
 int miku_offline_push_send(miku_offline_push_t *op, const char *user_id,
                              int platform, const char *title,
                              const char *content, const char *client_url) {
@@ -229,13 +249,9 @@ int miku_offline_push_send(miku_offline_push_t *op, const char *user_id,
     }
 
     char body[2048];
-    snprintf(body, sizeof(body),
-        "{\"provider\":\"%s\",\"userID\":\"%s\",\"platform\":%d,"
-        "\"token\":\"%s\",\"title\":\"%s\",\"content\":\"%s\",\"ex\":\"%s\"}",
-        miku_offline_push_provider_name(op->provider),
-        user_id, platform, token,
-        title ? title : "", content ? content : "",
-        client_url ? client_url : "");
+    if (offline_push_build_body(op, user_id, platform, token, title, content,
+                                client_url, body, sizeof(body)) != 0)
+        return -1;
 
     int rc = http_post_json(op->endpoint, body);
     if (rc == 0) {

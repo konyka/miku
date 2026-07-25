@@ -2,11 +2,11 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 198 tests, 67 modules — `/loop` pass 12; split-deploy RPC routing; FCM backlog.
+> **Status**: 203 API routes, 199 tests, 67 modules — `/loop` pass 13; offline push JSON escape; FCM backlog.
 
 ### Review loop (Cursor `/loop`)
 
-Dynamic agent review (~10m fallback): scan `docs/REVIEW_2026-07.md` backlog, apply minimal fixes, run `miku_tests` + ASAN when touched, update Status, push `master`. Backlog: FCM/offline push, optional drop embedded services when `rpc.host` set.
+Dynamic agent review (~10m fallback): scan `docs/REVIEW_2026-07.md` backlog, apply minimal fixes, run `miku_tests` + ASAN when touched, update Status, push `master`. Backlog: FCM provider config wiring, optional drop embedded services when `rpc.host` set.
 
 ## 1. Overview
 

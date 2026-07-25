@@ -1366,6 +1366,54 @@ static void *http_server_thread(void *arg) {
     return NULL;
 }
 
+static char g_offline_push_last_body[2048];
+
+static void offline_push_echo_handler(miku_http_request_t *req,
+                                      miku_http_response_t *resp, void *ctx) {
+    (void)ctx;
+    g_offline_push_last_body[0] = '\0';
+    if (req->body.data && req->body.len > 0) {
+        size_t n = req->body.len;
+        if (n >= sizeof(g_offline_push_last_body)) n = sizeof(g_offline_push_last_body) - 1;
+        memcpy(g_offline_push_last_body, req->body.data, n);
+        g_offline_push_last_body[n] = '\0';
+    }
+    miku_http_response_set_json(resp, "{\"ok\":1}");
+}
+
+static void test_offline_push_http_payload_escape(void) {
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19786);
+    mk_assert_not_null(srv);
+    miku_http_server_route(srv, "POST", "/push", offline_push_echo_handler, NULL);
+    pthread_t tid;
+    pthread_create(&tid, NULL, http_server_thread, srv);
+    usleep(100000);
+
+    miku_offline_push_t *op = miku_offline_push_create(MK_PUSH_PROVIDER_FCM);
+    mk_assert_not_null(op);
+    mk_assert_int_eq(0, miku_offline_push_set_endpoint(op, "http://127.0.0.1:19786/push"));
+    mk_assert_int_eq(0, miku_offline_push_set_token(op, "u\"p", 1, "tok\"en"));
+
+    g_offline_push_last_body[0] = '\0';
+    mk_assert_int_eq(0, miku_offline_push_send(op, "u\"p", 1, "ti\"tle", "bo\"dy", "ex\"url"));
+
+    miku_json_val_t *j = miku_json_parse_str(g_offline_push_last_body);
+    mk_assert_not_null(j);
+    mk_assert_str_eq("FCM", miku_json_str(miku_json_get(j, "provider")));
+    mk_assert_str_eq("u\"p", miku_json_str(miku_json_get(j, "userID")));
+    mk_assert_int_eq(1, (int)miku_json_int(miku_json_get(j, "platform")));
+    mk_assert_str_eq("tok\"en", miku_json_str(miku_json_get(j, "token")));
+    mk_assert_str_eq("ti\"tle", miku_json_str(miku_json_get(j, "title")));
+    mk_assert_str_eq("bo\"dy", miku_json_str(miku_json_get(j, "content")));
+    mk_assert_str_eq("ex\"url", miku_json_str(miku_json_get(j, "ex")));
+    miku_json_destroy(j);
+
+    miku_offline_push_destroy(op);
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+}
+
 static int http_post_to(int port, const char *path, const char *body, char *resp, int cap) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) return -1;
@@ -3298,6 +3346,7 @@ void run_new_module_tests(void) {
     mk_run_test(test_incr_sync_changes);
     mk_run_test(test_offline_push_basic);
     mk_run_test(test_offline_push_token);
+    mk_run_test(test_offline_push_http_payload_escape);
     mk_run_test(test_cron_tasks_basic);
     mk_run_test(test_ws_subscription_basic);
     mk_run_test(test_msggw_ws_resolve_conv);
