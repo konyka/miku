@@ -9,6 +9,7 @@
 #include "miku_http_client.h"
 #include "miku_im_message.h"
 #include "miku_json.h"
+#include "miku_json_util.h"
 #include "miku_string.h"
 
 #include <stdio.h>
@@ -24,8 +25,10 @@ static char g_blacklist_url[128];
 static void api_kick_user(const char *user_id, int platform, void *ctx) {
     (void)ctx;
     if (!user_id || !g_kick_url[0]) return;
-    char body[192];
-    snprintf(body, sizeof(body), "{\"userID\":\"%s\",\"platformID\":%d}", user_id, platform);
+    char eu[256];
+    char body[320];
+    miku_json_escape_str(user_id, eu, sizeof(eu));
+    snprintf(body, sizeof(body), "{\"userID\":\"%s\",\"platformID\":%d}", eu, platform);
     int rc = miku_http_post_json_internal(g_kick_url, body);
     if (rc == 0)
         MK_LOG_INFO("force_logout: kicked via %s user=%s platform=%d",
@@ -37,14 +40,21 @@ static void api_kick_user(const char *user_id, int platform, void *ctx) {
 static void api_group_member(const char *group_id, const char *user_id, int role, int remove, void *ctx) {
     (void)ctx;
     if (!group_id || !user_id || !g_group_member_url[0]) return;
-    char body[288];
+    char body[768];
+    int blen;
     if (remove)
-        snprintf(body, sizeof(body),
-                 "{\"groupID\":\"%s\",\"userID\":\"%s\",\"action\":\"remove\"}", group_id, user_id);
-    else
-        snprintf(body, sizeof(body),
-                 "{\"groupID\":\"%s\",\"userID\":\"%s\",\"role\":%d,\"action\":\"add\"}",
-                 group_id, user_id, role);
+        blen = miku_json_build_str_obj(body, sizeof(body),
+                                       "groupID", group_id, "userID", user_id,
+                                       "action", "remove", NULL);
+    else {
+        char egid[256], euid[256];
+        miku_json_escape_str(group_id, egid, sizeof(egid));
+        miku_json_escape_str(user_id, euid, sizeof(euid));
+        blen = snprintf(body, sizeof(body),
+                        "{\"groupID\":\"%s\",\"userID\":\"%s\",\"role\":%d,\"action\":\"add\"}",
+                        egid, euid, role);
+    }
+    if (blen < 0) return;
     int rc = miku_http_post_json_internal(g_group_member_url, body);
     if (rc == 0)
         MK_LOG_INFO("group_member sync via %s group=%s user=%s remove=%d",
@@ -57,15 +67,17 @@ static void api_group_member(const char *group_id, const char *user_id, int role
 static void api_blacklist(const char *owner, const char *blocked, int remove, void *ctx) {
     (void)ctx;
     if (!owner || !blocked || !g_blacklist_url[0]) return;
-    char body[288];
+    char body[768];
+    int blen;
     if (remove)
-        snprintf(body, sizeof(body),
-                 "{\"ownerUserID\":\"%s\",\"blockUserID\":\"%s\",\"action\":\"remove\"}",
-                 owner, blocked);
+        blen = miku_json_build_str_obj(body, sizeof(body),
+                                       "ownerUserID", owner, "blockUserID", blocked,
+                                       "action", "remove", NULL);
     else
-        snprintf(body, sizeof(body),
-                 "{\"ownerUserID\":\"%s\",\"blockUserID\":\"%s\",\"action\":\"add\"}",
-                 owner, blocked);
+        blen = miku_json_build_str_obj(body, sizeof(body),
+                                       "ownerUserID", owner, "blockUserID", blocked,
+                                       "action", "add", NULL);
+    if (blen < 0) return;
     int rc = miku_http_post_json_internal(g_blacklist_url, body);
     if (rc == 0)
         MK_LOG_INFO("blacklist sync via %s owner=%s blocked=%s remove=%d",

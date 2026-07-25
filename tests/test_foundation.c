@@ -348,6 +348,15 @@ void test_json_util(void) {
     mk_assert_str_eq("a\\\"b\\\\c", esc);
     miku_json_escape_str("plain", esc, sizeof(esc));
     mk_assert_str_eq("plain", esc);
+
+    char obj[128];
+    mk_assert(miku_json_build_str_obj(obj, sizeof(obj),
+                                      "userID", "u\"q", "action", "add", NULL) > 0);
+    miku_json_val_t *vj = miku_json_parse_str(obj);
+    mk_assert_not_null(vj);
+    mk_assert_str_eq("u\"q", miku_json_str(miku_json_get(vj, "userID")));
+    mk_assert_str_eq("add", miku_json_str(miku_json_get(vj, "action")));
+    miku_json_destroy(vj);
 }
 
 int main(void) {

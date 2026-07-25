@@ -3,6 +3,7 @@
 
 #include "miku_json.h"
 #include <stdio.h>
+#include <stdarg.h>
 
 static inline void miku_ji(miku_json_val_t *o, const char *k, int64_t v) {
     miku_json_object_set(o, k, miku_json_create_int(v));
@@ -36,6 +37,37 @@ static inline void miku_json_escape_str(const char *in, char *out, size_t cap) {
         }
     }
     out[pos] = '\0';
+}
+
+/* Build {"k1":"v1",...} with escaped string values. Keys are fixed literals.
+ * Pairs: (key, value) ... terminate with NULL key. Returns bytes written or -1. */
+static inline int miku_json_build_str_obj(char *out, size_t cap, ...) {
+    if (!out || cap < 3) return -1;
+    size_t pos = 0;
+    out[pos++] = '{';
+    int first = 1;
+    va_list ap;
+    va_start(ap, cap);
+    for (;;) {
+        const char *key = va_arg(ap, const char *);
+        if (!key) break;
+        const char *val = va_arg(ap, const char *);
+        char ev[512];
+        miku_json_escape_str(val ? val : "", ev, sizeof(ev));
+        int n = snprintf(out + pos, cap - pos, "%s\"%s\":\"%s\"",
+                         first ? "" : ",", key, ev);
+        if (n <= 0 || pos + (size_t)n >= cap) {
+            va_end(ap);
+            return -1;
+        }
+        pos += (size_t)n;
+        first = 0;
+    }
+    va_end(ap);
+    if (pos + 2 > cap) return -1;
+    out[pos++] = '}';
+    out[pos] = '\0';
+    return (int)pos;
 }
 
 #endif
