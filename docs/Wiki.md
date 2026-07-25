@@ -459,6 +459,10 @@ Redis 会话缓存封装。
 - 黑名单管理
 - 好友导入、增量同步
 
+**线程安全**：所有公开 API 由一把 `pthread_rwlock_t` 保护，可跨线程调用。
+`miku_friend_may_access_si_conv` 在单次读锁内完成「互为好友 + 双向黑名单」三项判定，
+避免检查之间被写入穿插。
+
 #### 5.4 Group 服务（miku-rpc-group, 端口 10150）
 
 群组管理（35 个 RPC 方法）：
@@ -467,6 +471,10 @@ Redis 会话缓存封装。
 - 禁言管理（群级/成员级）
 - 群成员管理、群申请管理
 - 增量同步
+
+**线程安全**：所有公开 API 由一把 `pthread_rwlock_t` 保护；`miku_group_handle_rpc`
+整个分派持一次写锁。例外是 `miku_group_find`，它返回表内指针，调用方在锁释放后才解引用，
+因此无法通过内部加锁做到线程安全——仅供测试使用，生产代码走 `is_member` 等谓词。
 
 #### 5.5 Message 服务（miku-rpc-msg, 端口 10130）
 
@@ -965,10 +973,10 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 | Runtime | 9 | 协程、线程池、调度器、通道、定时器 |
 | Protocol | 50 | HTTP 解析、响应头 CRLF 过滤、JSON 编解码转义、WebSocket 分帧、RPC、PB、中间件、203 路由校验 |
 | Storage | 9 | LRU 缓存、服务发现 |
-| Services | 55 | 模型、7 个 RPC 服务、集成测试、认证中间件 |
+| Services | 57 | 模型、7 个 RPC 服务、集成测试、认证中间件、好友/群成员并发安全 |
 | New Modules | 67 | IM 消息、消息管道、限流、Webhook、WS ops、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **218** | 213 功能 + 5 基准 |
+| **总计** | **220** | 215 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
@@ -1010,6 +1018,7 @@ timeout 60 ./build/bin/miku_tests
 |------|------|------|
 | HashMap 删除 | 开放寻址 + 墓碑，按「占用+墓碑」水位重建 | 避免指针链，cache-friendly；负载因子只看存活数会让 put/del churn 耗尽空槽，使查找退化为全表扫描（LRU 缓存实测退化 ~380 倍） |
 | ID 随机源 | `getrandom(2)` 填充 4 KiB 线程本地池 | msg_id/group_id/token nonce 需不可预测；批量摊薄系统调用后比原时钟种子 LCG 还略快（33.4M vs 32.3M ops/sec） |
+| Friend/Group 服务并发 | 每服务一把 `pthread_rwlock_t`，公开 API 为加锁包装 | msggateway 的 admin 线程改成员/黑名单，主 WS 循环同时用 `is_member`/`is_black` 鉴权；删除会先清空索引再重建，无锁时鉴权判定会反转（实测 60.7% 的黑名单检查失效）。读多写少，无竞争读锁零开销（加锁 58.08M vs 无锁 57.98M ops/sec，在噪声内） |
 | Token 格式 | `miku\|uid\|platform\|ts_ms\|nonce\|sig` | HMAC-SHA1 签名（截断为 64 位），24h 过期；`force_logout` 吊销后立即失效 |
 | Token 密钥 | `"openIM123"` | 兼容 OpenIM 默认配置 |
 | 错误响应 | `{"errCode":N,"errMsg":"...","errDmg":"..."}` | 兼容 OpenIM 错误格式 |

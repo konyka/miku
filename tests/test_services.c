@@ -132,6 +132,118 @@ static void test_user_register_and_find(void) {
     miku_user_service_destroy(svc);
 }
 
+/* Shared state for the concurrent blacklist guard below. */
+typedef struct {
+    miku_friend_service_t *svc;
+    volatile int           stop;
+    long                   checks;
+    long                   bypassed;
+} friend_race_ctx_t;
+
+static void *friend_race_writer(void *arg) {
+    friend_race_ctx_t *c = (friend_race_ctx_t *)arg;
+    while (!c->stop) {
+        miku_friend_add_black(c->svc, "noise_owner", "noise_target");
+        miku_friend_remove_black(c->svc, "noise_owner", "noise_target");
+    }
+    return NULL;
+}
+
+static void test_friend_blacklist_concurrent_removal(void) {
+    /* miku-msggateway mutates this service from the admin HTTP thread while the
+     * WS event loop calls is_black for every single-chat message. Removal clears
+     * both index tables before refilling them, so an unsynchronised reader saw
+     * an empty index and reported "not blocked" — 60.7% of checks in a 2 s run,
+     * i.e. the blacklist gate on message delivery simply did not hold. */
+    friend_race_ctx_t c = {0};
+    c.svc = miku_friend_service_create();
+    mk_assert_not_null(c.svc);
+
+    mk_assert_int_eq(0, miku_friend_add_black(c.svc, "victim", "attacker"));
+    for (int i = 0; i < 32; i++) {
+        char o[32], t[32];
+        snprintf(o, sizeof(o), "o_%d", i);
+        snprintf(t, sizeof(t), "t_%d", i);
+        miku_friend_add_black(c.svc, o, t);
+    }
+    mk_assert(miku_friend_is_black(c.svc, "victim", "attacker"));
+
+    pthread_t w;
+    mk_assert_int_eq(0, pthread_create(&w, NULL, friend_race_writer, &c));
+
+    int64_t deadline = miku_timestamp_ms() + 300;
+    while (miku_timestamp_ms() < deadline) {
+        for (int i = 0; i < 500; i++) {
+            c.checks++;
+            if (!miku_friend_is_black(c.svc, "victim", "attacker")) c.bypassed++;
+        }
+    }
+    c.stop = 1;
+    pthread_join(w, NULL);
+
+    mk_assert(c.checks > 0);
+    mk_assert_int_eq(0, (int)c.bypassed);
+    /* The unrelated churn must not have disturbed the entry either. */
+    mk_assert(miku_friend_is_black(c.svc, "victim", "attacker"));
+    miku_friend_service_destroy(c.svc);
+}
+
+typedef struct {
+    miku_group_service_t *svc;
+    const char           *gid;
+    volatile int          stop;
+    long                  checks;
+    long                  bypassed;
+} group_race_ctx_t;
+
+static void *group_race_writer(void *arg) {
+    group_race_ctx_t *c = (group_race_ctx_t *)arg;
+    while (!c->stop) {
+        miku_group_add_member(c->svc, c->gid, "churn_user", 20);
+        miku_group_remove_member(c->svc, c->gid, "churn_user");
+    }
+    return NULL;
+}
+
+static void test_group_membership_concurrent_removal(void) {
+    /* /internal/group_member mutates membership on the admin thread while the WS
+     * loop calls is_member to authorise group sends. remove_member rebuilds
+     * member_hash, so an unsynchronised reader treated real members as
+     * non-members — silently dropping their messages, and, for the same reason
+     * the blacklist check inverted, letting the check be bypassed either way. */
+    group_race_ctx_t c = {0};
+    c.svc = miku_group_service_create();
+    mk_assert_not_null(c.svc);
+
+    miku_group_t g;
+    memset(&g, 0, sizeof(g));
+    strncpy(g.group_name, "race_group", sizeof(g.group_name) - 1);
+    mk_assert_int_eq(0, miku_group_create(c.svc, &g, "owner"));
+    static char gid[64];
+    strncpy(gid, g.group_id, sizeof(gid) - 1);
+    c.gid = gid;
+    mk_assert_int_eq(0, miku_group_add_member(c.svc, gid, "stable_member", 20));
+    mk_assert(miku_group_is_member(c.svc, gid, "stable_member"));
+
+    pthread_t w;
+    mk_assert_int_eq(0, pthread_create(&w, NULL, group_race_writer, &c));
+
+    int64_t deadline = miku_timestamp_ms() + 300;
+    while (miku_timestamp_ms() < deadline) {
+        for (int i = 0; i < 500; i++) {
+            c.checks++;
+            if (!miku_group_is_member(c.svc, gid, "stable_member")) c.bypassed++;
+        }
+    }
+    c.stop = 1;
+    pthread_join(w, NULL);
+
+    mk_assert(c.checks > 0);
+    mk_assert_int_eq(0, (int)c.bypassed);
+    mk_assert(miku_group_is_member(c.svc, gid, "stable_member"));
+    miku_group_service_destroy(c.svc);
+}
+
 static void test_friend_add_and_check(void) {
     miku_friend_service_t *svc = miku_friend_service_create();
     mk_assert_not_null(svc);
@@ -3026,6 +3138,8 @@ void run_service_tests(void) {
     mk_run_test(test_token_revoke_propagates_like_gateway);
     mk_run_test(test_user_register_and_find);
     mk_run_test(test_friend_add_and_check);
+    mk_run_test(test_friend_blacklist_concurrent_removal);
+    mk_run_test(test_group_membership_concurrent_removal);
     mk_run_test(test_group_create_and_members);
     mk_run_test(test_conv_create_and_get);
     mk_run_test(test_msg_send_and_query);

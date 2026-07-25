@@ -4,6 +4,7 @@
 #include "miku_json_util.h"
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 
 #define MK_GROUP_HASH  4096
 #define MK_MEMBER_HASH 32768
@@ -17,7 +18,18 @@ struct miku_group_service_s {
     int16_t member_hash[MK_MEMBER_HASH]; /* -1 empty, else members[] index */
     int16_t member_head[MK_MAX_GROUPS];  /* first member idx per group, -1 none */
     int16_t member_next[MK_MAX_MEMBERS]; /* intrusive list within a group */
+    /* Same two-thread exposure as the friend service: miku-msggateway mutates
+     * membership from the admin HTTP thread (/internal/group_member) while the
+     * WS event loop calls is_member to authorise group sends and walks the
+     * member list to fan out. remove_member clears and refills member_hash, so
+     * an unsynchronised reader in that window sees an empty index and treats a
+     * real member as a non-member. */
+    pthread_rwlock_t lock;
 };
+
+static miku_group_t *group_find_nolock(miku_group_service_t *svc, const char *group_id);
+static int group_add_member_nolock(miku_group_service_t *svc, const char *group_id,
+                                   const char *user_id, int role);
 
 static uint32_t group_hash_slot(const char *group_id) {
     return (uint32_t)(miku_fnv1a_64(group_id, strlen(group_id)) & (MK_GROUP_HASH - 1));
@@ -93,15 +105,23 @@ static void rebuild_member_indexes(miku_group_service_t *svc) {
 miku_group_service_t *miku_group_service_create(void) {
     miku_group_service_t *svc = (miku_group_service_t *)calloc(1, sizeof(*svc));
     if (svc) {
+        if (pthread_rwlock_init(&svc->lock, NULL) != 0) {
+            free(svc);
+            return NULL;
+        }
         for (int i = 0; i < MK_GROUP_HASH; i++) svc->group_hash[i] = -1;
         for (int i = 0; i < MK_MEMBER_HASH; i++) svc->member_hash[i] = -1;
         for (int i = 0; i < MK_MAX_GROUPS; i++) svc->member_head[i] = -1;
     }
     return svc;
 }
-void miku_group_service_destroy(miku_group_service_t *svc) { free(svc); }
+void miku_group_service_destroy(miku_group_service_t *svc) {
+    if (!svc) return;
+    pthread_rwlock_destroy(&svc->lock);
+    free(svc);
+}
 
-int miku_group_create(miku_group_service_t *svc, miku_group_t *g, const char *owner_uid) {
+static int group_create_nolock(miku_group_service_t *svc, miku_group_t *g, const char *owner_uid) {
     if (!svc || !g || !owner_uid || svc->group_count >= MK_MAX_GROUPS) return -1;
     miku_uuid_generate(g->group_id);
     strncpy(g->owner_user_id, owner_uid, sizeof(g->owner_user_id) - 1);
@@ -112,19 +132,26 @@ int miku_group_create(miku_group_service_t *svc, miku_group_t *g, const char *ow
     svc->groups[gi] = *g;
     svc->member_head[gi] = -1;
     group_hash_insert(svc, gi);
-    miku_group_add_member(svc, g->group_id, owner_uid, 100);
-    miku_group_t *stored = miku_group_find(svc, g->group_id);
+    group_add_member_nolock(svc, g->group_id, owner_uid, 100);
+    miku_group_t *stored = group_find_nolock(svc, g->group_id);
     if (stored) g->member_count = stored->member_count;
     return 0;
 }
 
-miku_group_t *miku_group_find(miku_group_service_t *svc, const char *group_id) {
+static miku_group_t *group_find_nolock(miku_group_service_t *svc, const char *group_id) {
     if (!svc || !group_id) return NULL;
     int gi = group_index_find(svc, group_id);
     return gi >= 0 ? &svc->groups[gi] : NULL;
 }
 
-int miku_group_add_member(miku_group_service_t *svc, const char *group_id, const char *user_id, int role) {
+/* Returns a pointer into the table, so it cannot be made thread-safe by
+ * locking here — the caller dereferences after the lock would be released. Only
+ * tests use it; production code goes through the predicates below. */
+miku_group_t *miku_group_find(miku_group_service_t *svc, const char *group_id) {
+    return group_find_nolock(svc, group_id);
+}
+
+static int group_add_member_nolock(miku_group_service_t *svc, const char *group_id, const char *user_id, int role) {
     if (!svc || !group_id || !user_id || svc->member_count >= MK_MAX_MEMBERS) return -1;
     if (member_index_find(svc, group_id, user_id) >= 0) return 0; /* already a member */
     int gi = group_index_find(svc, group_id);
@@ -146,19 +173,19 @@ int miku_group_add_member(miku_group_service_t *svc, const char *group_id, const
     return 0;
 }
 
-int miku_group_remove_member(miku_group_service_t *svc, const char *group_id, const char *user_id) {
+static int group_remove_member_nolock(miku_group_service_t *svc, const char *group_id, const char *user_id) {
     if (!svc || !group_id || !user_id) return -1;
     int mi = member_index_find(svc, group_id, user_id);
     if (mi < 0) return -1;
     svc->members[mi] = svc->members[svc->member_count - 1];
     svc->member_count--;
-    miku_group_t *g = miku_group_find(svc, group_id);
+    miku_group_t *g = group_find_nolock(svc, group_id);
     if (g && g->member_count > 0) g->member_count--;
     rebuild_member_indexes(svc); /* remove is rare; keep foreach O(group size) */
     return 0;
 }
 
-int miku_group_get_members(miku_group_service_t *svc, const char *group_id, miku_group_member_t *out, int max) {
+static int group_get_members_nolock(miku_group_service_t *svc, const char *group_id, miku_group_member_t *out, int max) {
     if (!svc || !group_id || !out) return 0;
     int gi = group_index_find(svc, group_id);
     if (gi >= 0) {
@@ -174,8 +201,8 @@ int miku_group_get_members(miku_group_service_t *svc, const char *group_id, miku
     return n;
 }
 
-int miku_group_foreach_member(miku_group_service_t *svc, const char *group_id,
-                              miku_group_member_fn fn, void *ctx) {
+static int group_foreach_member_nolock(miku_group_service_t *svc, const char *group_id,
+                                      miku_group_member_fn fn, void *ctx) {
     if (!svc || !group_id || !fn) return 0;
     int gi = group_index_find(svc, group_id);
     if (gi >= 0) {
@@ -195,17 +222,82 @@ int miku_group_foreach_member(miku_group_service_t *svc, const char *group_id,
     return n;
 }
 
-int miku_group_is_member(miku_group_service_t *svc, const char *group_id,
-                         const char *user_id) {
+static int group_is_member_nolock(miku_group_service_t *svc, const char *group_id,
+                                 const char *user_id) {
     if (!svc || !group_id || !user_id || !group_id[0] || !user_id[0]) return 0;
     return member_index_find(svc, group_id, user_id) >= 0;
 }
 
-int miku_group_member_role(miku_group_service_t *svc, const char *group_id,
-                           const char *user_id) {
+static int group_member_role_nolock(miku_group_service_t *svc, const char *group_id,
+                                   const char *user_id) {
     if (!svc || !group_id || !user_id || !group_id[0] || !user_id[0]) return -1;
     int mi = member_index_find(svc, group_id, user_id);
     return mi >= 0 ? svc->members[mi].role_level : -1;
+}
+
+int miku_group_create(miku_group_service_t *svc, miku_group_t *g, const char *owner_uid) {
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = group_create_nolock(svc, g, owner_uid);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+int miku_group_add_member(miku_group_service_t *svc, const char *group_id,
+                          const char *user_id, int role) {
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = group_add_member_nolock(svc, group_id, user_id, role);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+int miku_group_remove_member(miku_group_service_t *svc, const char *group_id,
+                             const char *user_id) {
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = group_remove_member_nolock(svc, group_id, user_id);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+int miku_group_get_members(miku_group_service_t *svc, const char *group_id,
+                           miku_group_member_t *out, int max) {
+    if (!svc) return 0;
+    pthread_rwlock_rdlock(&svc->lock);
+    int n = group_get_members_nolock(svc, group_id, out, max);
+    pthread_rwlock_unlock(&svc->lock);
+    return n;
+}
+
+/* Holds the read lock across the callbacks. The three production callbacks
+ * (WS fan-out and conversation upsert) do not re-enter this service, so this
+ * cannot self-deadlock; a read lock also lets concurrent fan-outs overlap. */
+int miku_group_foreach_member(miku_group_service_t *svc, const char *group_id,
+                              miku_group_member_fn fn, void *ctx) {
+    if (!svc) return 0;
+    pthread_rwlock_rdlock(&svc->lock);
+    int n = group_foreach_member_nolock(svc, group_id, fn, ctx);
+    pthread_rwlock_unlock(&svc->lock);
+    return n;
+}
+
+int miku_group_is_member(miku_group_service_t *svc, const char *group_id,
+                         const char *user_id) {
+    if (!svc) return 0;
+    pthread_rwlock_rdlock(&svc->lock);
+    int r = group_is_member_nolock(svc, group_id, user_id);
+    pthread_rwlock_unlock(&svc->lock);
+    return r;
+}
+
+int miku_group_member_role(miku_group_service_t *svc, const char *group_id,
+                           const char *user_id) {
+    if (!svc) return -1;
+    pthread_rwlock_rdlock(&svc->lock);
+    int r = group_member_role_nolock(svc, group_id, user_id);
+    pthread_rwlock_unlock(&svc->lock);
+    return r;
 }
 
 
@@ -317,9 +409,23 @@ static int group_rpc_id(const char *method) {
     return -1;
 }
 
+static void group_handle_rpc_locked(miku_group_service_t *svc, const char *method,
+                                    const miku_json_val_t *req, miku_json_val_t *resp);
+
+/* One write lock for the whole dispatch: most cases interleave lookups with
+ * mutations, so per-call locking would expose the same torn states this pass
+ * removed. Only miku-api calls this, on its single HTTP thread, so the lock is
+ * uncontended there; the gateway's admin thread uses the predicates above. */
 void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
                             const miku_json_val_t *req, miku_json_val_t *resp) {
     if (!svc || !method || !resp) return;
+    pthread_rwlock_wrlock(&svc->lock);
+    group_handle_rpc_locked(svc, method, req, resp);
+    pthread_rwlock_unlock(&svc->lock);
+}
+
+static void group_handle_rpc_locked(miku_group_service_t *svc, const char *method,
+                                    const miku_json_val_t *req, miku_json_val_t *resp) {
     switch (group_rpc_id(method)) {
     case MK_GROUP_RPC_createGroup:
     {
@@ -328,7 +434,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *name = req ? miku_json_str(miku_json_get(req, "groupName")) : NULL;
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         if (name) strncpy(g.group_name, name, sizeof(g.group_name) - 1);
-        int rc = miku_group_create(svc, &g, owner);
+        int rc = group_create_nolock(svc, &g, owner);
         if (rc == 0) {
             miku_json_val_t *ids = req ? miku_json_get(req, "memberUserIDs") : NULL;
             if (!ids) ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
@@ -337,7 +443,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
                 for (size_t i = 0; i < n; i++) {
                     const char *u = miku_json_str(miku_json_at(ids, i));
                     if (u && owner && strcmp(u, owner) != 0)
-                        miku_group_add_member(svc, g.group_id, u, 20);
+                        group_add_member_nolock(svc, g.group_id, u, 20);
                 }
             }
         }
@@ -347,7 +453,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_getGroupInfo:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        miku_group_t *g = miku_group_find(svc, gid);
+        miku_group_t *g = group_find_nolock(svc, gid);
         miku_ji(resp, "errCode", g ? 0 : 3001);
         if (g) miku_json_object_set(resp, "data", miku_group_to_json(g));
     } break;
@@ -356,7 +462,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         const char *from = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!from || !from[0]) from = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
         if (!g) {
             miku_ji(resp, "errCode", 3001);
             break;
@@ -365,20 +471,20 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             miku_ji(resp, "errCode", 3003);
             break;
         }
-        if (!from || !from[0] || miku_group_member_role(svc, gid, from) < 20) {
+        if (!from || !from[0] || group_member_role_nolock(svc, gid, from) < 20) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
         int rc = -1;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         if (uid && uid[0])
-            rc = miku_group_add_member(svc, gid, uid, 20);
+            rc = group_add_member_nolock(svc, gid, uid, 20);
         miku_json_val_t *ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
         if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
             size_t n = miku_json_size(ids);
             for (size_t i = 0; i < n; i++) {
                 const char *u = miku_json_str(miku_json_at(ids, i));
-                if (u && u[0] && miku_group_add_member(svc, gid, u, 20) == 0)
+                if (u && u[0] && group_add_member_nolock(svc, gid, u, 20) == 0)
                     rc = 0;
             }
         }
@@ -411,7 +517,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             size_t n = miku_json_size(ids);
             for (size_t i = 0; i < n; i++) {
                 const char *gid = miku_json_str(miku_json_at(ids, i));
-                miku_group_t *g = miku_group_find(svc, gid);
+                miku_group_t *g = group_find_nolock(svc, gid);
                 if (g) miku_json_array_push(arr, miku_group_to_json(g));
             }
         }
@@ -423,12 +529,12 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
         if (!g) {
             miku_ji(resp, "errCode", 3001);
             break;
         }
-        if (!op || !op[0] || miku_group_member_role(svc, gid, op) < 60) {
+        if (!op || !op[0] || group_member_role_nolock(svc, gid, op) < 60) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
@@ -443,7 +549,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         if (!gid || !gid[0] || !op || !op[0]
-            || miku_group_member_role(svc, gid, op) < 60) {
+            || group_member_role_nolock(svc, gid, op) < 60) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
@@ -452,7 +558,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     case MK_GROUP_RPC_joinGroup:
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
         if (!g) {
             miku_ji(resp, "errCode", 3001);
             break;
@@ -464,7 +570,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
     {
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
         if (!g || g->status != 0) {
             miku_ji(resp, "errCode", g ? 3003 : 3001);
             break;
@@ -478,7 +584,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
             miku_ji(resp, "errCode", 3003);
             break;
         }
-        int rc = miku_group_remove_member(svc, gid, uid);
+        int rc = group_remove_member_nolock(svc, gid, uid);
         miku_ji(resp, "errCode", rc == 0 ? 0 : 3002);
     } break;
     case MK_GROUP_RPC_dismissGroup:
@@ -486,13 +592,13 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *gid = req ? miku_json_str(miku_json_get(req, "groupID")) : NULL;
         const char *op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
         if (!g) {
             miku_ji(resp, "errCode", 3001);
             break;
         }
         if (!op || !op[0] || strcmp(op, g->owner_user_id) != 0
-            || !miku_group_is_member(svc, gid, op)) {
+            || !group_is_member_nolock(svc, gid, op)) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
@@ -514,12 +620,12 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
         if (!g || g->status != 0) {
             miku_ji(resp, "errCode", g ? 3003 : 3001);
             break;
         }
-        if (!op || !op[0] || miku_group_member_role(svc, gid, op) < 60) {
+        if (!op || !op[0] || group_member_role_nolock(svc, gid, op) < 60) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
@@ -532,8 +638,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
-        int op_role = (gid && op && op[0]) ? miku_group_member_role(svc, gid, op) : -1;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
+        int op_role = (gid && op && op[0]) ? group_member_role_nolock(svc, gid, op) : -1;
         if (!g || g->status != 0 || op_role < 60) {
             miku_ji(resp, "errCode", 3003);
             break;
@@ -542,8 +648,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         if (uid && uid[0] && strcmp(uid, op) != 0
             && strcmp(uid, g->owner_user_id) != 0
-            && op_role > miku_group_member_role(svc, gid, uid))
-            rc = miku_group_remove_member(svc, gid, uid);
+            && op_role > group_member_role_nolock(svc, gid, uid))
+            rc = group_remove_member_nolock(svc, gid, uid);
         miku_json_val_t *ids = req ? miku_json_get(req, "kickedUserIDs") : NULL;
         if (!ids) ids = req ? miku_json_get(req, "invitedUserIDs") : NULL;
         if (ids && miku_json_type(ids) == MK_JSON_ARRAY) {
@@ -552,8 +658,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
                 const char *u = miku_json_str(miku_json_at(ids, i));
                 if (u && u[0] && strcmp(u, op) != 0
                     && strcmp(u, g->owner_user_id) != 0
-                    && op_role > miku_group_member_role(svc, gid, u)
-                    && miku_group_remove_member(svc, gid, u) == 0)
+                    && op_role > group_member_role_nolock(svc, gid, u)
+                    && group_remove_member_nolock(svc, gid, u) == 0)
                     rc = 0;
             }
         }
@@ -567,13 +673,13 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
         const char *new_owner = req ? miku_json_str(miku_json_get(req, "newOwnerUserID")) : NULL;
         if (!new_owner) new_owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
         if (!g || !new_owner || !new_owner[0]) {
             miku_ji(resp, "errCode", 3001);
             break;
         }
         if (!op || !op[0] || strcmp(op, g->owner_user_id) != 0
-            || !miku_group_is_member(svc, gid, op)) {
+            || !group_is_member_nolock(svc, gid, op)) {
             miku_ji(resp, "errCode", 3003);
             break;
         }
@@ -598,7 +704,7 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         if (uid) {
             for (int i = 0; i < svc->member_count; i++) {
                 if (strcmp(svc->members[i].user_id, uid) != 0) continue;
-                miku_group_t *g = miku_group_find(svc, svc->members[i].group_id);
+                miku_group_t *g = group_find_nolock(svc, svc->members[i].group_id);
                 if (g && g->status == 0) miku_json_array_push(arr, miku_group_to_json(g));
             }
         }
@@ -641,8 +747,8 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
-        int op_role = (gid && op && op[0]) ? miku_group_member_role(svc, gid, op) : -1;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
+        int op_role = (gid && op && op[0]) ? group_member_role_nolock(svc, gid, op) : -1;
         if (!g || g->status != 0 || op_role < 60) {
             miku_ji(resp, "errCode", 3003);
             break;
@@ -727,12 +833,12 @@ void miku_group_handle_rpc(miku_group_service_t *svc, const char *method,
         const char *op = req ? miku_json_str(miku_json_get(req, "opUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "fromUserID")) : NULL;
         if (!op || !op[0]) op = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        miku_group_t *g = gid ? miku_group_find(svc, gid) : NULL;
+        miku_group_t *g = gid ? group_find_nolock(svc, gid) : NULL;
         if (!g) {
             miku_ji(resp, "errCode", 3001);
             break;
         }
-        if (!op || !op[0] || miku_group_member_role(svc, gid, op) < 60) {
+        if (!op || !op[0] || group_member_role_nolock(svc, gid, op) < 60) {
             miku_ji(resp, "errCode", 3003);
             break;
         }

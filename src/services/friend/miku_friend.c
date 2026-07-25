@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <pthread.h>
 
 /* 2x max friends for open-addressing load factor ~0.5 */
 #define MK_FRIEND_HASH 16384
@@ -19,7 +20,17 @@ struct miku_friend_service_s {
     int16_t black_pair_hash[MK_FRIEND_HASH];
     int16_t black_owner_hash[MK_FRIEND_HASH];
     int16_t black_owner_next[MK_MAX_FRIENDS];
+    /* miku-msggateway reaches this service from two threads: the WS event loop
+     * calls the is_* predicates for every single-chat message, while the admin
+     * HTTP thread mutates it via /internal/blacklist. Deletion clears both index
+     * tables before refilling them (indexes_rebuild), so an unsynchronised
+     * reader in that window sees an empty index and reports "not blocked" /
+     * "not friends" — the checks that gate single-chat delivery. Reads are far
+     * more frequent than writes, hence a rwlock. */
+    pthread_rwlock_t lock;
 };
+
+static int black_pair_find(miku_friend_service_t *svc, const char *owner, const char *uid);
 
 static uint32_t pair_hash_slot(const char *owner, const char *fuid) {
     uint64_t a = miku_fnv1a_64(owner, strlen(owner));
@@ -101,6 +112,10 @@ static int pair_hash_find(miku_friend_service_t *svc, const char *owner, const c
 miku_friend_service_t *miku_friend_service_create(void) {
     miku_friend_service_t *svc = (miku_friend_service_t *)calloc(1, sizeof(*svc));
     if (svc) {
+        if (pthread_rwlock_init(&svc->lock, NULL) != 0) {
+            free(svc);
+            return NULL;
+        }
         for (int i = 0; i < MK_FRIEND_HASH; i++) {
             svc->pair_hash[i] = -1;
             svc->owner_hash[i] = -1;
@@ -115,9 +130,13 @@ miku_friend_service_t *miku_friend_service_create(void) {
     return svc;
 }
 
-void miku_friend_service_destroy(miku_friend_service_t *svc) { free(svc); }
+void miku_friend_service_destroy(miku_friend_service_t *svc) {
+    if (!svc) return;
+    pthread_rwlock_destroy(&svc->lock);
+    free(svc);
+}
 
-int miku_friend_add(miku_friend_service_t *svc, const char *owner, const char *fuid, const char *remark) {
+static int friend_add_nolock(miku_friend_service_t *svc, const char *owner, const char *fuid, const char *remark) {
     if (!svc || !owner || !owner[0] || !fuid || !fuid[0] || svc->count >= MK_MAX_FRIENDS) return -1;
     if (strcmp(owner, fuid) == 0) return -1;
     if (pair_hash_find(svc, owner, fuid) >= 0) return -2;
@@ -133,7 +152,7 @@ int miku_friend_add(miku_friend_service_t *svc, const char *owner, const char *f
     return 0;
 }
 
-int miku_friend_delete(miku_friend_service_t *svc, const char *owner, const char *fuid) {
+static int friend_delete_nolock(miku_friend_service_t *svc, const char *owner, const char *fuid) {
     if (!svc || !owner || !fuid) return -1;
     int fi = pair_hash_find(svc, owner, fuid);
     if (fi < 0) return -2;
@@ -144,22 +163,46 @@ int miku_friend_delete(miku_friend_service_t *svc, const char *owner, const char
     return 0;
 }
 
+int miku_friend_add(miku_friend_service_t *svc, const char *owner, const char *fuid, const char *remark) {
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = friend_add_nolock(svc, owner, fuid, remark);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+int miku_friend_delete(miku_friend_service_t *svc, const char *owner, const char *fuid) {
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = friend_delete_nolock(svc, owner, fuid);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
 int miku_friend_get_list(miku_friend_service_t *svc, const char *owner, miku_friend_t *out, int max) {
     if (!svc || !owner || !out) return 0;
+    pthread_rwlock_rdlock(&svc->lock);
     int n = 0;
     for (int fi = owner_head(svc, owner); fi >= 0 && n < max; fi = svc->owner_next[fi])
         out[n++] = svc->friends[fi];
+    pthread_rwlock_unlock(&svc->lock);
     return n;
 }
 
 bool miku_friend_is_friend(miku_friend_service_t *svc, const char *uid1, const char *uid2) {
     if (!svc || !uid1 || !uid2) return false;
-    return pair_hash_find(svc, uid1, uid2) >= 0 || pair_hash_find(svc, uid2, uid1) >= 0;
+    pthread_rwlock_rdlock(&svc->lock);
+    bool r = pair_hash_find(svc, uid1, uid2) >= 0 || pair_hash_find(svc, uid2, uid1) >= 0;
+    pthread_rwlock_unlock(&svc->lock);
+    return r;
 }
 
 bool miku_friend_is_mutual(miku_friend_service_t *svc, const char *uid1, const char *uid2) {
     if (!svc || !uid1 || !uid2) return false;
-    return pair_hash_find(svc, uid1, uid2) >= 0 && pair_hash_find(svc, uid2, uid1) >= 0;
+    pthread_rwlock_rdlock(&svc->lock);
+    bool r = pair_hash_find(svc, uid1, uid2) >= 0 && pair_hash_find(svc, uid2, uid1) >= 0;
+    pthread_rwlock_unlock(&svc->lock);
+    return r;
 }
 
 int miku_friend_may_access_si_conv(miku_friend_service_t *svc, const char *uid,
@@ -168,10 +211,17 @@ int miku_friend_may_access_si_conv(miku_friend_service_t *svc, const char *uid,
     char peer[64];
     if (miku_conversation_si_peer(conv, uid, peer, sizeof(peer)) != 0) return 0;
     if (!svc) return 0;
-    if (!miku_friend_is_mutual(svc, uid, peer)) return 0;
-    if (miku_friend_is_black(svc, uid, peer) || miku_friend_is_black(svc, peer, uid))
-        return 0;
-    return 1;
+    /* One read lock for all three predicates: taking them separately would also
+     * let a concurrent write land between the mutual-friend and blacklist
+     * checks, authorising access against a state that never existed. */
+    pthread_rwlock_rdlock(&svc->lock);
+    int ok = 0;
+    if (pair_hash_find(svc, uid, peer) >= 0 && pair_hash_find(svc, peer, uid) >= 0 &&
+        black_pair_find(svc, uid, peer) < 0 &&
+        black_pair_find(svc, peer, uid) < 0)
+        ok = 1;
+    pthread_rwlock_unlock(&svc->lock);
+    return ok;
 }
 
 static void black_pair_insert(miku_friend_service_t *svc, int bi) {
@@ -270,15 +320,26 @@ static int black_remove(miku_friend_service_t *svc, const char *owner, const cha
 
 bool miku_friend_is_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid) {
     if (!svc || !owner || !blocked_uid) return false;
-    return black_pair_find(svc, owner, blocked_uid) >= 0;
+    pthread_rwlock_rdlock(&svc->lock);
+    bool r = black_pair_find(svc, owner, blocked_uid) >= 0;
+    pthread_rwlock_unlock(&svc->lock);
+    return r;
 }
 
 int miku_friend_add_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid) {
-    return black_add(svc, owner, blocked_uid);
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = black_add(svc, owner, blocked_uid);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
 }
 
 int miku_friend_remove_black(miku_friend_service_t *svc, const char *owner, const char *blocked_uid) {
-    return black_remove(svc, owner, blocked_uid);
+    if (!svc) return -1;
+    pthread_rwlock_wrlock(&svc->lock);
+    int rc = black_remove(svc, owner, blocked_uid);
+    pthread_rwlock_unlock(&svc->lock);
+    return rc;
 }
 
 
@@ -396,6 +457,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (owner) {
+            pthread_rwlock_rdlock(&svc->lock);
             for (int fi = owner_head(svc, owner); fi >= 0; fi = svc->owner_next[fi]) {
                 miku_json_val_t *fj = miku_json_create_object();
                 miku_jss(fj, "ownerUserID", svc->friends[fi].owner_user_id);
@@ -404,6 +466,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                 miku_ji(fj, "createTime", svc->friends[fi].create_time);
                 miku_json_array_push(arr, fj);
             }
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -421,7 +484,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
         if (!uid) uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        int rc = (owner && uid) ? black_add(svc, owner, uid) : -1;
+        int rc = (owner && uid) ? miku_friend_add_black(svc, owner, uid) : -1;
         miku_ji(resp, "errCode", rc == 0 ? 0 : 400);
     } break;
     case MK_FRIEND_RPC_removeBlack:
@@ -429,7 +492,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         const char *owner = req ? miku_json_str(miku_json_get(req, "ownerUserID")) : NULL;
         const char *uid = req ? miku_json_str(miku_json_get(req, "friendUserID")) : NULL;
         if (!uid) uid = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
-        int rc = (owner && uid) ? black_remove(svc, owner, uid) : -1;
+        int rc = (owner && uid) ? miku_friend_remove_black(svc, owner, uid) : -1;
         miku_ji(resp, "errCode", rc == 0 ? 0 : 2002);
     } break;
     case MK_FRIEND_RPC_getBlackList:
@@ -439,6 +502,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (owner) {
+            pthread_rwlock_rdlock(&svc->lock);
             for (int bi = black_owner_head(svc, owner); bi >= 0; bi = svc->black_owner_next[bi]) {
                 miku_json_val_t *bj = miku_json_create_object();
                 miku_jss(bj, "ownerUserID", svc->blacks[bi].owner_user_id);
@@ -447,6 +511,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                 miku_ji(bj, "createTime", svc->blacks[bi].create_time);
                 miku_json_array_push(arr, bj);
             }
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -489,11 +554,13 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (owner) {
+            pthread_rwlock_rdlock(&svc->lock);
             for (int fi = owner_head(svc, owner); fi >= 0; fi = svc->owner_next[fi]) {
                 miku_json_val_t *fj = miku_json_create_object();
                 miku_jss(fj, "friendUserID", svc->friends[fi].friend_user_id);
                 miku_json_array_push(arr, fj);
             }
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -505,6 +572,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         if (owner && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
             size_t n = miku_json_size(ids);
+            pthread_rwlock_rdlock(&svc->lock);
             for (size_t i = 0; i < n; i++) {
                 const char *fuid = miku_json_str(miku_json_at(ids, i));
                 if (fuid) {
@@ -518,6 +586,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                     }
                 }
             }
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -527,8 +596,10 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         if (!owner || !owner[0]) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_json_val_t *arr = miku_json_create_array();
         if (owner) {
+            pthread_rwlock_rdlock(&svc->lock);
             for (int fi = owner_head(svc, owner); fi >= 0; fi = svc->owner_next[fi])
                 miku_json_array_push(arr, miku_json_create_str(svc->friends[fi].friend_user_id));
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", arr);
@@ -539,8 +610,10 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         if (!owner || !owner[0]) owner = req ? miku_json_str(miku_json_get(req, "userID")) : NULL;
         miku_json_val_t *arr = miku_json_create_array();
         if (owner) {
+            pthread_rwlock_rdlock(&svc->lock);
             for (int fi = owner_head(svc, owner); fi >= 0; fi = svc->owner_next[fi])
                 miku_json_array_push(arr, miku_json_create_str(svc->friends[fi].friend_user_id));
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_ji(resp, "errCode", 0);
         miku_json_object_set(resp, "data", arr);
@@ -576,6 +649,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         if (owner && ids && miku_json_type(ids) == MK_JSON_ARRAY) {
             size_t n = miku_json_size(ids);
+            pthread_rwlock_rdlock(&svc->lock);
             for (size_t i = 0; i < n; i++) {
                 const char *fuid = miku_json_str(miku_json_at(ids, i));
                 if (fuid) {
@@ -589,6 +663,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                     }
                 }
             }
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -613,11 +688,13 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         const char *remark = req ? miku_json_str(miku_json_get(req, "remark")) : NULL;
         int found = 0;
         if (owner && fuid) {
+            pthread_rwlock_wrlock(&svc->lock);
             int fi = pair_hash_find(svc, owner, fuid);
             if (fi >= 0) {
                 if (remark) strncpy(svc->friends[fi].remark, remark, sizeof(svc->friends[fi].remark) - 1);
                 found = 1;
             }
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_ji(resp, "errCode", found ? 0 : 2002);
     } break;
@@ -628,6 +705,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
         int updated = 0;
         if (owner && fl && miku_json_type(fl) == MK_JSON_ARRAY) {
             size_t n = miku_json_size(fl);
+            pthread_rwlock_wrlock(&svc->lock);
             for (size_t i = 0; i < n; i++) {
                 miku_json_val_t *item = miku_json_at(fl, i);
                 const char *fuid = item ? miku_json_str(miku_json_get(item, "friendUserID")) : NULL;
@@ -640,6 +718,7 @@ void miku_friend_handle_rpc(miku_friend_service_t *svc, const char *method,
                     }
                 }
             }
+            pthread_rwlock_unlock(&svc->lock);
         }
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "updated", updated);
