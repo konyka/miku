@@ -21,7 +21,6 @@ extern void run_runtime_tests(void);
 extern void run_protocol_tests(void);
 extern void run_storage_tests(void);
 extern void run_service_tests(void);
-extern void run_benchmarks(void);
 extern void run_new_module_tests(void);
 
 int mk_tests_run    = 0;
@@ -509,7 +508,6 @@ int main(void) {
     run_protocol_tests();
     run_storage_tests();
     run_service_tests();
-    run_benchmarks();
     run_new_module_tests();
 
     return mk_test_summary();

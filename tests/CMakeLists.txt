@@ -1,6 +1,15 @@
-add_executable(miku_tests test_foundation.c test_runtime.c test_protocol.c test_storage.c test_services.c test_benchmark.c test_new_modules.c)
+set(MIKU_TEST_LIBS
+    miku_gateway
+    miku_services
+    miku_models
+    miku_protocol
+    miku_storage
+    miku_discovery
+    miku_runtime
+    miku_foundation
+)
 
-target_include_directories(miku_tests PRIVATE
+set(MIKU_TEST_INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src/foundation
     ${CMAKE_SOURCE_DIR}/src/runtime
@@ -22,16 +31,19 @@ target_include_directories(miku_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src/gateway/crontask
 )
 
-target_link_libraries(miku_tests PRIVATE
-    miku_gateway
-    miku_services
-    miku_models
-    miku_protocol
-    miku_storage
-    miku_discovery
-    miku_runtime
-    miku_foundation
-)
+add_executable(miku_tests test_foundation.c test_runtime.c test_protocol.c test_storage.c test_services.c test_new_modules.c)
 
-add_test(NAME foundation COMMAND miku_tests)
-add_test(NAME runtime  COMMAND miku_tests)
+target_include_directories(miku_tests PRIVATE ${MIKU_TEST_INCLUDES})
+
+target_link_libraries(miku_tests PRIVATE ${MIKU_TEST_LIBS})
+
+add_test(NAME miku_tests COMMAND miku_tests)
+set_tests_properties(miku_tests PROPERTIES LABELS "functional" TIMEOUT 60)
+
+if(MIKU_ENABLE_BENCHMARKS)
+    add_executable(miku_bench test_benchmark_main.c test_benchmark.c)
+    target_include_directories(miku_bench PRIVATE ${MIKU_TEST_INCLUDES})
+    target_link_libraries(miku_bench PRIVATE ${MIKU_TEST_LIBS})
+    add_test(NAME miku_benchmarks COMMAND miku_bench)
+    set_tests_properties(miku_benchmarks PROPERTIES LABELS "benchmark" TIMEOUT 30)
+endif()
