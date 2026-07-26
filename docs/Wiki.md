@@ -990,7 +990,7 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 
 ### 运行测试
 ```bash
-make test           # 或
+make test           # 默认只跑 220 个功能测试
 timeout 60 ./build/bin/miku_tests
 ```
 
@@ -1006,7 +1006,7 @@ timeout 60 ./build/bin/miku_tests
 | Cache Set+Get | 7.02M ops/sec |
 | MsgTransfer 入队 | 58.2M ops/sec |
 
-> 数据来自 Release 构建（`-O3 -march=native -flto`）的 `run_benchmarks`，每项 1 秒、取 3 次中位数。
+> 数据来自 Release 构建（`-O3 -march=native -flto`）的显式 benchmark 目标：`cmake -B build -DCMAKE_BUILD_TYPE=Release -DMIKU_ENABLE_TESTS=ON -DMIKU_ENABLE_BENCHMARKS=ON && cmake --build build --target miku_bench && ./build/bin/miku_bench`。默认 `make test` 不再运行基准，避免 CI/ASAN 的调度和插桩噪声污染性能数据。
 
 ### 性能目标
 

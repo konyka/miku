@@ -13,7 +13,7 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 | C Modules | 68 |
 | C Headers | 75 |
 | Binaries | 13 |
-| Tests | 195 |
+| Functional Tests | 220 |
 | Lines of C Code | ~15K |
 | Build Warnings | 0 |
 
@@ -130,11 +130,13 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 - **68 modules** across 6 layers
 - **13 binaries** (12 microservices + all-in-one `miku-dev`)
 - **203 API routes** (Auth 5, User 32, Friend 26, Group 35, Msg 30, Conv 21, Third 15, Object 8, Batch 2, Statistics 4, JSSDK 2, Prometheus 11, Config 6, Restart 1, Admin 4, Version 1)
-- **220 tests + 5 benchmarks**, all passing (Debug + ASAN/UBSan clean)
-- **Benchmarks**: JSON ~1.3M/s, HashMap ~7M/s, Cache ~4M/s, Queue ~38M/s
+- **220 functional tests**, all passing (Debug + ASAN/UBSan clean)
+- **5 opt-in benchmarks** via `MIKU_ENABLE_BENCHMARKS=ON` / `miku_bench` (Release mode)
 
 A full correctness/memory-safety/performance audit with findings and remediation
-notes lives in [docs/REVIEW_2026-07.md](docs/REVIEW_2026-07.md).
+notes lives in [docs/REVIEW_2026-07.md](docs/REVIEW_2026-07.md). The latest
+follow-up keeps the default CI path functional-only and moves timing-sensitive
+benchmarks behind the explicit `miku_bench` target.
 
 ## Features
 

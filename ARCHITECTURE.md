@@ -182,14 +182,15 @@ miku/
 │   ├── miku-dev/main.c               # All-in-one dev server
 │   └── CMakeLists.txt
 │
-└── tests/                            # Test suite (156 tests + 5 benchmarks)
-    ├── test_foundation.c             # Foundation tests (20 tests)
+└── tests/                            # Functional tests (220) + opt-in benchmarks (5)
+    ├── test_foundation.c             # Foundation entrypoint (24 tests + suites)
     ├── test_runtime.c                # Runtime tests (9 tests)
-    ├── test_protocol.c               # Protocol + middleware + route tests (40 tests)
+    ├── test_protocol.c               # Protocol + middleware + route tests (51 tests)
     ├── test_storage.c                # Storage tests (9 tests)
-    ├── test_services.c               # Service + integration tests (22 tests)
-    ├── test_new_modules.c            # New module tests (23 tests)
-    ├── test_benchmark.c              # Benchmarks (5 benchmarks)
+    ├── test_services.c               # Service + integration tests (58 tests)
+    ├── test_new_modules.c            # New module tests (69 tests)
+    ├── test_benchmark.c              # Benchmark cases (5, opt-in)
+    ├── test_benchmark_main.c         # Benchmark-only entrypoint
     └── CMakeLists.txt
 ```
 
@@ -796,7 +797,7 @@ cmake -B build \
 cmake --build build -j$(nproc)
 
 # Run tests
-timeout 15 ./build/bin/miku_tests
+timeout 60 ./build/bin/miku_tests
 
 # Production build with all features
 cmake -B build -DCMAKE_BUILD_TYPE=Release \
@@ -897,13 +898,14 @@ void test_arena_alloc(void **state) {
 
 | Category | Tests | Description |
 |----------|-------|-------------|
-| Foundation | 20 | Memory, arena, slab, log, config, hashmap, string, UUID, etc. |
+| Foundation | 24 | Memory, arena, slab, log, config, hashmap, string, UUID, SIGPIPE, stats, JSON helpers |
 | Runtime | 9 | Coroutine, thread pool, scheduler, channel, timer |
-| Protocol | 40 | HTTP parser, JSON, SHA1, WebSocket, RPC, PB, middleware, routes |
+| Protocol | 51 | HTTP parser, JSON, SHA1, WebSocket, RPC, PB, middleware, routes |
 | Storage | 9 | LRU cache, service discovery |
-| Services | 22 | Models, 7 RPC services, integration tests, auth middleware |
-| **Total** | **100** | + 5 benchmarks |
-| Benchmarks | 5 | JSON parse/stringify, HashMap put, Cache set+get, Queue enqueue |
+| Services | 58 | Models, 7 RPC services, integration tests, auth middleware, concurrency gates |
+| New Modules | 69 | IM message, msg pipeline/store, rate limit, webhook, WS ops, E2E flows |
+| **Total** | **220** | Functional tests run by default through `miku_tests` |
+| Benchmarks | 5 | Opt-in Release target `miku_bench`: JSON parse/stringify, HashMap put, Cache set+get, Queue enqueue |
 
 ### Test Execution
 ```bash
@@ -912,7 +914,7 @@ cmake -B build -DCMAKE_BUILD_TYPE=Debug -DMIKU_ENABLE_TESTS=ON \
   -DMIKU_ENABLE_MONGO=OFF -DMIKU_ENABLE_REDIS=OFF \
   -DMIKU_ENABLE_KAFKA=OFF -DMIKU_ENABLE_S3=OFF && \
 cmake --build build -j$(nproc) && \
-timeout 15 ./build/bin/miku_tests
+timeout 60 ./build/bin/miku_tests
 
 # Or via Makefile
 make test
@@ -950,7 +952,7 @@ make test
 
 ## 10. Implementation Phases (Actual)
 
-All phases complete for the HTTP/WS API surface. **172 tests + 5 benchmarks** passing. **67 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse, O(1) fd map and user-id hash chains for push/kick, and requires handshake token. Rate limit and in-memory user lookup use FNV open-addressing (same pattern as `miku_seq`). Inbound opcode frames unwrap `data` before `on_op`; `SEND_MSG` persists and fans out `PUSH_MSG` to online `recvID`; `SUB_USER_STATUS` subscriptions receive online/offline presence via `miku_ws_sub_user_online/offline` hooked to connection lifecycle. Seq is per-conversation via `miku_seq`. Split deploy kick via localhost `/internal/kick`. In-mem `deleteMsg` co-located with writers. Offline push POSTs JSON to an optional `http://` endpoint when configured.
+All phases complete for the HTTP/WS API surface. **220 functional tests** pass by default, with **5 opt-in Release benchmarks** behind `MIKU_ENABLE_BENCHMARKS=ON` / `miku_bench`. **68 modules** across 6 layers. **13 binaries**. **203 routes**. Auth uses signed `miku|...` tokens (FNV-1a, ms timestamps, in-memory revoke). WS gateway uses epoll with slot reuse, O(1) fd map and user-id hash chains for push/kick, and requires handshake token. Rate limit and in-memory user lookup use FNV open-addressing (same pattern as `miku_seq`). Inbound opcode frames unwrap `data` before `on_op`; `SEND_MSG` persists and fans out `PUSH_MSG` to online `recvID`; `SUB_USER_STATUS` subscriptions receive online/offline presence via `miku_ws_sub_user_online/offline` hooked to connection lifecycle. Seq is per-conversation via `miku_seq`. Split deploy kick via localhost `/internal/kick`. In-mem `deleteMsg` co-located with writers. Offline push POSTs JSON to an optional `http://` endpoint when configured.
 
 | Phase | Description | Status |
 |-------|-------------|--------|
@@ -1041,7 +1043,8 @@ docker run -p 443:10002 \
 
 GitHub Actions pipeline (`.github/workflows/ci.yml`):
 - **build**: CMake debug build with tests disabled
-- **test**: Full build with tests, runs `miku_tests`
+- **test**: Full build with functional tests, runs `miku_tests`
+- **asan**: Debug ASAN/UBSan build runs `miku_tests`
 - **docker-build**: Validates Docker image builds successfully
 
 ### Monitoring
