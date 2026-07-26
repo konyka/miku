@@ -41,9 +41,15 @@ usage() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --api)        API_URL="$2"; shift 2 ;;
-        --duration)   DURATION="$2"; shift 2 ;;
-        --connections) CONNECTIONS="$2"; shift 2 ;;
+        --api)
+            [[ $# -ge 2 ]] || { echo "Missing value for --api"; exit 1; }
+            API_URL="$2"; shift 2 ;;
+        --duration)
+            [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--duration requires a positive integer"; exit 1; }
+            DURATION="$2"; shift 2 ;;
+        --connections)
+            [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "--connections requires a positive integer"; exit 1; }
+            CONNECTIONS="$2"; shift 2 ;;
         --unit)       UNIT_ONLY=1; shift ;;
         --help|-h)    usage ;;
         *)            echo "Unknown option: $1"; usage ;;
@@ -69,28 +75,33 @@ header() {
 }
 
 ###############################################################################
-# Unit Benchmarks (built-in miku_tests benchmarks)
+# Unit Benchmarks (explicit miku_bench target)
 ###############################################################################
 run_unit_benchmarks() {
     header "Unit Benchmarks"
 
-    if [[ ! -f ./build/bin/miku_tests ]]; then
-        warn "Building miku_tests..."
+    if [[ ! -f ./build/bin/miku_bench ]]; then
+        warn "Building miku_bench..."
         cmake -B build -DCMAKE_BUILD_TYPE=Release \
             -DMIKU_ENABLE_TESTS=ON \
+            -DMIKU_ENABLE_BENCHMARKS=ON \
             -DMIKU_ENABLE_MONGO=OFF \
             -DMIKU_ENABLE_REDIS=OFF \
             -DMIKU_ENABLE_KAFKA=OFF \
             -DMIKU_ENABLE_S3=OFF >/dev/null 2>&1
-        cmake --build build -j"$(nproc)" >/dev/null 2>&1
+        cmake --build build --target miku_bench -j"$(nproc)" >/dev/null 2>&1
     fi
 
-    if [[ -f ./build/bin/miku_tests ]]; then
-        info "Running miku_tests (benchmarks included)..."
-        timeout 30 ./build/bin/miku_tests 2>&1 | tail -20
-        pass "Unit benchmarks complete"
+    if [[ -f ./build/bin/miku_bench ]]; then
+        info "Running miku_bench..."
+        if timeout 30 ./build/bin/miku_bench 2>&1 | tail -20; then
+            pass "Unit benchmarks complete"
+        else
+            fail "Unit benchmarks failed"
+            return 1
+        fi
     else
-        fail "Could not build miku_tests"
+        fail "Could not build miku_bench"
         return 1
     fi
 }
