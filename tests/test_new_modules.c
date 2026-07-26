@@ -1594,21 +1594,28 @@ static void test_offline_push_fcm_service_account(void) {
     miku_http_server_destroy(srv);
 }
 
-static int http_post_to(int port, const char *path, const char *body, char *resp, int cap) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
-    if (fd < 0) return -1;
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    struct timeval tv = {2, 0};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    int retries = 5;
-    while (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 && retries-- > 0) {
+
+static int connect_loopback_port(int port) {
+    for (int i = 0; i < 40; i++) {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) return -1;
+        struct sockaddr_in addr = {0};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons((uint16_t)port);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        struct timeval tv = {2, 0};
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+        if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) return fd;
+        close(fd);
         usleep(50000);
     }
-    if (retries <= 0) { close(fd); return -1; }
+    return -1;
+}
+
+static int http_post_to(int port, const char *path, const char *body, char *resp, int cap) {
+    int fd = connect_loopback_port(port);
+    if (fd < 0) return -1;
     char req[8192];
     int len = snprintf(req, sizeof(req),
         "POST %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",
@@ -1626,20 +1633,8 @@ static int http_post_to(int port, const char *path, const char *body, char *resp
 }
 
 static int http_get_to(int port, const char *path, char *resp, int cap) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = connect_loopback_port(port);
     if (fd < 0) return -1;
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    struct timeval tv = {2, 0};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    int retries = 5;
-    while (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 && retries-- > 0) {
-        usleep(50000);
-    }
-    if (retries <= 0) { close(fd); return -1; }
     char req[1024];
     int len = snprintf(req, sizeof(req),
         "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n\r\n", path, port);
@@ -1657,20 +1652,8 @@ static int http_get_to(int port, const char *path, char *resp, int cap) {
 
 static int http_get_with_token(int port, const char *path, const char *token,
                                char *resp, int cap) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = connect_loopback_port(port);
     if (fd < 0) return -1;
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    struct timeval tv = {2, 0};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    int retries = 5;
-    while (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 && retries-- > 0) {
-        usleep(50000);
-    }
-    if (retries <= 0) { close(fd); return -1; }
     char req[1024];
     int len = snprintf(req, sizeof(req),
         "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\ntoken: %s\r\n\r\n",
@@ -1694,20 +1677,8 @@ static char *extract_json_body(char *http_resp) {
 
 static int http_post_with_token(int port, const char *path, const char *token,
                                  const char *body, char *resp, int cap) {
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = connect_loopback_port(port);
     if (fd < 0) return -1;
-    struct sockaddr_in addr = {0};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons((uint16_t)port);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-    struct timeval tv = {2, 0};
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-    int retries = 5;
-    while (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 && retries-- > 0) {
-        usleep(50000);
-    }
-    if (retries <= 0) { close(fd); return -1; }
     char req[8192];
     int len;
     if (token && token[0]) {
