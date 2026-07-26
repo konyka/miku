@@ -1,6 +1,10 @@
 FROM gcc:13-bookworm AS builder
 
 WORKDIR /build
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    cmake make && rm -rf /var/lib/apt/lists/*
+
 COPY . .
 
 ARG ENABLE_MONGO=OFF
