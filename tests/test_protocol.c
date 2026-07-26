@@ -167,6 +167,34 @@ static void *server_thread(void *arg) {
     return NULL;
 }
 
+static int connect_loopback_with_retry(uint16_t port, int attempts, useconds_t delay_us) {
+    for (int i = 0; i < attempts; i++) {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd < 0) return -1;
+
+        struct sockaddr_in addr;
+        memset(&addr, 0, sizeof(addr));
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(port);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+        if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+            return fd;
+        }
+
+        close(fd);
+        usleep(delay_us);
+    }
+    return -1;
+}
+
+static int wait_for_loopback_port(uint16_t port) {
+    int fd = connect_loopback_with_retry(port, 40, 50000);
+    if (fd < 0) return -1;
+    close(fd);
+    return 0;
+}
+
 void test_http_server_ping(void) {
     /* Create server on a high port */
     miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19876);
@@ -177,20 +205,8 @@ void test_http_server_ping(void) {
     /* Start server in background thread */
     pthread_t tid;
     pthread_create(&tid, NULL, server_thread, srv);
-    usleep(100000); /* wait for server to start listening */
-
-    /* Connect as client */
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    int fd = connect_loopback_with_retry(19876, 40, 50000);
     mk_assert(fd >= 0);
-
-    struct sockaddr_in addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(19876);
-    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
-
-    int rc = connect(fd, (struct sockaddr *)&addr, sizeof(addr));
-    mk_assert_int_eq(0, rc);
 
     const char *req = "GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n";
     send(fd, req, strlen(req), 0);
@@ -236,7 +252,7 @@ void test_http_post_json_resp(void) {
     miku_http_server_route(srv, "POST", "/internal/push_msg", push_echo_handler, NULL);
     pthread_t tid;
     pthread_create(&tid, NULL, server_thread, srv);
-    usleep(100000);
+    mk_assert_int_eq(0, wait_for_loopback_port(19877));
 
     char body[256] = {0};
     int rc = miku_http_post_json_resp("http://127.0.0.1:19877/internal/push_msg",
@@ -263,7 +279,7 @@ void test_http_post_json_internal_resp(void) {
     miku_http_server_route(srv, "POST", "/internal/kick", internal_auth_handler, NULL);
     pthread_t tid;
     pthread_create(&tid, NULL, server_thread, srv);
-    usleep(100000);
+    mk_assert_int_eq(0, wait_for_loopback_port(19878));
 
     char body[256] = {0};
     mk_assert_int_eq(-1, miku_http_post_json_resp("http://127.0.0.1:19878/internal/kick",
