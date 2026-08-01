@@ -61,15 +61,17 @@ static void *worker_loop(void *arg) {
         }
 
         miku_task_t *task = tq_pop(&pool->global_queue);
-        if (task) {
-            miku_atomic_fetch_sub(&pool->pending, 1);
-            miku_atomic_fetch_sub(&pool->idle_workers, 1);
-        }
         miku_mutex_unlock(&pool->queue_lock);
 
         if (task) {
             task->fn(task->arg);
             free(task);
+            /* Decrement pending and broadcast only AFTER fn completes, so a
+             * waiter that observes pending == 0 has a happens-before
+             * guarantee that every submitted task's fn has run. Otherwise a
+             * worker can pop+decrement, drop the lock, and the waiter sees
+             * pending == 0 before fn executes — leaving the counter short. */
+            miku_atomic_fetch_sub(&pool->pending, 1);
             miku_atomic_fetch_add(&pool->idle_workers, 1);
             if (miku_atomic_load(&pool->pending) == 0) {
                 miku_cond_broadcast(&pool->idle_cond);
