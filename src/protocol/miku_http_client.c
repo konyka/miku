@@ -136,10 +136,19 @@ static int post_json_resp_impl(const char *url, const char *payload,
     char buf[1024];
     int total = 0;
     struct pollfd pfd = { .fd = fd, .events = POLLIN };
+    /* Single wall-clock deadline of 2s total; server dispatch under EPOLLET
+     * may take up to one server poll window before the response arrives. */
+    int64_t deadline_ms = miku_timestamp_ms() + 2000;
     while (total < (int)sizeof(buf) - 1) {
-        if (poll(&pfd, 1, 200) <= 0) break;
+        int64_t remain = deadline_ms - miku_timestamp_ms();
+        if (remain <= 0) break;
+        if (poll(&pfd, 1, (int)remain) <= 0) break;
         ssize_t r = read(fd, buf + total, sizeof(buf) - 1 - (size_t)total);
-        if (r <= 0) break;
+        if (r < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (r == 0) break;
         total += (int)r;
     }
     buf[total] = '\0';
