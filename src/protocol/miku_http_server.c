@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
+#include <errno.h>
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -393,12 +394,23 @@ static void accept_conn(int fd, int events, void *data) {
     miku_http_server_t *srv = (miku_http_server_t *)data;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    int client_fd = accept(fd, (struct sockaddr *)&addr, &addrlen);
-    if (client_fd < 0) return;
-    miku_set_nonblocking(client_fd);
-    if (srv->stats) miku_stats_conn_open(srv->stats);
-    conn_track_add(srv, client_fd);
-    miku_io_add(srv->io, client_fd, MK_IO_READ, handle_client, srv);
+    /* EPOLLET semantics require draining until EAGAIN; otherwise queued
+     * connections sit idle and the next epoll_wait won't re-trigger. */
+    int accepted = 0;
+    for (;;) {
+        int client_fd = accept(fd, (struct sockaddr *)&addr, &addrlen);
+        if (client_fd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            if (errno == EINTR) continue;
+            if (accepted == 0) return;
+            break;
+        }
+        miku_set_nonblocking(client_fd);
+        if (srv->stats) miku_stats_conn_open(srv->stats);
+        conn_track_add(srv, client_fd);
+        miku_io_add(srv->io, client_fd, MK_IO_READ, handle_client, srv);
+        accepted++;
+    }
 }
 
 miku_http_server_t *miku_http_server_create(const char *host, int port) {
