@@ -98,6 +98,27 @@ void test_threadpool_basic(void) {
     miku_threadpool_destroy(pool);
 }
 
+/* Regression: the worker used to decrement `pending` before invoking fn, so a
+ * waiter that observed pending == 0 could race the counter increment and read
+ * a stale (short) value. Repeating 400 tasks across 4 workers 25 times makes
+ * the race window hit reliably against the pre-fix code (typically 60-90% of
+ * the 400 increments observed); the post-fix worker decrements pending only
+ * after fn returns, so the counter increment happens-before wait_idle's
+ * observation of pending == 0. */
+void test_threadpool_burst_drain(void) {
+    miku_threadpool_t *pool = miku_threadpool_create(4);
+    mk_assert_not_null(pool);
+    for (int round = 0; round < 25; round++) {
+        g_tp_counter = 0;
+        for (int i = 0; i < 400; i++) {
+            miku_threadpool_submit(pool, tp_task_fn, NULL);
+        }
+        miku_threadpool_wait_idle(pool);
+        mk_assert_int_eq(400, atomic_load(&g_tp_counter));
+    }
+    miku_threadpool_destroy(pool);
+}
+
 static atomic_int g_sched_counter;
 
 static void sched_coro_fn(void *arg) {
@@ -231,6 +252,7 @@ void run_runtime_tests(void) {
     mk_run_test(test_coroutine_yield);
     mk_run_test(test_coroutine_nested);
     mk_run_test(test_threadpool_basic);
+    mk_run_test(test_threadpool_burst_drain);
     mk_run_test(test_channel_basic);
     mk_run_test(test_timer_basic);
     mk_run_test(test_timer_cancel);
