@@ -55,6 +55,8 @@ dkms.conf
 build/
 build-asan/
 build-review/
+build-release/
+build-bench/
 
 # IDE
 .vscode/
