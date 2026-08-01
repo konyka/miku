@@ -294,6 +294,49 @@ void test_http_post_json_internal_resp(void) {
     miku_http_server_destroy(srv);
 }
 
+/* Regression: under EPOLLET the accept callback must drain until EAGAIN, and
+ * the HTTP client must give the server enough wall-clock time to dispatch a
+ * response (server polls every 100 ms). Previously these two together caused
+ * 50% flake on test_http_post_json_resp / _internal_resp. Bursting 16
+ * concurrent connections exercises the accept-queue drain path; the
+ * sequential follow-up exercises the wall-clock read deadline. */
+static void *burst_client_thread(void *arg) {
+    uint16_t port = *(uint16_t *)arg;
+    char url[64];
+    snprintf(url, sizeof(url), "http://127.0.0.1:%u/internal/push_msg", (unsigned)port);
+    char body[256];
+    int rc = miku_http_post_json_resp(url, "{\"sendID\":\"a\",\"recvID\":\"b\"}",
+                                      body, sizeof(body));
+    return (void *)(intptr_t)rc;
+}
+
+void test_http_accept_drain_regression(void) {
+    const uint16_t kPort = 19879;
+    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", kPort);
+    mk_assert_not_null(srv);
+    miku_http_server_route(srv, "POST", "/internal/push_msg", push_echo_handler, NULL);
+    pthread_t tid;
+    pthread_create(&tid, NULL, server_thread, srv);
+    mk_assert_int_eq(0, wait_for_loopback_port(kPort));
+
+    enum { kClients = 16 };
+    pthread_t clients[kClients];
+    uint16_t ports[kClients];
+    for (int i = 0; i < kClients; i++) {
+        ports[i] = kPort;
+        pthread_create(&clients[i], NULL, burst_client_thread, &ports[i]);
+    }
+    for (int i = 0; i < kClients; i++) {
+        void *rv = NULL;
+        pthread_join(clients[i], &rv);
+        mk_assert_int_eq(0, (int)(intptr_t)rv);
+    }
+
+    miku_http_server_stop(srv);
+    pthread_join(tid, NULL);
+    miku_http_server_destroy(srv);
+}
+
 void test_rpc_build_method_payload(void) {
     miku_json_val_t *req = miku_json_create_object();
     miku_jss(req, "userID", "u\"1");
@@ -1010,6 +1053,7 @@ void run_protocol_tests(void) {
     mk_run_test(test_http_server_ping);
     mk_run_test(test_http_post_json_resp);
     mk_run_test(test_http_post_json_internal_resp);
+    mk_run_test(test_http_accept_drain_regression);
 
     printf("\n");
     mk_run_test(test_json_parse_object);
