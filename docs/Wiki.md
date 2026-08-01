@@ -986,11 +986,11 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 | Services | 58 | 模型、7 个 RPC 服务、集成测试、认证中间件、好友/群成员/会话并发安全 |
 | New Modules | 69 | IM 消息、消息管道、限流、Webhook、WS ops、消息存储并发与满载淘汰、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **225** | 220 功能 + 5 基准 |
+| **总计** | **227** | 222 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
-make test           # 默认只跑 220 个功能测试
+make test           # 默认只跑 222 个功能测试
 timeout 60 ./build/bin/miku_tests
 ```
 

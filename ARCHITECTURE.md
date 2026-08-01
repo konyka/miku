@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 206 tests, 67 modules — `/loop` pass 19; split-deploy invitee filter defer.
+> **Status**: 203 API routes, 222 tests, 67 modules — `/loop` pass 26; HTTP accept-drain + threadpool happens-before fixed.
 
 ### Review loop (Cursor `/loop`)
 
@@ -182,7 +182,7 @@ miku/
 │   ├── miku-dev/main.c               # All-in-one dev server
 │   └── CMakeLists.txt
 │
-└── tests/                            # Functional tests (220) + opt-in benchmarks (5)
+└── tests/                            # Functional tests (222) + opt-in benchmarks (5)
     ├── test_foundation.c             # Foundation entrypoint (24 tests + suites)
     ├── test_runtime.c                # Runtime tests (9 tests)
     ├── test_protocol.c               # Protocol + middleware + route tests (51 tests)
