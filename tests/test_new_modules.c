@@ -30,7 +30,11 @@
 #include <string.h>
 #include <unistd.h>
 #include <pthread.h>
+#include <errno.h>
+#include <time.h>
+#include <poll.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
@@ -1613,6 +1617,53 @@ static int connect_loopback_port(int port) {
     return -1;
 }
 
+static int wait_for_loopback_port(int port, int max_ms) {
+    int64_t deadline_ms =
+        (int64_t)(miku_timestamp_ms() ? miku_timestamp_ms() : 0) + max_ms;
+    for (;;) {
+        int fd = socket(AF_INET, SOCK_STREAM, 0);
+        if (fd >= 0) {
+            struct sockaddr_in addr = {0};
+            addr.sin_family = AF_INET;
+            addr.sin_port = htons((uint16_t)port);
+            inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+            if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+                close(fd);
+                return 0;
+            }
+            close(fd);
+        }
+        int64_t now_ms = miku_timestamp_ms();
+        if (now_ms >= deadline_ms) return -1;
+        int remain = (int)(deadline_ms - now_ms);
+        if (remain > 10) usleep(10000);
+        else usleep((useconds_t)(remain * 1000));
+    }
+}
+
+/* Read until peer-close or wall-clock deadline. The server polls every 100 ms
+ * (miku_io_poll(srv->io, 100)); a fixed short poll can miss the response
+ * under load. */
+static int read_with_deadline(int fd, char *buf, int cap, int deadline_ms) {
+    int64_t deadline =
+        (int64_t)(miku_timestamp_ms() ? miku_timestamp_ms() : 0) + deadline_ms;
+    int total = 0;
+    while (total < cap - 1) {
+        int64_t remain = deadline - miku_timestamp_ms();
+        if (remain <= 0) break;
+        struct pollfd pfd = { .fd = fd, .events = POLLIN };
+        if (poll(&pfd, 1, (int)remain) <= 0) break;
+        ssize_t n = read(fd, buf + total, (size_t)(cap - total - 1));
+        if (n < 0) {
+            if (errno == EINTR) continue;
+            break;
+        }
+        if (n == 0) break;
+        total += (int)n;
+    }
+    return total;
+}
+
 static int http_post_to(int port, const char *path, const char *body, char *resp, int cap) {
     int fd = connect_loopback_port(port);
     if (fd < 0) return -1;
@@ -1621,12 +1672,7 @@ static int http_post_to(int port, const char *path, const char *body, char *resp
         "POST %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\nContent-Type: application/json\r\nContent-Length: %zu\r\n\r\n%s",
         path, port, strlen(body), body);
     write(fd, req, (size_t)len);
-    int total = 0;
-    while (total < cap - 1) {
-        ssize_t n = read(fd, resp + total, (size_t)(cap - total - 1));
-        if (n <= 0) break;
-        total += (int)n;
-    }
+    int total = read_with_deadline(fd, resp, cap, 3000);
     resp[total] = '\0';
     close(fd);
     return total;
@@ -1639,12 +1685,7 @@ static int http_get_to(int port, const char *path, char *resp, int cap) {
     int len = snprintf(req, sizeof(req),
         "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\n\r\n", path, port);
     write(fd, req, (size_t)len);
-    int total = 0;
-    while (total < cap - 1) {
-        ssize_t n = read(fd, resp + total, (size_t)(cap - total - 1));
-        if (n <= 0) break;
-        total += (int)n;
-    }
+    int total = read_with_deadline(fd, resp, cap, 3000);
     resp[total] = '\0';
     close(fd);
     return total;
@@ -1659,12 +1700,7 @@ static int http_get_with_token(int port, const char *path, const char *token,
         "GET %s HTTP/1.1\r\nHost: 127.0.0.1:%d\r\ntoken: %s\r\n\r\n",
         path, port, token ? token : "");
     write(fd, req, (size_t)len);
-    int total = 0;
-    while (total < cap - 1) {
-        ssize_t n = read(fd, resp + total, (size_t)(cap - total - 1));
-        if (n <= 0) break;
-        total += (int)n;
-    }
+    int total = read_with_deadline(fd, resp, cap, 3000);
     resp[total] = '\0';
     close(fd);
     return total;
@@ -1712,7 +1748,7 @@ static void test_http_e2e_user_register_and_get(void) {
 
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19777, 2000);
 
     char auth_resp[8192] = {0};
     http_post_to(19777, "/auth/user_token",
@@ -1866,7 +1902,7 @@ static void test_http_e2e_auth_token(void) {
 
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19778, 2000);
 
     char resp[8192] = {0};
     int n = http_post_to(19778, "/auth/user_token",
@@ -1935,7 +1971,7 @@ static void test_http_e2e_friend_flow(void) {
 
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19779, 2000);
 
     char auth_resp[8192] = {0};
     http_post_to(19779, "/auth/user_token",
@@ -2020,7 +2056,7 @@ static void test_http_e2e_msg_send_and_search(void) {
 
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19780, 2000);
 
     char auth_resp[8192] = {0};
     http_post_to(19780, "/auth/user_token",
@@ -2545,7 +2581,7 @@ static void test_webhook_msg_send_trigger(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19781, 2000);
 
     char auth1[8192] = {0};
     http_post_to(19781, "/auth/user_token",
@@ -2596,7 +2632,7 @@ static void test_webhook_friend_add_trigger(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19782, 2000);
 
     char auth2[8192] = {0};
     http_post_to(19782, "/auth/user_token",
@@ -2631,7 +2667,7 @@ static void test_webhook_group_create_trigger(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19783, 2000);
 
     char auth3[8192] = {0};
     http_post_to(19783, "/auth/user_token",
@@ -2671,7 +2707,7 @@ static void test_webhook_payload_escape(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19784, 2000);
 
     char admin_auth[8192] = {0};
     http_post_to(19784, "/auth/admin_token",
@@ -2734,7 +2770,7 @@ static void test_group_member_sync_callback(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19850, 2000);
 
     char auth[8192] = {0};
     http_post_to(19850, "/auth/user_token",
@@ -2927,7 +2963,7 @@ static void test_ratelimit_http_429(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19784, 2000);
 
     char auth_rl[8192] = {0};
     http_post_to(19784, "/auth/user_token",
@@ -3001,7 +3037,7 @@ static void test_validation_missing_userID(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19790, 2000);
 
     char resp[8192] = {0};
     http_post_to(19790, "/auth/user_token",
@@ -3030,7 +3066,7 @@ static void test_validation_missing_friend_fields(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19791, 2000);
 
     char auth_v[8192] = {0};
     http_post_to(19791, "/auth/user_token",
@@ -3059,7 +3095,7 @@ static void test_validation_missing_send_fields(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19792, 2000);
 
     char auth_v2[8192] = {0};
     http_post_to(19792, "/auth/user_token",
@@ -3124,7 +3160,7 @@ static void test_validation_valid_request_passes(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19793, 2000);
 
     char auth_v3[8192] = {0};
     http_post_to(19793, "/auth/user_token",
@@ -3152,7 +3188,7 @@ static void test_token_auth_required(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19794, 2000);
 
     char resp[8192] = {0};
     http_post_to(19794, "/friend/get_friend_list",
@@ -3174,7 +3210,7 @@ static void test_token_invalid_rejected(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19795, 2000);
 
     char resp[8192] = {0};
     http_post_with_token(19795, "/user/register", "invalid_token_xyz",
@@ -3202,7 +3238,7 @@ static void test_token_valid_passes(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19796, 2000);
 
     char auth_r[8192] = {0};
     http_post_to(19796, "/auth/user_token",
@@ -3226,13 +3262,42 @@ static void test_token_valid_passes(void) {
     miku_api_ctx_destroy(ctx);
 }
 
-static void test_third_object_acl(void) {
-    miku_api_ctx_t *ctx = miku_api_ctx_create();
-    miku_http_server_t *srv = miku_http_server_create("127.0.0.1", 19801);
-    miku_api_register_routes(srv, ctx);
+typedef struct {
+    miku_api_ctx_t *ctx;
+    miku_http_server_t *srv;
     pthread_t tid;
-    pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    int cleaned;
+} test_http_ctx_t;
+
+static void test_http_ctx_cleanup(void *p) {
+    test_http_ctx_t *c = (test_http_ctx_t *)p;
+    if (c->cleaned) return;
+    c->cleaned = 1;
+    if (c->srv) {
+        miku_http_server_stop(c->srv);
+        pthread_join(c->tid, NULL);
+        miku_http_server_destroy(c->srv);
+        c->srv = NULL;
+    }
+    if (c->ctx) {
+        miku_api_ctx_destroy(c->ctx);
+        c->ctx = NULL;
+    }
+}
+
+static test_http_ctx_t test_http_ctx_setup(const char *port_str, int port) {
+    test_http_ctx_t c = { NULL, NULL, 0, 0 };
+    c.ctx = miku_api_ctx_create();
+    c.srv = miku_http_server_create(port_str, port);
+    miku_api_register_routes(c.srv, c.ctx);
+    pthread_create(&c.tid, NULL, http_server_thread, c.srv);
+    wait_for_loopback_port(port, 2000);
+    mk_test_register_cleanup(test_http_ctx_cleanup, &c);
+    return c;
+}
+
+static void test_third_object_acl(void) {
+    test_http_ctx_t c = test_http_ctx_setup("127.0.0.1", 19801);
 
     char auth_a[8192] = {0};
     http_post_to(19801, "/auth/user_token",
@@ -3274,10 +3339,7 @@ static void test_third_object_acl(void) {
 
     if (ar) miku_json_destroy(ar);
     if (br) miku_json_destroy(br);
-    miku_http_server_stop(srv);
-    pthread_join(tid, NULL);
-    miku_http_server_destroy(srv);
-    miku_api_ctx_destroy(ctx);
+    /* Cleanup is handled by the registered hook (test_http_ctx_cleanup). */
 }
 
 static void test_admin_health(void) {
@@ -3286,7 +3348,7 @@ static void test_admin_health(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19797, 2000);
 
     char resp[8192] = {0};
     int n = http_get_to(19797, "/admin/health", resp, sizeof(resp));
@@ -3308,7 +3370,7 @@ static void test_admin_stats(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19798, 2000);
 
     char user_auth[8192] = {0};
     http_post_to(19798, "/auth/user_token",
@@ -3434,7 +3496,7 @@ static void test_admin_metrics(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19799, 2000);
 
     char denied[8192] = {0};
     int n = http_get_to(19799, "/admin/metrics", denied, sizeof(denied));
@@ -3468,7 +3530,7 @@ static void test_version_endpoint(void) {
     miku_api_register_routes(srv, ctx);
     pthread_t tid;
     pthread_create(&tid, NULL, http_server_thread, srv);
-    usleep(200000);
+    wait_for_loopback_port(19800, 2000);
 
     char resp[8192] = {0};
     int n = http_get_to(19800, "/version", resp, sizeof(resp));
