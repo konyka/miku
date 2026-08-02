@@ -2559,39 +2559,61 @@ static int ws_connect_with_token(int port, const char *token) {
     return fd;
 }
 
+typedef struct {
+    miku_msggw_t *gw;
+    int fd1;
+    int fd2;
+} test_gw_ctx_t;
+
+static void test_gw_ctx_cleanup(void *p) {
+    test_gw_ctx_t *c = (test_gw_ctx_t *)p;
+    if (c->fd1 >= 0) close(c->fd1);
+    if (c->fd2 >= 0) close(c->fd2);
+    if (c->gw) {
+        miku_msggw_stop(c->gw);
+        miku_msggw_destroy(c->gw);
+    }
+    c->fd1 = c->fd2 = -1;
+    c->gw = NULL;
+}
+
+static test_gw_ctx_t test_gw_ctx_setup(int port) {
+    test_gw_ctx_t c = { NULL, -1, -1 };
+    c.gw = miku_msggw_create(port);
+    mk_assert_not_null(c.gw);
+    int rc = miku_msggw_start(c.gw);
+    mk_assert_int_eq(0, rc);
+    mk_test_register_cleanup(test_gw_ctx_cleanup, &c);
+    return c;
+}
+
 static void test_msggateway_kick_by_platform(void) {
-    miku_msggw_t *gw = miku_msggw_create(19102);
-    mk_assert_not_null(gw);
-    mk_assert_int_eq(0, miku_msggw_start(gw));
+    test_gw_ctx_t c = test_gw_ctx_setup(19102);
 
     char tok1[512] = {0}, tok2[512] = {0};
     mk_assert_int_eq(0, miku_token_create("kick_u", 1, "openIM123", tok1, sizeof(tok1)));
     mk_assert_int_eq(0, miku_token_create("kick_u", 2, "openIM123", tok2, sizeof(tok2)));
 
-    int fd1 = ws_connect_with_token(19102, tok1);
-    int fd2 = ws_connect_with_token(19102, tok2);
-    mk_assert(fd1 >= 0 && fd2 >= 0);
-    miku_msggw_poll(gw, 300);
+    c.fd1 = ws_connect_with_token(19102, tok1);
+    c.fd2 = ws_connect_with_token(19102, tok2);
+    mk_assert(c.fd1 >= 0 && c.fd2 >= 0);
+    miku_msggw_poll(c.gw, 300);
     char resp[1024];
     memset(resp, 0, sizeof(resp));
-    read(fd1, resp, sizeof(resp) - 1);
+    read(c.fd1, resp, sizeof(resp) - 1);
     mk_assert(strstr(resp, "101") != NULL);
     memset(resp, 0, sizeof(resp));
-    read(fd2, resp, sizeof(resp) - 1);
+    read(c.fd2, resp, sizeof(resp) - 1);
     mk_assert(strstr(resp, "101") != NULL);
-    mk_assert_int_eq(2, miku_msggw_client_count(gw));
+    mk_assert_int_eq(2, miku_msggw_client_count(c.gw));
 
     /* Kick only platform 1 — platform 2 stays online. */
-    mk_assert_int_eq(1, miku_msggw_kick_user(gw, "kick_u", 1));
-    mk_assert_int_eq(1, miku_msggw_client_count(gw));
+    mk_assert_int_eq(1, miku_msggw_kick_user(c.gw, "kick_u", 1));
+    mk_assert_int_eq(1, miku_msggw_client_count(c.gw));
 
-    mk_assert_int_eq(1, miku_msggw_kick_user(gw, "kick_u", 2));
-    mk_assert_int_eq(0, miku_msggw_client_count(gw));
-
-    close(fd1);
-    close(fd2);
-    miku_msggw_stop(gw);
-    miku_msggw_destroy(gw);
+    mk_assert_int_eq(1, miku_msggw_kick_user(c.gw, "kick_u", 2));
+    mk_assert_int_eq(0, miku_msggw_client_count(c.gw));
+    /* Cleanup handled by the registered hook. */
 }
 
 static void test_msgtransfer_queue(void) {
