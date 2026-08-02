@@ -29,6 +29,26 @@ int mk_tests_failed = 0;
 int mk_assertions   = 0;
 int mk_test_failed  = 0;
 
+#define MK_TEST_CLEANUPS_MAX 32
+static mk_cleanup_fn_t g_mk_cleanups[MK_TEST_CLEANUPS_MAX];
+static void           *g_mk_cleanup_ctxs[MK_TEST_CLEANUPS_MAX];
+int                    mk_test_cleanups_count = 0;
+
+void mk_test_register_cleanup(mk_cleanup_fn_t fn, void *ctx) {
+    if (mk_test_cleanups_count >= MK_TEST_CLEANUPS_MAX) return;
+    g_mk_cleanups[mk_test_cleanups_count] = fn;
+    g_mk_cleanup_ctxs[mk_test_cleanups_count] = ctx;
+    mk_test_cleanups_count++;
+}
+
+void mk_test_run_cleanups(void) {
+    /* Run in LIFO order so the last-registered finalizer fires first,
+     * matching the nesting expected by manual destroy-style cleanups. */
+    for (int i = mk_test_cleanups_count - 1; i >= 0; i--) {
+        g_mk_cleanups[i](g_mk_cleanup_ctxs[i]);
+    }
+}
+
 void test_arena(void) {
     miku_arena_t *a = miku_arena_create(4096);
     mk_assert_not_null(a);

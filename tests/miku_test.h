@@ -34,6 +34,14 @@ extern int mk_tests_failed;
 extern int mk_assertions;
 extern int mk_test_failed;  /* per-test flag, set by assertions before early-return */
 
+/* Per-test cleanup hook. Tests that allocate resources before the first
+ * assertion can register a finalizer via mk_test_register_cleanup; if any
+ * assertion fails, the finalizer still runs before the test returns. */
+typedef void (*mk_cleanup_fn_t)(void *ctx);
+extern int mk_test_cleanups_count;
+void mk_test_register_cleanup(mk_cleanup_fn_t fn, void *ctx);
+void mk_test_run_cleanups(void);
+
 /* ── Colors (ANSI) ────────────────────────────────────────── */
 #define MK_COLOR_RED     "\033[31m"
 #define MK_COLOR_GREEN   "\033[32m"
@@ -47,7 +55,6 @@ extern int mk_test_failed;  /* per-test flag, set by assertions before early-ret
         mk_test_failed = 1;                                                \
         printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                          \
                 " %s:%d: %s\n", file, line, msg);                          \
-        return;                                                            \
     }                                                                      \
 } while (0)
 
@@ -58,7 +65,6 @@ extern int mk_test_failed;  /* per-test flag, set by assertions before early-ret
         printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                          \
                 " %s:%d: expected " fmt ", got " fmt "\n",                 \
                 file, line, (a), (b));                                     \
-        return;                                                            \
     }                                                                      \
 } while (0)
 
@@ -82,7 +88,6 @@ extern int mk_test_failed;  /* per-test flag, set by assertions before early-ret
         printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                           \
                 " %s:%d: expected \"%s\", got \"%s\"\n",                    \
                 __FILE__, __LINE__, (expected), (actual));                  \
-        return;                                                             \
     }                                                                       \
 } while (0)
 
@@ -92,8 +97,7 @@ extern int mk_test_failed;  /* per-test flag, set by assertions before early-ret
         mk_test_failed = 1;                                                \
         printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                          \
                 " %s:%d: expected %f, got %f\n",                           \
-                __FILE__, __LINE__, (double)(expected), (double)(actual)); \
-        return;                                                            \
+                __FILE__, __LINE__, (double)(expected), (double)(actual));  \
     }                                                                      \
 } while (0)
 
@@ -104,7 +108,6 @@ extern int mk_test_failed;  /* per-test flag, set by assertions before early-ret
         printf(MK_COLOR_RED "FAIL" MK_COLOR_RESET                          \
                 " %s:%d: memory mismatch (len=%zu)\n",                     \
                 __FILE__, __LINE__, (size_t)(len));                        \
-        return;                                                            \
     }                                                                      \
 } while (0)
 
@@ -114,13 +117,16 @@ extern int mk_test_failed;  /* per-test flag, set by assertions before early-ret
     printf(MK_COLOR_YELLOW "  TEST" MK_COLOR_RESET " %s ... ", #test_fn); \
     fflush(stdout);                                                        \
     mk_test_failed = 0;                                                    \
+    mk_test_cleanups_count = 0;                                            \
     test_fn();                                                             \
     if (mk_test_failed) {                                                  \
+        mk_test_run_cleanups();                                            \
         mk_tests_failed++;                                                 \
     } else {                                                               \
         mk_tests_passed++;                                                 \
         printf(MK_COLOR_GREEN "OK" MK_COLOR_RESET "\n");                   \
     }                                                                      \
+    mk_test_cleanups_count = 0;                                            \
 } while (0)
 
 static inline int mk_test_summary(void) {
