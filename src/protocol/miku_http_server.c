@@ -224,7 +224,8 @@ static void handle_client(int fd, int events, void *data) {
         }
 
         ssize_t nread = MIKU_READ(buf + n, READ_CHUNK);
-        if (nread <= 0) {
+        if (nread == 0) {
+            /* Peer closed; clean up. */
             free(buf);
             if (req) miku_http_request_destroy(req);
             conn_track_remove(srv, fd);
@@ -233,6 +234,24 @@ static void handle_client(int fd, int events, void *data) {
 #endif
             if (srv->stats) miku_stats_conn_close(srv->stats);
             close(fd); miku_io_del(srv->io, fd);
+            return;
+        }
+        if (nread < 0) {
+            int e = errno;
+            if (e != EAGAIN && e != EWOULDBLOCK && e != EINTR) {
+                free(buf);
+                if (req) miku_http_request_destroy(req);
+                conn_track_remove(srv, fd);
+#ifdef MIKU_ENABLE_TLS
+                if (ssl) SSL_free(ssl);
+#endif
+                if (srv->stats) miku_stats_conn_close(srv->stats);
+                close(fd); miku_io_del(srv->io, fd);
+            } else {
+                free(buf);
+                if (req) miku_http_request_destroy(req);
+                conn_track_touch(srv, fd);
+            }
             return;
         }
         n += (size_t)nread;
@@ -416,6 +435,9 @@ static void accept_conn(int fd, int events, void *data) {
 miku_http_server_t *miku_http_server_create(const char *host, int port) {
     miku_http_server_t *srv = (miku_http_server_t *)calloc(1, sizeof(*srv));
     if (!srv) return NULL;
+    /* Initialize listen_fd to -1 so destroy()'s `if (listen_fd >= 0)`
+     * does not close fd 0 (stdin) on a create-then-failed-start path. */
+    srv->listen_fd = -1;
     strncpy(srv->host, host ? host : "0.0.0.0", sizeof(srv->host) - 1);
     srv->port = port;
     srv->io = miku_io_create();
@@ -474,6 +496,9 @@ int miku_http_server_start(miku_http_server_t *srv) {
 
     int opt = 1;
     setsockopt(srv->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#ifdef SO_REUSEPORT
+    setsockopt(srv->listen_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+#endif
     miku_set_nonblocking(srv->listen_fd);
 
     struct sockaddr_in addr;
@@ -483,11 +508,39 @@ int miku_http_server_start(miku_http_server_t *srv) {
     inet_pton(AF_INET, srv->host, &addr.sin_addr);
 
     if (bind(srv->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        int e = errno;
         close(srv->listen_fd);
+        srv->listen_fd = -1;
+        /* Retry once on EADDRINUSE — covers the kernel-level race where a
+         * previous server's listen socket is still being torn down by its
+         * epoll thread even after pthread_join returned. SO_REUSEADDR
+         * covers TIME_WAIT but not in-flight listen sockets. */
+        if (e == EADDRINUSE) {
+            usleep(10000);
+            srv->listen_fd = socket(AF_INET, SOCK_STREAM, 0);
+            if (srv->listen_fd < 0) return -1;
+            setsockopt(srv->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#ifdef SO_REUSEPORT
+            setsockopt(srv->listen_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+#endif
+            miku_set_nonblocking(srv->listen_fd);
+            if (bind(srv->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+                close(srv->listen_fd);
+                srv->listen_fd = -1;
+                return -1;
+            }
+        } else {
+            return -1;
+        }
+    }
+    if (listen(srv->listen_fd, 128) != 0) {
+        close(srv->listen_fd);
+        srv->listen_fd = -1;
         return -1;
     }
     if (listen(srv->listen_fd, 128) != 0) {
         close(srv->listen_fd);
+        srv->listen_fd = -1;
         return -1;
     }
 
