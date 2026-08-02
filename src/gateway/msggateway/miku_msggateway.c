@@ -79,8 +79,12 @@ miku_msggw_t *miku_msggw_create(int port) {
 
 void miku_msggw_destroy(miku_msggw_t *gw) {
     if (!gw) return;
+    if (gw->listen_fd >= 0) close(gw->listen_fd);
+    gw->listen_fd = -1;
     if (gw->io) miku_io_destroy(gw->io);
-    miku_seq_destroy(gw->seq);
+    gw->io = NULL;
+    if (gw->seq) miku_seq_destroy(gw->seq);
+    gw->seq = NULL;
     pthread_mutex_destroy(&gw->lock);
     free(gw);
 }
@@ -170,12 +174,32 @@ int miku_msggw_start(miku_msggw_t *gw) {
     }
     int opt = 1;
     setsockopt(gw->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#ifdef SO_REUSEPORT
+    setsockopt(gw->listen_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+#endif
     struct sockaddr_in addr = {0};
     addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = htonl(INADDR_ANY);
     addr.sin_port = htons((uint16_t)gw->port);
-    if (bind(gw->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0 ||
-        listen(gw->listen_fd, 128) < 0) {
+    /* Retry once on EADDRINUSE — see miku_http_server_start for the rationale. */
+    if (bind(gw->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+        if (errno == EADDRINUSE) {
+            close(gw->listen_fd);
+            gw->listen_fd = -1;
+            usleep(10000);
+            gw->listen_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+            if (gw->listen_fd < 0) goto fail;
+            setsockopt(gw->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+#ifdef SO_REUSEPORT
+            setsockopt(gw->listen_fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt));
+#endif
+            if (bind(gw->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) goto fail;
+        } else {
+            goto fail;
+        }
+    }
+    if (listen(gw->listen_fd, 128) < 0) {
+fail:
         close(gw->listen_fd);
         gw->listen_fd = -1;
         miku_io_destroy(gw->io);
