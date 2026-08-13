@@ -19,6 +19,12 @@ MIKU_API int miku_auth_parse_token(miku_auth_service_t *svc, const char *token,
                                     char *user_id_out, size_t cap);
 MIKU_API int miku_auth_force_logout(miku_auth_service_t *svc, const char *user_id, int platform);
 
+/* Configure the admin principal. Pass NULL or "" to disable the
+ * principal cross-check (backward-compat for tests and processes that
+ * do not run a fixed admin userID). When non-empty, miku_auth_admin_token
+ * will only mint a token for that exact userID. */
+MIKU_API void miku_auth_set_admin_principal(const char *user_id);
+
 MIKU_API void miku_auth_handle_rpc(miku_auth_service_t *svc, const miku_rpc_message_t *req,
                                     miku_rpc_message_t *resp);
 

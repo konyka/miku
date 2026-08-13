@@ -7,9 +7,24 @@
 #include <string.h>
 #include <stdio.h>
 
+#define MK_AUTH_PRINCIPAL_MAX 64
+
 struct miku_auth_service_s {
     int placeholder;
 };
+
+static char g_admin_principal[MK_AUTH_PRINCIPAL_MAX] = {0};
+
+void miku_auth_set_admin_principal(const char *user_id) {
+    if (!user_id) {
+        g_admin_principal[0] = '\0';
+        return;
+    }
+    size_t n = strlen(user_id);
+    if (n >= sizeof(g_admin_principal)) n = sizeof(g_admin_principal) - 1;
+    memcpy(g_admin_principal, user_id, n);
+    g_admin_principal[n] = '\0';
+}
 
 miku_auth_service_t *miku_auth_service_create(void) {
     miku_auth_service_t *svc = (miku_auth_service_t *)calloc(1, sizeof(*svc));
@@ -42,8 +57,12 @@ int miku_auth_admin_token(miku_auth_service_t *svc, const char *user_id,
         MK_LOG_WARN("Admin auth failed for user %s: bad secret", user_id);
         return -1;
     }
-    return miku_token_create(user_id, 5, miku_token_default_secret(),
-                             token_out, token_cap);
+    if (g_admin_principal[0] && strcmp(user_id, g_admin_principal) != 0) {
+        MK_LOG_WARN("Admin auth failed for user %s: not the configured principal",
+                    user_id);
+        return -1;
+    }
+    return miku_admin_token_create(user_id, token_out, token_cap);
 }
 
 int miku_auth_parse_token(miku_auth_service_t *svc, const char *token,

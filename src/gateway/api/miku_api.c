@@ -439,9 +439,22 @@ static void req_auth_ensure(miku_http_request_t *req) {
     s_req_auth.token[0] = '\0';
     if (s_req_auth.have_token) {
         strncpy(s_req_auth.token, token, sizeof(s_req_auth.token) - 1);
-        s_req_auth.valid = (miku_token_verify_ex(token, miku_token_default_secret(),
-                                s_req_auth.uid, sizeof(s_req_auth.uid),
-                                &s_req_auth.platform, NULL) == 0) ? 1 : 0;
+        /* Try the user-secret keyspace first; if that fails, fall back to
+         * the admin-secret keyspace so admin tokens minted with
+         * miku_admin_default_secret() are still recognized. */
+        if (miku_token_verify_ex(token, miku_token_default_secret(),
+                                 s_req_auth.uid, sizeof(s_req_auth.uid),
+                                 &s_req_auth.platform, NULL) != 0) {
+            s_req_auth.uid[0] = '\0';
+            s_req_auth.platform = -1;
+            if (miku_token_verify_ex(token, miku_admin_default_secret(),
+                                     s_req_auth.uid, sizeof(s_req_auth.uid),
+                                     &s_req_auth.platform, NULL) != 0) {
+                s_req_auth.uid[0] = '\0';
+                s_req_auth.platform = -1;
+            }
+        }
+        s_req_auth.valid = s_req_auth.uid[0] ? 1 : 0;
     }
 }
 
@@ -1593,8 +1606,14 @@ static void handle_msg(miku_http_request_t *req, miku_http_response_t *resp, voi
         }
     }
     if (strcmp(method, "cleanUpMsg") == 0 || strcmp(method, "batchSendMsg") == 0
-        || strcmp(method, "sendBusinessNotification") == 0)
+        || strcmp(method, "sendBusinessNotification") == 0) {
         miku_ji(j, "platformID", req_token_platform(req));
+        /* Forward the verified token so the msg RPC layer can re-verify
+         * it against the admin keyspace (closes the platformID=5 spoof
+         * via the msg-handler admin gate). */
+        if (s_req_auth.valid && s_req_auth.token[0])
+            miku_jss(j, "token", s_req_auth.token);
+    }
     API_MSG_RPC(c, method, j, out);
 
     /* getMsg / getMsgBySeq / searchMsg: drop non-participant results (no 3003 oracle). */

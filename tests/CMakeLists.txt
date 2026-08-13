@@ -31,7 +31,7 @@ set(MIKU_TEST_INCLUDES
     ${CMAKE_SOURCE_DIR}/src/gateway/crontask
 )
 
-add_executable(miku_tests test_foundation.c test_runtime.c test_protocol.c test_storage.c test_services.c test_new_modules.c)
+add_executable(miku_tests test_foundation.c test_runtime.c test_protocol.c test_storage.c test_services.c test_new_modules.c test_pass28_t0_p1.c)
 
 target_include_directories(miku_tests PRIVATE ${MIKU_TEST_INCLUDES})
 

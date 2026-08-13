@@ -164,6 +164,12 @@ int miku_token_create(const char *user_id, int platform, const char *secret,
     return 0;
 }
 
+int miku_admin_token_create(const char *user_id,
+                             char *token_out, size_t token_cap) {
+    return miku_token_create(user_id, 5, miku_admin_default_secret(),
+                             token_out, token_cap);
+}
+
 int miku_token_verify_ex(const char *token, const char *secret,
                           char *user_id_out, size_t cap,
                           int *platform_out, int64_t *issued_at_out) {

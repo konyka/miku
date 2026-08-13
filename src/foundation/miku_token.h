@@ -20,6 +20,13 @@ MIKU_API const char *miku_internal_secret(void);
 MIKU_API int miku_token_create(const char *user_id, int platform, const char *secret,
                                 char *token_out, size_t token_cap);
 
+/* Create a platform=5 admin token signed with miku_admin_default_secret().
+ * Use this in place of miku_token_create(..., miku_token_default_secret(), ...)
+ * for admin-issued tokens so the signature is bound to the admin keyspace
+ * and cannot be forged by callers who hold only the user secret. */
+MIKU_API int miku_admin_token_create(const char *user_id,
+                                      char *token_out, size_t token_cap);
+
 /* Verify signed token. On success writes user_id into user_id_out and returns 0.
  * Returns -1 if missing/malformed/bad signature/expired/revoked. */
 MIKU_API int miku_token_verify(const char *token, const char *secret,

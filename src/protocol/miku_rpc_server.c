@@ -56,8 +56,8 @@ static void rpc_write_json_response(int fd, miku_json_val_t *resp, miku_stats_t 
 }
 
 static int rpc_internal_authorized(miku_rpc_server_t *srv, const miku_json_val_t *req,
-                                   miku_json_val_t *resp) {
-    if (!srv || !srv->internal_token || !srv->internal_token[0]) return 1;
+                                    miku_json_val_t *resp) {
+    if (!srv || !srv->internal_token || !srv->internal_token[0]) return 0;
     const char *tok = req ? miku_json_str(miku_json_get(req, "internalToken")) : NULL;
     if (tok && strcmp(tok, srv->internal_token) == 0) return 1;
     miku_ji(resp, "errCode", 401);
@@ -72,6 +72,9 @@ miku_rpc_server_t *miku_rpc_server_create(void *svc, miku_rpc_dispatch_fn dispat
     srv->dispatch = dispatch;
     srv->port = port;
     srv->listen_fd = -1;
+    MK_LOG_WARN("rpc_internal_authorized fail-CLOSED default; "
+                "ensure miku_rpc_server_set_internal_token() is called "
+                "with a non-empty value");
     return srv;
 }
 

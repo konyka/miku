@@ -1007,6 +1007,9 @@ static void test_msg_admin_rpc_gate(void) {
     miku_msg_service_t *msg = miku_msg_service_create();
     mk_assert_not_null(msg);
 
+    char admin_tok[512] = {0};
+    mk_assert_int_eq(0, miku_admin_token_create("admin-uid", admin_tok, sizeof(admin_tok)));
+
     miku_json_val_t *deny_req = miku_json_create_object();
     miku_json_val_t *deny_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "cleanUpMsg", deny_req, deny_resp);
@@ -1023,6 +1026,7 @@ static void test_msg_admin_rpc_gate(void) {
 
     miku_json_val_t *ok_req = miku_json_create_object();
     miku_json_object_set(ok_req, "platformID", miku_json_create_int(5));
+    miku_json_object_set(ok_req, "token", miku_json_create_str(admin_tok));
     miku_json_val_t *ok_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "cleanUpMsg", ok_req, ok_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(ok_resp, "errCode")));
@@ -1031,6 +1035,7 @@ static void test_msg_admin_rpc_gate(void) {
 
     miku_json_val_t *batch_ok = miku_json_create_object();
     miku_json_object_set(batch_ok, "platformID", miku_json_create_int(5));
+    miku_json_object_set(batch_ok, "token", miku_json_create_str(admin_tok));
     miku_json_val_t *batch_ok_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "batchSendMsg", batch_ok, batch_ok_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(batch_ok_resp, "errCode")));
@@ -1049,6 +1054,7 @@ static void test_msg_admin_rpc_gate(void) {
 
     miku_json_val_t *biz_ok = miku_json_create_object();
     miku_json_object_set(biz_ok, "platformID", miku_json_create_int(5));
+    miku_json_object_set(biz_ok, "token", miku_json_create_str(admin_tok));
     miku_json_object_set(biz_ok, "sendID", miku_json_create_str("sys"));
     miku_json_object_set(biz_ok, "recvID", miku_json_create_str("u1"));
     miku_json_object_set(biz_ok, "content", miku_json_create_str("notice"));
@@ -1060,6 +1066,7 @@ static void test_msg_admin_rpc_gate(void) {
 
     miku_json_val_t *biz_bad = miku_json_create_object();
     miku_json_object_set(biz_bad, "platformID", miku_json_create_int(5));
+    miku_json_object_set(biz_bad, "token", miku_json_create_str(admin_tok));
     miku_json_object_set(biz_bad, "sendID", miku_json_create_str("sys"));
     miku_json_val_t *biz_bad_resp = miku_json_create_object();
     miku_msg_handle_rpc(msg, "sendBusinessNotification", biz_bad, biz_bad_resp);
@@ -1070,6 +1077,7 @@ static void test_msg_admin_rpc_gate(void) {
     miku_json_val_t *reuse_resp = miku_json_create_object();
     miku_json_val_t *admin_ok = miku_json_create_object();
     miku_json_object_set(admin_ok, "platformID", miku_json_create_int(5));
+    miku_json_object_set(admin_ok, "token", miku_json_create_str(admin_tok));
     miku_msg_handle_rpc(msg, "batchSendMsg", admin_ok, reuse_resp);
     mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(reuse_resp, "errCode")));
     mk_assert_not_null(miku_json_get(reuse_resp, "data"));

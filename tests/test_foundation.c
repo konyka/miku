@@ -22,6 +22,7 @@ extern void run_protocol_tests(void);
 extern void run_storage_tests(void);
 extern void run_service_tests(void);
 extern void run_new_module_tests(void);
+extern void run_pass28_t0_p1_tests(void);
 
 int mk_tests_run    = 0;
 int mk_tests_passed = 0;
@@ -529,6 +530,7 @@ int main(void) {
     run_storage_tests();
     run_service_tests();
     run_new_module_tests();
+    run_pass28_t0_p1_tests();
 
     return mk_test_summary();
 }

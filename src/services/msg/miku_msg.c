@@ -4,6 +4,8 @@
 #include "miku_json_util.h"
 #include "miku_group.h"
 #include "miku_friend.h"
+#include "miku_token.h"
+#include "miku_log.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -347,7 +349,26 @@ int miku_msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid
 }
 
 static int msg_rpc_admin_platform(const miku_json_val_t *req) {
-    return req && miku_json_int(miku_json_get(req, "platformID")) == 5;
+    if (!req) return 0;
+    if (miku_json_int(miku_json_get(req, "platformID")) != 5) return 0;
+    const char *tok = miku_json_str(miku_json_get(req, "token"));
+    if (!tok || !tok[0]) {
+        MK_LOG_WARN("msg_rpc_admin_platform: missing token for platformID=5");
+        return 0;
+    }
+    char uid[64] = {0};
+    int platform = -1;
+    int64_t issued = 0;
+    if (miku_token_verify_ex(tok, miku_admin_default_secret(),
+                              uid, sizeof(uid), &platform, &issued) != 0) {
+        MK_LOG_WARN("msg_rpc_admin_platform: token verification failed");
+        return 0;
+    }
+    if (platform != 5) {
+        MK_LOG_WARN("msg_rpc_admin_platform: token platform=%d != 5", platform);
+        return 0;
+    }
+    return 1;
 }
 
 enum {
