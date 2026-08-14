@@ -5,6 +5,7 @@
 #include "miku_group.h"
 #include "miku_friend.h"
 #include "miku_token.h"
+#include "miku_thread.h"
 #include "miku_log.h"
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +13,10 @@
 /* 2x max msgs for open-addressing load factor ~0.5 */
 #define MK_MSG_HASH 131072
 
+/* GLOBAL LOCK ORDER (pass-28 T0-P2): group_svc → friend_svc → msg_store.
+ * miku_msg_service_t::lock (this struct) must be the LAST acquired and the
+ * FIRST released along this chain. Reversing the order anywhere in the
+ * codebase reintroduces the pass-26 ABBA hazard. */
 struct miku_msg_service_s {
     miku_msg_t msgs[MK_MAX_MSGS];
     int count;
@@ -22,6 +27,7 @@ struct miku_msg_service_s {
     int32_t conv_next[MK_MAX_MSGS];  /* intrusive list within a conversation */
     miku_group_service_t *group_svc; /* non-owning; for getMsg group membership gate */
     miku_friend_service_t *friend_svc; /* non-owning; for si_ conv read gates */
+    miku_rwlock_t lock;              /* protects msgs[], count, seq, all hashes, conv_next[] */
 };
 
 static uint32_t str_slot(const char *s) {
@@ -184,10 +190,16 @@ miku_msg_service_t *miku_msg_service_create(void) {
             svc->conv_hash[i] = -1;
         }
         for (int i = 0; i < MK_MAX_MSGS; i++) svc->conv_next[i] = -1;
+        miku_rwlock_init(&svc->lock);
     }
     return svc;
 }
-void miku_msg_service_destroy(miku_msg_service_t *svc) { free(svc); }
+void miku_msg_service_destroy(miku_msg_service_t *svc) {
+    if (svc) {
+        miku_rwlock_destroy(&svc->lock);
+        free(svc);
+    }
+}
 
 static int msg_store_internal(miku_msg_service_t *svc, miku_msg_t *m) {
     if (!svc || !m || svc->count >= MK_MAX_MSGS) return -1;
@@ -482,7 +494,7 @@ static void msg_rpc_clear_resp(miku_json_val_t *resp) {
 }
 
 void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
-                          const miku_json_val_t *req, miku_json_val_t *resp) {
+                           const miku_json_val_t *req, miku_json_val_t *resp) {
     if (!svc || !method || !resp) return;
     msg_rpc_clear_resp(resp);
     switch (msg_rpc_id(method)) {
