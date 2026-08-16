@@ -227,4 +227,12 @@ void run_storage_tests(void) {
     mk_run_test(test_discovery_register_resolve);
     mk_run_test(test_discovery_deregister);
     mk_run_test(test_msg_store_overwrite_callback);
+    /* pass-28 T0-P3: MIKU_HAS_MSG_STORE_MEM_RING is ON by default for
+     * tests/dev. When the ring is disabled (production must use a real
+     * backend), miku_msg_store_create succeeds but inserts fail with
+     * errCode -1. This is verified at compile time by the gate in
+     * mem_alloc_slot; the test below just exercises the public API. */
+#ifdef MIKU_HAS_MSG_STORE_MEM_RING
+    mk_run_test(test_msg_store_overwrite_callback);
+#endif
 }

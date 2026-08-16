@@ -273,6 +273,7 @@ static void mem_free_slot(miku_msg_store_t *store, int slot) {
 
 static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
     int slot;
+#ifdef MIKU_HAS_MSG_STORE_MEM_RING
     if (store->free_top > 0) {
         slot = store->free_stack[--store->free_top];
     } else {
@@ -300,6 +301,13 @@ static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
     memset(&store->mem[slot], 0, sizeof(store->mem[slot]));
     store->mem[slot].used = 1;
     store->mem_count++;
+#else
+    /* MIKU_HAS_MSG_STORE_MEM_RING disabled — production must use a real
+     * backend (mongo, redis) for durability. Returning NULL here makes
+     * mem_alloc_slot's caller fail the insert with errCode:5001. */
+    (void)slot;
+    return NULL;
+#endif
     return &store->mem[slot];
 }
 
