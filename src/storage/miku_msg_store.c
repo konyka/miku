@@ -37,6 +37,9 @@ struct miku_msg_store_s {
     int          *conv_hash;    /* conversation_id → head slot */
     int          *conv_next;    /* intrusive list within a conversation */
     int           evict_cursor; /* next slot to overwrite once the ring is full */
+    miku_msg_store_overwrite_cb overwrite_cb; /* pass-28 T0-P3 */
+    void                 *overwrite_ctx;
+    int64_t              overwrite_count;
     /* miku-msggateway inserts from two threads: the WS event loop for SEND_MSG
      * and the admin HTTP thread for /internal/push_msg (both via
      * miku_msggw_ws_deliver_msg). mem_alloc_slot hands out slots with
@@ -63,6 +66,9 @@ miku_msg_store_t *miku_msg_store_create(miku_mongo_t *mongo) {
     s->id_hash = (int *)malloc(MK_MSG_ID_HASH * sizeof(int));
     s->conv_hash = (int *)malloc(MK_MSG_CONV_HASH * sizeof(int));
     s->conv_next = (int *)malloc((size_t)s->mem_cap * sizeof(int));
+    s->overwrite_cb = NULL;
+    s->overwrite_ctx = NULL;
+    s->overwrite_count = 0;
     if (!s->mem || !s->free_stack || !s->id_hash || !s->conv_hash || !s->conv_next) {
         free(s->mem);
         free(s->free_stack);
@@ -90,6 +96,15 @@ void miku_msg_store_destroy(miku_msg_store_t *store) {
     free(store->conv_next);
     pthread_rwlock_destroy(&store->lock);
     free(store);
+}
+
+void miku_msg_store_set_overwrite_cb(miku_msg_store_t *store,
+                                     miku_msg_store_overwrite_cb cb, void *ctx) {
+    if (!store) return;
+    pthread_rwlock_wrlock(&store->lock);
+    store->overwrite_cb = cb;
+    store->overwrite_ctx = ctx;
+    pthread_rwlock_unlock(&store->lock);
 }
 
 static uint32_t id_bucket(const char *msg_id) {
@@ -273,6 +288,13 @@ static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
         slot = store->evict_cursor;
         store->evict_cursor = (store->evict_cursor + 1) % store->mem_cap;
         mem_free_slot(store, slot);
+        /* pass-28 T0-P3: notify subscribers that we are about to overwrite
+         * a slot. Call outside any locks held by mem_free_slot — the callback
+         * may invoke other store APIs (e.g. push pipeline flush). */
+        if (store->overwrite_cb) {
+            store->overwrite_count++;
+            store->overwrite_cb(slot, (int)store->overwrite_count, store->overwrite_ctx);
+        }
         slot = store->free_stack[--store->free_top];
     }
     memset(&store->mem[slot], 0, sizeof(store->mem[slot]));

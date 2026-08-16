@@ -6,8 +6,19 @@
 
 typedef struct miku_msg_store_s miku_msg_store_t;
 
+/* Pass-28 T0-P3: callback fired when the in-memory ring overwrites the
+ * oldest message (data-loss with errCode:0). Subscribers (push pipeline,
+ * monitoring) use this to emit a load-shed signal. */
+typedef void (*miku_msg_store_overwrite_cb)(int evicted_slot, int total_overwrites,
+                                           void *ctx);
+
 MIKU_API miku_msg_store_t *miku_msg_store_create(miku_mongo_t *mongo);
 MIKU_API void               miku_msg_store_destroy(miku_msg_store_t *store);
+
+/* Configure an overwrite callback. Pass NULL to clear. */
+MIKU_API void  miku_msg_store_set_overwrite_cb(miku_msg_store_t *store,
+                                                miku_msg_store_overwrite_cb cb,
+                                                void *ctx);
 
 MIKU_API int  miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
                                      const char *sender_id, int content_type,
