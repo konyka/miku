@@ -345,54 +345,63 @@ static void ws_accept_conn(int fd, int events, void *data) {
     miku_ws_server_t *srv = (miku_ws_server_t *)data;
     struct sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    int client_fd = accept(fd, (struct sockaddr *)&addr, &addrlen);
-    if (client_fd < 0) return;
+    int accepted = 0;
+    /* EPOLLET semantics: drain-until-EAGAIN. Without this, a second
+     * concurrent connect in the same notification window sits idle in the
+     * backlog. nginx (ngx_event_accept.c) and Cloudflare pingora
+     * (server::listener::Listener::accept_loop) both use this pattern. */
+    while (1) {
+        int client_fd = accept(fd, (struct sockaddr *)&addr, &addrlen);
+        if (client_fd < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) break;
+            if (errno == EINTR) continue;
+            if (accepted == 0) return;
+            break;
+        }
+        accepted++;
+        miku_set_nonblocking(client_fd);
 
-    char buf[4096];
-    ssize_t n = read(client_fd, buf, sizeof(buf) - 1);
-    if (n <= 0) { close(client_fd); return; }
-    buf[n] = '\0';
+        char buf[4096];
+        ssize_t n = read(client_fd, buf, sizeof(buf) - 1);
+        if (n <= 0) { close(client_fd); continue; }
+        buf[n] = '\0';
 
-    char *key_start = strstr(buf, "Sec-WebSocket-Key: ");
-    if (!key_start) { close(client_fd); return; }
-    key_start += 19;
-    char *key_end = strchr(key_start, '\r');
-    if (!key_end) { close(client_fd); return; }
-    char ws_key[128];
-    size_t key_len = (size_t)(key_end - key_start);
-    if (key_len >= sizeof(ws_key)) { close(client_fd); return; }
-    memcpy(ws_key, key_start, key_len);
-    ws_key[key_len] = '\0';
+        char *key_start = strstr(buf, "Sec-WebSocket-Key: ");
+        if (!key_start) { close(client_fd); continue; }
+        key_start += 19;
+        char *key_end = strchr(key_start, '\r');
+        if (!key_end) { close(client_fd); continue; }
+        char ws_key[128];
+        size_t key_len = (size_t)(key_end - key_start);
+        if (key_len >= sizeof(ws_key)) { close(client_fd); continue; }
+        memcpy(ws_key, key_start, key_len);
+        ws_key[key_len] = '\0';
 
-    char accept_val[64];
-    if (miku_ws_handshake(ws_key, accept_val, sizeof(accept_val)) != 0) {
-        close(client_fd);
-        return;
-    }
+        char accept_val[64];
+        if (miku_ws_handshake(ws_key, accept_val, sizeof(accept_val)) != 0) {
+            close(client_fd);
+            continue;
+        }
 
-    char resp[512];
-    int resp_len = snprintf(resp, sizeof(resp),
-        "HTTP/1.1 101 Switching Protocols\r\n"
-        "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n"
-        "Sec-WebSocket-Accept: %s\r\n\r\n",
-        accept_val);
-    miku_sock_write(client_fd, resp, (size_t)resp_len);
+        char resp[512];
+        int resp_len = snprintf(resp, sizeof(resp),
+            "HTTP/1.1 101 Switching Protocols\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Accept: %s\r\n\r\n",
+            accept_val);
+        miku_sock_write(client_fd, resp, (size_t)resp_len);
 
-    miku_set_nonblocking(client_fd);
-
-    if (srv->client_count < MAX_WS_CLIENTS) {
-        int idx = srv->client_count++;
-        miku_ws_conn_t *conn = &srv->clients[idx];
-        conn->fd = client_fd;
-        conn->server = srv;
-        inet_ntop(AF_INET, &addr.sin_addr, conn->addr, sizeof(conn->addr));
-        if (client_fd >= 0 && client_fd < MK_WS_FD_MAP)
-            srv->fd_map[client_fd] = (int16_t)idx;
-        miku_io_add(srv->io, client_fd, MK_IO_READ, ws_handle_client, srv);
-        if (srv->on_connect) srv->on_connect(conn, srv->on_connect_ctx);
-    } else {
-        close(client_fd);
+        if (srv->client_count < MAX_WS_CLIENTS) {
+            int idx = srv->client_count++;
+            miku_ws_conn_t *conn = &srv->clients[idx];
+            conn->fd = client_fd;
+            conn->server = srv;
+            inet_ntop(AF_INET, &addr.sin_addr, conn->addr, sizeof(conn->addr));
+            if (client_fd >= 0 && client_fd < MK_WS_FD_MAP)
+                srv->fd_map[client_fd] = (int16_t)idx;
+            miku_io_add(srv->io, client_fd, MK_IO_READ, ws_handle_client, srv);
+        }
     }
 }
 
