@@ -167,12 +167,13 @@ void test_discovery_deregister(void) {
 static int g_callback_fires;
 static int g_last_slot;
 static int g_last_count;
+static int g_callback_store_count;
 
 static void g_on_overwrite(int slot, int total, void *ctx) {
-    (void)ctx;
     g_callback_fires++;
     g_last_slot = slot;
     g_last_count = total;
+    g_callback_store_count = miku_msg_store_count((miku_msg_store_t *)ctx);
 }
 
 void test_msg_store_overwrite_callback(void) {
@@ -181,6 +182,7 @@ void test_msg_store_overwrite_callback(void) {
     g_callback_fires = 0;
     g_last_slot = -1;
     g_last_count = 0;
+    g_callback_store_count = 0;
     /* Set the callback BEFORE filling — the eviction only happens once
      * the 8192-slot ring is saturated, so the first 8192 inserts must not
      * fire it. */
@@ -195,13 +197,14 @@ void test_msg_store_overwrite_callback(void) {
     mk_assert_int_eq(0, g_callback_fires);
     /* Now install the callback and trigger one more insert. The ring is
      * full, so this insert must overwrite slot 0 and fire the callback. */
-    miku_msg_store_set_overwrite_cb(s, g_on_overwrite, NULL);
+    miku_msg_store_set_overwrite_cb(s, g_on_overwrite, s);
     snprintf(id, sizeof(id), "k_%d", 8192);
     int rc2 = miku_msg_store_insert(s, "conv1", id, 1, "x", 8192, 8192, id, sizeof(id));
     mk_assert_int_eq(0, rc2);
     mk_assert_int_eq(1, g_callback_fires);
     mk_assert_int_eq(0, g_last_slot);
     mk_assert_int_eq(1, g_last_count);
+    mk_assert_int_eq(8192, g_callback_store_count);
     /* A second insert triggers a second callback with total=2. */
     snprintf(id, sizeof(id), "k_%d", 8193);
     miku_msg_store_insert(s, "conv1", id, 1, "x", 8193, 8193, id, sizeof(id));

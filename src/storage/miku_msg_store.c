@@ -25,6 +25,13 @@ typedef struct {
     int     used;
 } mem_msg_t;
 
+typedef struct {
+    miku_msg_store_overwrite_cb cb;
+    void                       *ctx;
+    int                         slot;
+    int                         total;
+} overwrite_notice_t;
+
 struct miku_msg_store_s {
     miku_mongo_t *mongo;
     int           enabled;
@@ -271,7 +278,8 @@ static void mem_free_slot(miku_msg_store_t *store, int slot) {
     mem_free_slot_raw(store, slot);
 }
 
-static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
+static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store,
+                                 overwrite_notice_t *notice) {
     int slot;
 #ifdef MIKU_HAS_MSG_STORE_MEM_RING
     if (store->free_top > 0) {
@@ -289,12 +297,15 @@ static mem_msg_t *mem_alloc_slot(miku_msg_store_t *store) {
         slot = store->evict_cursor;
         store->evict_cursor = (store->evict_cursor + 1) % store->mem_cap;
         mem_free_slot(store, slot);
-        /* pass-28 T0-P3: notify subscribers that we are about to overwrite
-         * a slot. Call outside any locks held by mem_free_slot — the callback
-         * may invoke other store APIs (e.g. push pipeline flush). */
+        /* Capture the notification under the write lock. The public insert
+         * wrapper invokes it after unlock so reentrant store APIs cannot
+         * self-deadlock. */
         if (store->overwrite_cb) {
             store->overwrite_count++;
-            store->overwrite_cb(slot, (int)store->overwrite_count, store->overwrite_ctx);
+            notice->cb = store->overwrite_cb;
+            notice->ctx = store->overwrite_ctx;
+            notice->slot = slot;
+            notice->total = (int)store->overwrite_count;
         }
         slot = store->free_stack[--store->free_top];
     }
@@ -320,15 +331,17 @@ static int miku_msg_store_count_nolock(miku_msg_store_t *store) {
 }
 
 static int miku_msg_store_insert_nolock(miku_msg_store_t *store, const char *conversation_id,
-                           const char *sender_id, int content_type,
-                           const char *content, int64_t send_time, int64_t seq,
-                           char *out_msg_id, size_t msg_id_cap) {
+                            const char *sender_id, int content_type,
+                            const char *content, int64_t send_time, int64_t seq,
+                            char *out_msg_id, size_t msg_id_cap,
+                            overwrite_notice_t *notice) {
     if (!store || !conversation_id || !sender_id || !content) return -1;
 
     char msg_id[64] = {0};
     miku_uuid_generate(msg_id);
 
-    mem_msg_t *m = mem_alloc_slot(store);
+    mem_msg_t *m = mem_alloc_slot(store, notice);
+    if (!m) return -1;
     strncpy(m->msg_id, msg_id, sizeof(m->msg_id) - 1);
     strncpy(m->conversation_id, conversation_id, sizeof(m->conversation_id) - 1);
     strncpy(m->sender_id, sender_id, sizeof(m->sender_id) - 1);
@@ -525,9 +538,13 @@ int miku_msg_store_insert(miku_msg_store_t *store, const char *conversation_id,
                            const char *content, int64_t send_time, int64_t seq,
                            char *out_msg_id, size_t msg_id_cap) {
     if (!store) return -1;
+    overwrite_notice_t notice = {0};
     pthread_rwlock_wrlock(&store->lock);
-    int rc = miku_msg_store_insert_nolock(store, conversation_id, sender_id, content_type, content, send_time, seq, out_msg_id, msg_id_cap);
+    int rc = miku_msg_store_insert_nolock(store, conversation_id, sender_id, content_type,
+                                           content, send_time, seq, out_msg_id, msg_id_cap,
+                                           &notice);
     pthread_rwlock_unlock(&store->lock);
+    if (notice.cb) notice.cb(notice.slot, notice.total, notice.ctx);
     return rc;
 }
 
