@@ -140,11 +140,10 @@ static void hash_del_sid(miku_msg_service_t *svc, const char *sid) {
 
 static void rebuild_indexes(miku_msg_service_t *svc);
 
-static int msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
-                                   const char *client_msg_id);
-
-static int msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid,
-                                        const char *conv_id, int64_t seq);
+static int msg_may_delete_physical_nolock(miku_msg_service_t *svc, const char *uid,
+                                          const char *client_msg_id);
+static int msg_may_delete_physical_by_seq_nolock(miku_msg_service_t *svc, const char *uid,
+                                                 const char *conv_id, int64_t seq);
 
 static int msg_send_gate(miku_msg_service_t *svc, const miku_msg_t *m);
 
@@ -174,11 +173,17 @@ static void rebuild_indexes(miku_msg_service_t *svc) {
 }
 
 void miku_msg_service_set_group_svc(miku_msg_service_t *svc, miku_group_service_t *group) {
-    if (svc) svc->group_svc = group;
+    if (!svc) return;
+    miku_rwlock_wrlock(&svc->lock);
+    svc->group_svc = group;
+    miku_rwlock_unlock(&svc->lock);
 }
 
 void miku_msg_service_set_friend_svc(miku_msg_service_t *svc, miku_friend_service_t *friend) {
-    if (svc) svc->friend_svc = friend;
+    if (!svc) return;
+    miku_rwlock_wrlock(&svc->lock);
+    svc->friend_svc = friend;
+    miku_rwlock_unlock(&svc->lock);
 }
 
 miku_msg_service_t *miku_msg_service_create(void) {
@@ -221,23 +226,34 @@ static int msg_store_internal(miku_msg_service_t *svc, miku_msg_t *m) {
     return 0;
 }
 
-int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m) {
+static int miku_msg_send_nolock(miku_msg_service_t *svc, miku_msg_t *m) {
     if (!svc || !m || svc->count >= MK_MAX_MSGS) return -1;
-    /* Canonicalize first so callers observe the real conversationID even when
-     * the gate rejects the message (spoofed-ID injection test relies on this). */
-    miku_conversation_id_resolve(m->conversation_id, sizeof(m->conversation_id),
-                                 NULL, m->group_id, m->send_id, m->recv_id);
-    if ((m->group_id[0] && svc->group_svc) || (m->recv_id[0] && svc->friend_svc)) {
-        int gate = msg_send_gate(svc, m);
-        if (gate != 0)
-            return gate;
-    }
     return msg_store_internal(svc, m);
 }
 
-int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,
-                          int64_t start, int64_t end, int count,
-                          miku_msg_t *out, int max) {
+int miku_msg_send(miku_msg_service_t *svc, miku_msg_t *m) {
+    if (!svc || !m) return -1;
+    /* Foreign membership checks must precede the message-state write lock. */
+    miku_conversation_id_resolve(m->conversation_id, sizeof(m->conversation_id),
+                                 NULL, m->group_id, m->send_id, m->recv_id);
+    int has_foreign_gate = 0;
+    miku_rwlock_rdlock(&svc->lock);
+    has_foreign_gate = (m->group_id[0] && svc->group_svc) ||
+                       (m->recv_id[0] && svc->friend_svc);
+    miku_rwlock_unlock(&svc->lock);
+    if (has_foreign_gate) {
+        int gate = msg_send_gate(svc, m);
+        if (gate != 0) return gate;
+    }
+    miku_rwlock_wrlock(&svc->lock);
+    int rc = miku_msg_send_nolock(svc, m);
+    miku_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+static int miku_msg_get_by_conv_nolock(miku_msg_service_t *svc, const char *conv_id,
+                                        int64_t start, int64_t end, int count,
+                                        miku_msg_t *out, int max) {
     if (!svc || !conv_id || !out) return 0;
     int n = 0;
     /* Chain is newest-first (prepend on send). */
@@ -250,21 +266,61 @@ int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,
     return n;
 }
 
-int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *client_msg_id) {
+int miku_msg_get_by_conv(miku_msg_service_t *svc, const char *conv_id,
+                          int64_t start, int64_t end, int count,
+                          miku_msg_t *out, int max) {
+    if (!svc || !conv_id || !out) return 0;
+    miku_rwlock_rdlock(&svc->lock);
+    int rc = miku_msg_get_by_conv_nolock(svc, conv_id, start, end, count, out, max);
+    miku_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+static miku_msg_t *msg_snapshot_conv(miku_msg_service_t *svc, const char *conv_id,
+                                     int64_t start, int64_t end, int count, int max,
+                                     int *out_count) {
+    if (out_count) *out_count = 0;
+    if (!svc || max <= 0) return NULL;
+    miku_rwlock_rdlock(&svc->lock);
+    int cap = svc->count < max ? svc->count : max;
+    if (cap <= 0) {
+        miku_rwlock_unlock(&svc->lock);
+        return NULL;
+    }
+    miku_msg_t *msgs = (miku_msg_t *)malloc((size_t)cap * sizeof(*msgs));
+    if (!msgs) {
+        miku_rwlock_unlock(&svc->lock);
+        return NULL;
+    }
+    int n = miku_msg_get_by_conv_nolock(svc, conv_id, start, end, count, msgs, cap);
+    miku_rwlock_unlock(&svc->lock);
+    if (out_count) *out_count = n;
+    return msgs;
+}
+
+static int miku_msg_revoke_nolock(miku_msg_service_t *svc, const char *user_id, const char *client_msg_id) {
     if (!svc || !user_id || !client_msg_id) return -1;
-    if (msg_may_delete_physical(svc, user_id, client_msg_id)) {
-        int mi = hash_find_cid(svc, client_msg_id);
-        if (mi >= 0) {
-            svc->msgs[mi].status = 2;
-            return 0;
-        }
+    int mi = hash_find_cid(svc, client_msg_id);
+    if (mi >= 0 && strcmp(svc->msgs[mi].send_id, user_id) == 0) {
+        svc->msgs[mi].status = 2;
+        return 0;
     }
     return -2;
 }
 
-int miku_msg_update_delivery(miku_msg_service_t *svc, const char *uid,
-                             const char *client_msg_id,
-                             int64_t seq, const char *server_msg_id, int64_t send_time) {
+int miku_msg_revoke(miku_msg_service_t *svc, const char *user_id, const char *client_msg_id) {
+    if (!svc || !user_id || !client_msg_id) return -1;
+    if (!miku_msg_may_delete_physical(svc, user_id, client_msg_id)) return -2;
+    miku_rwlock_wrlock(&svc->lock);
+    int rc = msg_may_delete_physical_nolock(svc, user_id, client_msg_id)
+        ? miku_msg_revoke_nolock(svc, user_id, client_msg_id) : -2;
+    miku_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
+static int miku_msg_update_delivery_nolock(miku_msg_service_t *svc, const char *uid,
+                                            const char *client_msg_id,
+                                            int64_t seq, const char *server_msg_id, int64_t send_time) {
     if (!svc || !uid || !uid[0] || !client_msg_id || !client_msg_id[0]) return -1;
     int mi = hash_find_cid(svc, client_msg_id);
     if (mi < 0) return -1;
@@ -288,19 +344,40 @@ int miku_msg_update_delivery(miku_msg_service_t *svc, const char *uid,
     return 0;
 }
 
+int miku_msg_update_delivery(miku_msg_service_t *svc, const char *uid,
+                             const char *client_msg_id,
+                             int64_t seq, const char *server_msg_id, int64_t send_time) {
+    if (!svc || !uid || !uid[0] || !client_msg_id || !client_msg_id[0]) return -1;
+    miku_rwlock_wrlock(&svc->lock);
+    int rc = miku_msg_update_delivery_nolock(svc, uid, client_msg_id,
+                                              seq, server_msg_id, send_time);
+    miku_rwlock_unlock(&svc->lock);
+    return rc;
+}
+
 static int msg_user_may_access_conv(miku_msg_service_t *svc, const char *uid, const char *cid) {
     if (!svc || !uid || !uid[0] || !cid || !cid[0]) return 0;
-    if (strncmp(cid, "si_", 3) == 0)
-        return miku_friend_may_access_si_conv(svc->friend_svc, uid, cid);
-    if (strncmp(cid, "sg_", 3) == 0) {
-        if (!svc->group_svc) return 0;
-        return miku_group_is_member(svc->group_svc, cid + 3, uid);
+    if (strncmp(cid, "si_", 3) == 0) {
+        miku_friend_service_t *friend_svc;
+        miku_rwlock_rdlock(&svc->lock);
+        friend_svc = svc->friend_svc;
+        miku_rwlock_unlock(&svc->lock);
+        return friend_svc ? miku_friend_may_access_si_conv(friend_svc, uid, cid) : 0;
     }
+    if (strncmp(cid, "sg_", 3) == 0) {
+        miku_group_service_t *group_svc;
+        miku_rwlock_rdlock(&svc->lock);
+        group_svc = svc->group_svc;
+        miku_rwlock_unlock(&svc->lock);
+        return group_svc ? miku_group_is_member(group_svc, cid + 3, uid) : 0;
+    }
+    miku_rwlock_rdlock(&svc->lock);
     for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
         if (strcmp(svc->msgs[mi].send_id, uid) == 0 ||
             strcmp(svc->msgs[mi].recv_id, uid) == 0)
-            return 1;
+            { miku_rwlock_unlock(&svc->lock); return 1; }
     }
+    miku_rwlock_unlock(&svc->lock);
     return 0;
 }
 
@@ -315,39 +392,57 @@ static int msg_reaction_conv_gate(miku_msg_service_t *svc, const miku_json_val_t
 static int msg_send_gate(miku_msg_service_t *svc, const miku_msg_t *m) {
     if (!m || !m->send_id[0]) return 400;
     if (m->group_id[0]) {
-        if (!svc || !svc->group_svc ||
-            !miku_group_is_member(svc->group_svc, m->group_id, m->send_id))
+        miku_group_service_t *group_svc = NULL;
+        if (svc) {
+            miku_rwlock_rdlock(&svc->lock);
+            group_svc = svc->group_svc;
+            miku_rwlock_unlock(&svc->lock);
+        }
+        if (!group_svc || !miku_group_is_member(group_svc, m->group_id, m->send_id))
             return 3003;
         return 0;
     }
     if (!m->recv_id[0]) return 400;
-    if (!svc || !svc->friend_svc) return 6002;
-    if (miku_friend_is_black(svc->friend_svc, m->send_id, m->recv_id) ||
-        miku_friend_is_black(svc->friend_svc, m->recv_id, m->send_id))
+    miku_friend_service_t *friend_svc = NULL;
+    if (svc) {
+        miku_rwlock_rdlock(&svc->lock);
+        friend_svc = svc->friend_svc;
+        miku_rwlock_unlock(&svc->lock);
+    }
+    if (!friend_svc) return 6002;
+    if (miku_friend_is_black(friend_svc, m->send_id, m->recv_id) ||
+        miku_friend_is_black(friend_svc, m->recv_id, m->send_id))
         return 6001;
-    if (!miku_friend_is_mutual(svc->friend_svc, m->send_id, m->recv_id))
+    if (!miku_friend_is_mutual(friend_svc, m->send_id, m->recv_id))
         return 6002;
     return 0;
 }
 
-static int msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
-                                   const char *client_msg_id) {
+static int msg_may_delete_physical_nolock(miku_msg_service_t *svc, const char *uid,
+                                          const char *client_msg_id) {
     if (!svc || !uid || !uid[0] || !client_msg_id || !client_msg_id[0]) return 0;
     int mi = hash_find_cid(svc, client_msg_id);
-    if (mi < 0) return 0;
-    return strcmp(svc->msgs[mi].send_id, uid) == 0 &&
-           msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id);
+    return mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0;
 }
 
 int miku_msg_may_delete_physical(miku_msg_service_t *svc, const char *uid,
-                                 const char *client_msg_id) {
-    return msg_may_delete_physical(svc, uid, client_msg_id);
+                                  const char *client_msg_id) {
+    if (!svc || !uid || !uid[0] || !client_msg_id || !client_msg_id[0]) return 0;
+    char conv_id[sizeof(svc->msgs[0].conversation_id)] = {0};
+    miku_rwlock_rdlock(&svc->lock);
+    int mi = hash_find_cid(svc, client_msg_id);
+    int is_sender = msg_may_delete_physical_nolock(svc, uid, client_msg_id);
+    if (is_sender) strncpy(conv_id, svc->msgs[mi].conversation_id, sizeof(conv_id) - 1);
+    miku_rwlock_unlock(&svc->lock);
+    if (!is_sender) return 0;
+    if (strncmp(conv_id, "si_", 3) == 0 || strncmp(conv_id, "sg_", 3) == 0)
+        return msg_user_may_access_conv(svc, uid, conv_id);
+    return 1;
 }
 
-static int msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid,
-                                          const char *conv_id, int64_t seq) {
+static int msg_may_delete_physical_by_seq_nolock(miku_msg_service_t *svc, const char *uid,
+                                                 const char *conv_id, int64_t seq) {
     if (!svc || !uid || !uid[0] || !conv_id || !conv_id[0] || seq <= 0) return 0;
-    if (!msg_user_may_access_conv(svc, uid, conv_id)) return 0;
     for (int mi = conv_head(svc, conv_id); mi >= 0; mi = svc->conv_next[mi]) {
         if (svc->msgs[mi].seq == seq)
             return strcmp(svc->msgs[mi].send_id, uid) == 0;
@@ -356,8 +451,15 @@ static int msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *u
 }
 
 int miku_msg_may_delete_physical_by_seq(miku_msg_service_t *svc, const char *uid,
-                                        const char *conv_id, int64_t seq) {
-    return msg_may_delete_physical_by_seq(svc, uid, conv_id, seq);
+                                         const char *conv_id, int64_t seq) {
+    if (!svc || !uid || !uid[0] || !conv_id || !conv_id[0] || seq <= 0) return 0;
+    if (strncmp(conv_id, "si_", 3) == 0 || strncmp(conv_id, "sg_", 3) == 0) {
+        if (!msg_user_may_access_conv(svc, uid, conv_id)) return 0;
+    }
+    miku_rwlock_rdlock(&svc->lock);
+    int allowed = msg_may_delete_physical_by_seq_nolock(svc, uid, conv_id, seq);
+    miku_rwlock_unlock(&svc->lock);
+    return allowed;
 }
 
 static int msg_rpc_admin_platform(const miku_json_val_t *req) {
@@ -507,7 +609,9 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", gate);
             break;
         }
-        int rc = miku_msg_send(svc, &m);
+        miku_rwlock_wrlock(&svc->lock);
+        int rc = miku_msg_send_nolock(svc, &m);
+        miku_rwlock_unlock(&svc->lock);
         miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
@@ -530,12 +634,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_json_val_t *arr = miku_json_create_array();
         int n = 0;
         if (cid && cid[0] && uid && uid[0] && msg_user_may_access_conv(svc, uid, cid)) {
-            for (int mi = conv_head(svc, cid); mi >= 0 && n < max; mi = svc->conv_next[mi]) {
-                miku_msg_t *m = &svc->msgs[mi];
-                if (m->send_time >= start && (end == 0 || m->send_time <= end)) {
-                    miku_json_array_push(arr, miku_msg_to_json(m));
-                    n++;
-                }
+            miku_msg_t *msgs = msg_snapshot_conv(svc, cid, start, end, max, max, &n);
+            if (msgs) {
+                for (int i = 0; i < n; i++)
+                    miku_json_array_push(arr, miku_msg_to_json(&msgs[i]));
+                free(msgs);
             }
         }
         miku_json_object_set(resp, "data", arr);
@@ -563,11 +666,15 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int status = 0;
+        miku_msg_t msg;
         int mi = -1;
+        miku_rwlock_rdlock(&svc->lock);
         if (smid && smid[0]) mi = hash_find_sid(svc, smid);
         else if (cmid && cmid[0]) mi = hash_find_cid(svc, cmid);
-        if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
-            msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
+        if (mi >= 0) msg = svc->msgs[mi];
+        miku_rwlock_unlock(&svc->lock);
+        if (mi >= 0 && strcmp(msg.send_id, uid) == 0 &&
+            msg_user_may_access_conv(svc, uid, msg.conversation_id))
             status = 1;
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "status", status);
@@ -587,12 +694,14 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int deleted = 0;
-        if (msg_may_delete_physical(svc, uid, cmid)) {
+        if (miku_msg_may_delete_physical(svc, uid, cmid)) {
+            miku_rwlock_wrlock(&svc->lock);
             int mi = hash_find_cid(svc, cmid);
-            if (mi >= 0) {
+            if (msg_may_delete_physical_nolock(svc, uid, cmid) && mi >= 0) {
                 msg_remove_at(svc, mi);
                 deleted = 1;
             }
+            miku_rwlock_unlock(&svc->lock);
         }
         miku_ji(resp, "errCode", deleted ? 0 : 5001);
     } break;
@@ -626,14 +735,16 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         }
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
-        if (seq > 0 && cid && cid[0] && uid && uid[0] &&
-            msg_user_may_access_conv(svc, uid, cid)) {
-            for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
-                if (svc->msgs[mi].seq == seq) {
-                    miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
+        if (msg_user_may_access_conv(svc, uid, cid)) {
+            int n = 0;
+            miku_msg_t *msgs = msg_snapshot_conv(svc, cid, 0, 0, MK_MAX_MSGS, MK_MAX_MSGS, &n);
+            for (int i = 0; msgs && i < n; i++) {
+                if (msgs[i].seq == seq) {
+                    miku_json_array_push(arr, miku_msg_to_json(&msgs[i]));
                     break;
                 }
             }
+            free(msgs);
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -646,7 +757,9 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", gate);
             break;
         }
-        int rc = msg_store_internal(svc, &m);
+        miku_rwlock_wrlock(&svc->lock);
+        int rc = miku_msg_send_nolock(svc, &m);
+        miku_rwlock_unlock(&svc->lock);
         miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
@@ -663,7 +776,9 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", gate);
             break;
         }
-        int rc = msg_store_internal(svc, &m);
+        miku_rwlock_wrlock(&svc->lock);
+        int rc = miku_msg_send_nolock(svc, &m);
+        miku_rwlock_unlock(&svc->lock);
         miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
         if (rc == 0) {
             miku_jss(resp, "serverMsgID", m.server_msg_id);
@@ -690,7 +805,9 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", gate);
             break;
         }
-        int rc = msg_store_internal(svc, &m);
+        miku_rwlock_wrlock(&svc->lock);
+        int rc = miku_msg_send_nolock(svc, &m);
+        miku_rwlock_unlock(&svc->lock);
         miku_ji(resp, "errCode", rc == 0 ? 0 : (rc > 0 ? rc : 500));
     } break;
     case MK_MSG_RPC_getMsg: {
@@ -702,9 +819,19 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         }
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
+        miku_msg_t msg;
+        int found = 0;
+        char cid[sizeof(msg.conversation_id)] = {0};
+        miku_rwlock_rdlock(&svc->lock);
         int mi = hash_find_sid(svc, smid);
-        if (mi >= 0 && msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
-            miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
+        if (mi >= 0) {
+            msg = svc->msgs[mi];
+            strncpy(cid, msg.conversation_id, sizeof(cid) - 1);
+            found = 1;
+        }
+        miku_rwlock_unlock(&svc->lock);
+        if (found && msg_user_may_access_conv(svc, uid, cid))
+            miku_json_array_push(arr, miku_msg_to_json(&msg));
         miku_json_object_set(resp, "data", arr);
     } break;
     case MK_MSG_RPC_getNewestSeq: {
@@ -716,9 +843,11 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         }
         int64_t max = 0;
         if (msg_user_may_access_conv(svc, uid, cid)) {
-            for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
-                if (svc->msgs[mi].seq > max) max = svc->msgs[mi].seq;
-            }
+            int n = 0;
+            miku_msg_t *msgs = msg_snapshot_conv(svc, cid, 0, 0, MK_MAX_MSGS, MK_MAX_MSGS, &n);
+            for (int i = 0; msgs && i < n; i++)
+                if (msgs[i].seq > max) max = msgs[i].seq;
+            free(msgs);
         }
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "seq", (int)max);
@@ -745,11 +874,14 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (msg_user_may_access_conv(svc, uid, cid)) {
-            for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
-                int64_t s = svc->msgs[mi].seq;
+            int n = 0;
+            miku_msg_t *msgs = msg_snapshot_conv(svc, cid, 0, 0, MK_MAX_MSGS, MK_MAX_MSGS, &n);
+            for (int i = 0; msgs && i < n; i++) {
+                int64_t s = msgs[i].seq;
                 if (s >= begin && (end_seq == 0 || s <= end_seq))
-                    miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
+                    miku_json_array_push(arr, miku_msg_to_json(&msgs[i]));
             }
+            free(msgs);
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -764,10 +896,13 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         miku_ji(resp, "errCode", 0);
         miku_json_val_t *arr = miku_json_create_array();
         if (msg_user_may_access_conv(svc, uid, cid)) {
-            for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
-                if (strstr(svc->msgs[mi].content, keyword))
-                    miku_json_array_push(arr, miku_msg_to_json(&svc->msgs[mi]));
+            int n = 0;
+            miku_msg_t *msgs = msg_snapshot_conv(svc, cid, 0, 0, MK_MAX_MSGS, MK_MAX_MSGS, &n);
+            for (int i = 0; msgs && i < n; i++) {
+                if (strstr(msgs[i].content, keyword))
+                    miku_json_array_push(arr, miku_msg_to_json(&msgs[i]));
             }
+            free(msgs);
         }
         miku_json_object_set(resp, "data", arr);
     } break;
@@ -826,11 +961,13 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int found = 0;
-        int mi = -1;
-        if (smid && smid[0]) mi = hash_find_sid(svc, smid);
-        else if (cmid && cmid[0]) mi = hash_find_cid(svc, cmid);
-        if (mi >= 0 && strcmp(svc->msgs[mi].send_id, uid) == 0 &&
-            msg_user_may_access_conv(svc, uid, svc->msgs[mi].conversation_id))
+        miku_msg_t msg;
+        miku_rwlock_rdlock(&svc->lock);
+        int mi = smid && smid[0] ? hash_find_sid(svc, smid) : hash_find_cid(svc, cmid);
+        if (mi >= 0) msg = svc->msgs[mi];
+        miku_rwlock_unlock(&svc->lock);
+        if (mi >= 0 && strcmp(msg.send_id, uid) == 0 &&
+            msg_user_may_access_conv(svc, uid, msg.conversation_id))
             found = 1;
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "status", found ? 1 : 0);
@@ -851,6 +988,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             miku_ji(resp, "errCode", 3003);
             break;
         }
+        miku_rwlock_wrlock(&svc->lock);
         int w = 0;
         for (int i = 0; i < svc->count; i++) {
             if (strcmp(svc->msgs[i].conversation_id, cid) == 0) continue;
@@ -859,6 +997,7 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
         int deleted = svc->count - w;
         svc->count = w;
         rebuild_indexes(svc);
+        miku_rwlock_unlock(&svc->lock);
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "deleted", deleted);
     } break;
@@ -869,18 +1008,51 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         /* Single-chat only: group msgs are shared history — never hard-delete. */
+        miku_rwlock_rdlock(&svc->lock);
+        int snap_count = svc->count;
+        miku_msg_t *snapshot = snap_count > 0
+            ? (miku_msg_t *)malloc((size_t)snap_count * sizeof(*snapshot)) : NULL;
+        if (snap_count > 0 && !snapshot) {
+            miku_rwlock_unlock(&svc->lock);
+            miku_ji(resp, "errCode", 500);
+            break;
+        }
+        if (snapshot) memcpy(snapshot, svc->msgs, (size_t)snap_count * sizeof(*snapshot));
+        miku_rwlock_unlock(&svc->lock);
+        unsigned char *authorized = snap_count > 0
+            ? (unsigned char *)calloc((size_t)snap_count, sizeof(*authorized)) : NULL;
+        for (int i = 0; i < snap_count; i++) {
+            miku_msg_t *m = &snapshot[i];
+            if (!m->group_id[0] &&
+                (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0))
+                authorized[i] = (unsigned char)msg_user_may_access_conv(svc, uid,
+                                                                         m->conversation_id);
+        }
         int w = 0;
+        miku_rwlock_wrlock(&svc->lock);
         for (int i = 0; i < svc->count; i++) {
             miku_msg_t *m = &svc->msgs[i];
+            int remove = 0;
             if (!m->group_id[0] &&
-                (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0) &&
-                msg_user_may_access_conv(svc, uid, m->conversation_id))
-                continue;
-            svc->msgs[w++] = *m;
+                (strcmp(m->send_id, uid) == 0 || strcmp(m->recv_id, uid) == 0)) {
+                /* ACL was checked against the pre-lock snapshot; preserve the
+                 * existing operation's semantics without foreign lock nesting. */
+                for (int j = 0; j < snap_count; j++) {
+                    if (authorized && authorized[j] &&
+                        strcmp(snapshot ? snapshot[j].client_msg_id : "", m->client_msg_id) == 0) {
+                        remove = 1;
+                        break;
+                    }
+                }
+            }
+            if (!remove) svc->msgs[w++] = *m;
         }
+        free(authorized);
         int deleted = svc->count - w;
         svc->count = w;
         rebuild_indexes(svc);
+        miku_rwlock_unlock(&svc->lock);
+        free(snapshot);
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "deleted", deleted);
     } break;
@@ -892,12 +1064,14 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int deleted = 0;
-        if (msg_may_delete_physical(svc, uid, cmid)) {
+        if (miku_msg_may_delete_physical(svc, uid, cmid)) {
+            miku_rwlock_wrlock(&svc->lock);
             int mi = hash_find_cid(svc, cmid);
-            if (mi >= 0) {
+            if (msg_may_delete_physical_nolock(svc, uid, cmid) && mi >= 0) {
                 msg_remove_at(svc, mi);
                 deleted = 1;
             }
+            miku_rwlock_unlock(&svc->lock);
         }
         miku_ji(resp, "errCode", deleted ? 0 : 5001);
     } break;
@@ -910,14 +1084,17 @@ void miku_msg_handle_rpc(miku_msg_service_t *svc, const char *method,
             break;
         }
         int deleted = 0;
-        if (msg_may_delete_physical_by_seq(svc, uid, cid, del_seq)) {
+        if (miku_msg_may_delete_physical_by_seq(svc, uid, cid, del_seq)) {
+            miku_rwlock_wrlock(&svc->lock);
             for (int mi = conv_head(svc, cid); mi >= 0; mi = svc->conv_next[mi]) {
-                if (svc->msgs[mi].seq == del_seq) {
+                if (msg_may_delete_physical_by_seq_nolock(svc, uid, cid, del_seq) &&
+                    svc->msgs[mi].seq == del_seq) {
                     msg_remove_at(svc, mi);
                     deleted = 1;
                     break;
                 }
             }
+            miku_rwlock_unlock(&svc->lock);
         }
         miku_ji(resp, "errCode", deleted ? 0 : 5001);
     } break;

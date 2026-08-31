@@ -647,6 +647,66 @@ static void test_conv_create_and_get(void) {
     miku_conv_service_destroy(svc);
 }
 
+#define MK_MSG_SEND_RACE_PER 1000
+
+typedef struct {
+    miku_msg_service_t *svc;
+    int producer;
+    int ok;
+} msg_send_race_ctx_t;
+
+static void *msg_send_race_worker(void *arg) {
+    msg_send_race_ctx_t *ctx = (msg_send_race_ctx_t *)arg;
+    for (int i = 0; i < MK_MSG_SEND_RACE_PER; i++) {
+        miku_msg_t m;
+        memset(&m, 0, sizeof(m));
+        strncpy(m.send_id, "race_sender", sizeof(m.send_id) - 1);
+        strncpy(m.recv_id, "race_receiver", sizeof(m.recv_id) - 1);
+        snprintf(m.client_msg_id, sizeof(m.client_msg_id), "race_%d_%d", ctx->producer, i);
+        m.msg_type = MK_MSG_TYPE_TEXT;
+        if (miku_msg_send(ctx->svc, &m) == 0) ctx->ok++;
+    }
+    return NULL;
+}
+
+static void test_msg_send_concurrent_no_lost_or_double_count(void) {
+    miku_msg_service_t *svc = miku_msg_service_create();
+    mk_assert_not_null(svc);
+
+    msg_send_race_ctx_t a = { .svc = svc, .producer = 0 };
+    msg_send_race_ctx_t b = { .svc = svc, .producer = 1 };
+    pthread_t t1, t2;
+    mk_assert_int_eq(0, pthread_create(&t1, NULL, msg_send_race_worker, &a));
+    mk_assert_int_eq(0, pthread_create(&t2, NULL, msg_send_race_worker, &b));
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    mk_assert_int_eq(2 * MK_MSG_SEND_RACE_PER, a.ok + b.ok);
+    static miku_msg_t out[2 * MK_MSG_SEND_RACE_PER];
+    int seen[2][MK_MSG_SEND_RACE_PER] = {{0}};
+    int total = 0;
+    int n = miku_msg_get_by_conv(svc, "si_13_race_receiver_race_sender", 0, 0,
+                                 2 * MK_MSG_SEND_RACE_PER, out,
+                                 2 * MK_MSG_SEND_RACE_PER);
+    total += n;
+    for (int i = 0; i < n; i++) {
+        int id_producer = -1;
+        int id_index = -1;
+        mk_assert_int_eq(2, sscanf(out[i].client_msg_id, "race_%d_%d",
+                                    &id_producer, &id_index));
+        mk_assert(id_producer >= 0 && id_producer < 2);
+        mk_assert(id_index >= 0 && id_index < MK_MSG_SEND_RACE_PER);
+        mk_assert_int_eq(0, seen[id_producer][id_index]);
+        seen[id_producer][id_index] = 1;
+    }
+    mk_assert_int_eq(2 * MK_MSG_SEND_RACE_PER, total);
+    for (int producer = 0; producer < 2; producer++)
+        for (int i = 0; i < MK_MSG_SEND_RACE_PER; i++)
+            mk_assert_int_eq(1, seen[producer][i]);
+
+    miku_msg_service_destroy(svc);
+}
+
 static void test_msg_send_and_query(void) {
     miku_msg_service_t *svc = miku_msg_service_create();
     miku_friend_service_t *friends = miku_friend_service_create();
@@ -3245,6 +3305,7 @@ void run_service_tests(void) {
     mk_run_test(test_group_create_and_members);
     mk_run_test(test_conv_create_and_get);
     mk_run_test(test_conv_touch_concurrent_no_lost_update);
+    mk_run_test(test_msg_send_concurrent_no_lost_or_double_count);
     mk_run_test(test_msg_send_and_query);
     mk_run_test(test_msg_get_group_member_gate);
     mk_run_test(test_msg_get_si_mutual_gate);
