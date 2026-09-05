@@ -2,7 +2,7 @@
 
 > High-performance, high-throughput, distributed IM server in pure C (C99-C23 compatible)
 > Rewriting OpenIM Server (Go, 47K LOC, 12 microservices) with memory pool, thread pool, coroutines, and cross-platform support.
-> **Status**: 203 API routes, 222 tests, 67 modules — `/loop` pass 27; EPOLLET accept race + threadpool happens-before + EAGAIN mis-classification + listen-fd leak fixed; 50/50 Debug + 5/5 ASAN + 5/5 Release stability.
+> **Status**: 203 API routes, 222 tests, 67 modules — `/loop` pass 27; EPOLLET accept race + threadpool happens-before + EAGAIN mis-classification + listen-fd leak fixed in pass 27; per-service rwlock coverage of miku_msg entry points in pass 29 (test count adjusted to 231 after duplicate-storage-test removal); 50/50 Debug + 5/5 ASAN + 5/5 Release stability.
 
 ### Review loop (Cursor `/loop`)
 

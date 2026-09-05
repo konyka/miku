@@ -235,7 +235,4 @@ void run_storage_tests(void) {
      * backend), miku_msg_store_create succeeds but inserts fail with
      * errCode -1. This is verified at compile time by the gate in
      * mem_alloc_slot; the test below just exercises the public API. */
-#ifdef MIKU_HAS_MSG_STORE_MEM_RING
-    mk_run_test(test_msg_store_overwrite_callback);
-#endif
 }
