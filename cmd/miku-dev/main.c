@@ -161,6 +161,7 @@ int main(int argc, char **argv) {
     miku_crontask_t *cron = miku_crontask_create();
     g_cron_impl = miku_cron_tasks_create();
     miku_cron_tasks_set_msg_store(g_cron_impl, g_msg_store);
+    miku_cron_tasks_set_object_store(g_cron_impl, miku_third_object_store(ctx->third));
     miku_crontask_add(cron, "deleteMsg", dev_cron_delete_msg, g_cron_impl, 86400000);
     miku_crontask_add(cron, "clearS3",   dev_cron_clear_s3,   g_cron_impl, 604800000);
 

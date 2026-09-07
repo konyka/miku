@@ -1,15 +1,53 @@
 #include "miku_third.h"
 #include "miku_hash.h"
 #include "miku_json_util.h"
+#include "miku_uuid.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-struct miku_third_service_s { int unused; };
+struct miku_third_service_s {
+    miku_object_store_t *store;
+};
 
 miku_third_service_t *miku_third_service_create(void) {
-    return (miku_third_service_t *)calloc(1, sizeof(miku_third_service_t));
+    miku_third_service_t *svc = (miku_third_service_t *)calloc(1, sizeof(*svc));
+    if (!svc) return NULL;
+    svc->store = miku_object_store_create();
+    if (!svc->store) {
+        free(svc);
+        return NULL;
+    }
+    return svc;
 }
-void miku_third_service_destroy(miku_third_service_t *svc) { free(svc); }
+
+void miku_third_service_destroy(miku_third_service_t *svc) {
+    if (!svc) return;
+    miku_object_store_destroy(svc->store);
+    free(svc);
+}
+
+miku_object_store_t *miku_third_object_store(miku_third_service_t *svc) {
+    return svc ? svc->store : NULL;
+}
+
+static const char *req_object_name(const miku_json_val_t *req) {
+    static const char *keys[] = {"name", "key", "objectName", "filePath", NULL};
+    if (!req) return NULL;
+    for (int i = 0; keys[i]; i++) {
+        const char *s = miku_json_str(miku_json_get(req, keys[i]));
+        if (s && s[0]) return s;
+    }
+    return NULL;
+}
+
+static const char *req_owner(const miku_json_val_t *req) {
+    if (!req) return "";
+    const char *s = miku_json_str(miku_json_get(req, "userID"));
+    if (s && s[0]) return s;
+    s = miku_json_str(miku_json_get(req, "ownerUserID"));
+    return s ? s : "";
+}
 
 enum {
     MK_THIRD_RPC_getUploadToken = 0,
@@ -91,36 +129,114 @@ static int third_rpc_id(const char *method) {
 
 void miku_third_handle_rpc(miku_third_service_t *svc, const char *method,
                             const miku_json_val_t *req, miku_json_val_t *resp) {
-    (void)svc; (void)req;
     if (!method || !resp) return;
+    miku_object_store_t *store = svc ? svc->store : NULL;
+    const char *name = req_object_name(req);
     switch (third_rpc_id(method)) {
     case MK_THIRD_RPC_getUploadToken:
         miku_ji(resp, "errCode", 0);
-        miku_jss(resp, "token", "placeholder_upload_token");
+        if (name && !miku_object_name_is_safe(name)) {
+            miku_ji(resp, "errCode", 3003);
+            miku_jss(resp, "errMsg", "object path required");
+            break;
+        }
+        miku_jss(resp, "token", name && name[0] ? name : "placeholder_upload_token");
         break;
     case MK_THIRD_RPC_getDownloadURL:
+    case MK_THIRD_RPC_accessURL: {
+        if (name && !miku_object_name_is_safe(name)) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
+        if (name && store) {
+            miku_object_meta_t meta;
+            if (miku_object_store_get(store, name, &meta) != 0) {
+                miku_ji(resp, "errCode", 1004);
+                miku_jss(resp, "errMsg", "object not found");
+                break;
+            }
+            char url[320];
+            snprintf(url, sizeof(url), "miku-obj://%s", name);
+            miku_ji(resp, "errCode", 0);
+            miku_jss(resp, "url", url);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
-        miku_jss(resp, "url", "https://placeholder.example.com/file");
+        miku_jss(resp, "url", method[0] == 'a'
+                 ? "https://placeholder.example.com/access"
+                 : "https://placeholder.example.com/file");
         break;
-    case MK_THIRD_RPC_accessURL:
-        miku_ji(resp, "errCode", 0);
-        miku_jss(resp, "url", "https://placeholder.example.com/access");
-        break;
+    }
     case MK_THIRD_RPC_deleteObject:
+        if (name && !miku_object_name_is_safe(name)) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
+        if (name && store) miku_object_store_delete(store, name);
         miku_ji(resp, "errCode", 0);
         break;
-    case MK_THIRD_RPC_initiateMultipartUpload:
+    case MK_THIRD_RPC_initiateMultipartUpload: {
+        char upload_id[40];
+        if (name && store && miku_object_name_is_safe(name)) {
+            miku_object_meta_t in;
+            memset(&in, 0, sizeof(in));
+            strncpy(in.name, name, sizeof(in.name) - 1);
+            strncpy(in.owner, req_owner(req), sizeof(in.owner) - 1);
+            miku_uuid_generate(in.upload_id);
+            in.created_ms = miku_timestamp_ms();
+            in.expire_ms = in.created_ms + 86400000LL;
+            in.complete = 0;
+            if (miku_object_store_upsert(store, &in) == 0)
+                strncpy(upload_id, in.upload_id, sizeof(upload_id) - 1);
+            else
+                strncpy(upload_id, "multipart_placeholder", sizeof(upload_id) - 1);
+        } else if (name && !miku_object_name_is_safe(name)) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        } else {
+            strncpy(upload_id, "multipart_placeholder", sizeof(upload_id) - 1);
+        }
         miku_ji(resp, "errCode", 0);
-        miku_jss(resp, "uploadID", "multipart_placeholder");
+        miku_jss(resp, "uploadID", upload_id);
         break;
-    case MK_THIRD_RPC_completeMultipartUpload:
+    }
+    case MK_THIRD_RPC_completeMultipartUpload: {
+        if (name && store && miku_object_name_is_safe(name)) {
+            miku_object_meta_t meta;
+            if (miku_object_store_get(store, name, &meta) == 0) {
+                int64_t sz = miku_json_int(miku_json_get(req, "size"));
+                if (sz > 0) meta.size = sz;
+                meta.complete = 1;
+                miku_object_store_upsert(store, &meta);
+            }
+        } else if (name && !miku_object_name_is_safe(name)) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         break;
+    }
     case MK_THIRD_RPC_getUploadInfo:
         miku_ji(resp, "errCode", 0);
         miku_jss(resp, "uploadURL", "https://placeholder.example.com/upload");
         break;
     case MK_THIRD_RPC_getObjectInfo:
+        if (name && !miku_object_name_is_safe(name)) {
+            miku_ji(resp, "errCode", 3003);
+            break;
+        }
+        if (name && store) {
+            miku_object_meta_t meta;
+            if (miku_object_store_get(store, name, &meta) != 0) {
+                miku_ji(resp, "errCode", 1004);
+                miku_jss(resp, "errMsg", "object not found");
+                break;
+            }
+            miku_ji(resp, "errCode", 0);
+            miku_ji(resp, "size", meta.size);
+            miku_jss(resp, "name", meta.name);
+            break;
+        }
         miku_ji(resp, "errCode", 0);
         miku_ji(resp, "size", 0);
         break;

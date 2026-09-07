@@ -4,6 +4,7 @@ set(MIKU_STORAGE_SOURCES
     miku_redis.c
     miku_kafka.c
     miku_msg_store.c
+    miku_object_store.c
     miku_session_cache.c
     miku_seq.c
     miku_incr_sync.c

@@ -13,6 +13,7 @@
 #include "miku_mt_pipeline.h"
 #include "miku_msg_store.h"
 #include "miku_session_cache.h"
+#include "miku_object_store.h"
 #include "miku_json.h"
 #include "miku_json_util.h"
 #include "miku_models.h"
@@ -288,6 +289,7 @@ void test_cron_tasks_basic(void) {
     mk_assert_long_eq(2, (long)miku_cron_total_msgs_deleted(ct));
 
     mk_assert_int_eq(0, miku_cron_clear_s3_files(ct, 7));
+    mk_assert_long_eq(0, (long)miku_cron_total_s3_deleted(ct));
 
     {
         int64_t t2 = miku_cron_get_last_run(ct, "deleteMsg");
@@ -939,6 +941,199 @@ void test_session_cache_stub(void) {
 
     mk_assert_int_eq(-1, miku_session_set_token(c, NULL, "t", 1, 0));
 
+    miku_session_cache_destroy(c);
+}
+
+void test_object_name_rejects_traversal(void) {
+    mk_assert_int_eq(0, miku_object_name_is_safe(NULL));
+    mk_assert_int_eq(0, miku_object_name_is_safe(""));
+    mk_assert_int_eq(0, miku_object_name_is_safe("../etc/passwd"));
+    mk_assert_int_eq(0, miku_object_name_is_safe("/abs/path"));
+    mk_assert_int_eq(0, miku_object_name_is_safe("a/../b"));
+    mk_assert_int_eq(0, miku_object_name_is_safe("a\\b"));
+    mk_assert_int_eq(0, miku_object_name_is_safe("foo/"));
+    mk_assert_int_eq(1, miku_object_name_is_safe("oss_a/photo.jpg"));
+    mk_assert_int_eq(1, miku_object_name_is_safe("u1/dir/file_1.bin"));
+}
+
+void test_object_store_put_get_delete(void) {
+    miku_object_store_t *s = miku_object_store_create();
+    mk_assert_not_null(s);
+
+    miku_object_meta_t bad;
+    memset(&bad, 0, sizeof(bad));
+    strncpy(bad.name, "../x", sizeof(bad.name) - 1);
+    mk_assert_int_eq(-1, miku_object_store_upsert(s, &bad));
+
+    miku_object_meta_t in;
+    memset(&in, 0, sizeof(in));
+    strncpy(in.name, "u1/a.jpg", sizeof(in.name) - 1);
+    strncpy(in.owner, "u1", sizeof(in.owner) - 1);
+    strncpy(in.content_type, "image/jpeg", sizeof(in.content_type) - 1);
+    in.size = 1234;
+    mk_assert_int_eq(0, miku_object_store_upsert(s, &in));
+    mk_assert_int_eq(1, miku_object_store_count(s));
+
+    miku_object_meta_t out;
+    mk_assert_int_eq(0, miku_object_store_get(s, "u1/a.jpg", &out));
+    mk_assert_int_eq(1234, (int)out.size);
+    mk_assert_str_eq("u1", out.owner);
+    mk_assert_int_eq(-1, miku_object_store_get(s, "missing", &out));
+
+    mk_assert_int_eq(0, miku_object_store_delete(s, "u1/a.jpg"));
+    mk_assert_int_eq(0, miku_object_store_count(s));
+    mk_assert_int_eq(0, miku_object_store_delete(s, "u1/a.jpg"));
+    miku_object_store_destroy(s);
+}
+
+void test_object_store_purge_expired(void) {
+    miku_object_store_t *s = miku_object_store_create();
+    mk_assert_not_null(s);
+    int64_t now = miku_timestamp_ms();
+
+    miku_object_meta_t oldm, newm;
+    memset(&oldm, 0, sizeof(oldm));
+    strncpy(oldm.name, "u1/old.bin", sizeof(oldm.name) - 1);
+    oldm.created_ms = now;
+    oldm.expire_ms = now - 1;
+    mk_assert_int_eq(0, miku_object_store_upsert(s, &oldm));
+
+    memset(&newm, 0, sizeof(newm));
+    strncpy(newm.name, "u1/new.bin", sizeof(newm.name) - 1);
+    newm.created_ms = now;
+    newm.expire_ms = now + 3600000;
+    mk_assert_int_eq(0, miku_object_store_upsert(s, &newm));
+    mk_assert_int_eq(2, miku_object_store_count(s));
+
+    mk_assert_int_eq(1, miku_object_store_purge_expired(s, now, 0));
+    mk_assert_int_eq(1, miku_object_store_count(s));
+    miku_object_meta_t out;
+    mk_assert_int_eq(0, miku_object_store_get(s, "u1/new.bin", &out));
+    mk_assert_int_eq(-1, miku_object_store_get(s, "u1/old.bin", &out));
+    miku_object_store_destroy(s);
+}
+
+void test_cron_clear_s3_purges_expired(void) {
+    miku_cron_tasks_t *ct = miku_cron_tasks_create();
+    miku_object_store_t *objs = miku_object_store_create();
+    mk_assert_not_null(ct);
+    mk_assert_not_null(objs);
+    miku_cron_tasks_set_object_store(ct, objs);
+
+    int64_t now = miku_timestamp_ms();
+    miku_object_meta_t aged;
+    memset(&aged, 0, sizeof(aged));
+    strncpy(aged.name, "u1/aged.bin", sizeof(aged.name) - 1);
+    aged.created_ms = now - 40LL * 86400000LL;
+    mk_assert_int_eq(0, miku_object_store_upsert(objs, &aged));
+
+    miku_object_meta_t fresh;
+    memset(&fresh, 0, sizeof(fresh));
+    strncpy(fresh.name, "u1/fresh.bin", sizeof(fresh.name) - 1);
+    fresh.created_ms = now;
+    mk_assert_int_eq(0, miku_object_store_upsert(objs, &fresh));
+
+    mk_assert_int_eq(0, miku_cron_clear_s3_files(ct, 30));
+    mk_assert_long_eq(1, (long)miku_cron_total_s3_deleted(ct));
+    mk_assert_int_eq(1, miku_object_store_count(objs));
+
+    miku_cron_tasks_destroy(ct);
+    miku_object_store_destroy(objs);
+}
+
+void test_third_object_roundtrip(void) {
+    miku_third_service_t *svc = miku_third_service_create();
+    mk_assert_not_null(svc);
+
+    miku_json_val_t *req = miku_json_create_object();
+    miku_jss(req, "name", "u1/photo.jpg");
+    miku_jss(req, "userID", "u1");
+
+    miku_json_val_t *resp = miku_json_create_object();
+    miku_third_handle_rpc(svc, "initiateMultipartUpload", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    const char *uid = miku_json_str(miku_json_get(resp, "uploadID"));
+    mk_assert(uid && uid[0] && strcmp(uid, "multipart_placeholder") != 0);
+    miku_json_destroy(resp);
+
+    resp = miku_json_create_object();
+    miku_third_handle_rpc(svc, "getObjectInfo", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "size")));
+    miku_json_destroy(resp);
+
+    miku_ji(req, "size", 4096);
+    resp = miku_json_create_object();
+    miku_third_handle_rpc(svc, "completeMultipartUpload", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(resp);
+
+    resp = miku_json_create_object();
+    miku_third_handle_rpc(svc, "getObjectInfo", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    mk_assert_int_eq(4096, (int)miku_json_int(miku_json_get(resp, "size")));
+    miku_json_destroy(resp);
+
+    resp = miku_json_create_object();
+    miku_third_handle_rpc(svc, "accessURL", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    const char *url = miku_json_str(miku_json_get(resp, "url"));
+    mk_assert(url && strstr(url, "u1/photo.jpg"));
+    miku_json_destroy(resp);
+
+    resp = miku_json_create_object();
+    miku_third_handle_rpc(svc, "deleteObject", req, resp);
+    mk_assert_int_eq(0, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(resp);
+
+    resp = miku_json_create_object();
+    miku_third_handle_rpc(svc, "getObjectInfo", req, resp);
+    mk_assert_int_eq(1004, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(resp);
+
+    resp = miku_json_create_object();
+    miku_json_val_t *bad = miku_json_create_object();
+    miku_jss(bad, "name", "../etc/passwd");
+    miku_third_handle_rpc(svc, "getObjectInfo", bad, resp);
+    mk_assert_int_eq(3003, (int)miku_json_int(miku_json_get(resp, "errCode")));
+    miku_json_destroy(resp);
+    miku_json_destroy(bad);
+
+    miku_json_destroy(req);
+    miku_third_service_destroy(svc);
+}
+
+void test_session_cache_rejects_wrong_and_expired_token(void) {
+    miku_session_cache_t *c = miku_session_cache_create(NULL);
+    mk_assert_not_null(c);
+    mk_assert_int_eq(0, miku_session_set_token(c, "u1", "tok_abc", 1, 3600000));
+    mk_assert_int_eq(0, miku_session_validate_token(c, "u1", "tok_abc"));
+    mk_assert_int_eq(-1, miku_session_validate_token(c, "u1", "tok_evil"));
+    mk_assert_int_eq(0, miku_session_remove_token(c, "u1", 1));
+    mk_assert_int_eq(-1, miku_session_validate_token(c, "u1", "tok_abc"));
+
+    mk_assert_int_eq(0, miku_session_set_token(c, "u1", "tok_ttl", 2, 1));
+    usleep(3000);
+    mk_assert_int_eq(-1, miku_session_validate_token(c, "u1", "tok_ttl"));
+    miku_session_cache_destroy(c);
+}
+
+void test_session_cache_get_online_lists_platform(void) {
+    miku_session_cache_t *c = miku_session_cache_create(NULL);
+    mk_assert_not_null(c);
+    mk_assert_int_eq(0, miku_session_set_online(c, "u1", 1, "127.0.0.1:10001"));
+    char *platforms = NULL;
+    mk_assert_int_eq(0, miku_session_get_online(c, "u1", &platforms));
+    mk_assert_not_null(platforms);
+    mk_assert(strstr(platforms, "1") != NULL);
+    free(platforms);
+
+    mk_assert_int_eq(0, miku_session_set_offline(c, "u1", 1));
+    platforms = NULL;
+    mk_assert_int_eq(0, miku_session_get_online(c, "u1", &platforms));
+    mk_assert_not_null(platforms);
+    mk_assert_str_eq("[]", platforms);
+    free(platforms);
     miku_session_cache_destroy(c);
 }
 
@@ -3582,6 +3777,13 @@ void run_new_module_tests(void) {
     mk_run_test(test_msg_store_concurrent_insert);
     mk_run_test(test_msg_store_insert_when_full);
     mk_run_test(test_session_cache_stub);
+    mk_run_test(test_object_name_rejects_traversal);
+    mk_run_test(test_object_store_put_get_delete);
+    mk_run_test(test_object_store_purge_expired);
+    mk_run_test(test_cron_clear_s3_purges_expired);
+    mk_run_test(test_third_object_roundtrip);
+    mk_run_test(test_session_cache_rejects_wrong_and_expired_token);
+    mk_run_test(test_session_cache_get_online_lists_platform);
     mk_run_test(test_rpc_user_dispatch);
     mk_run_test(test_rpc_friend_dispatch);
     mk_run_test(test_rpc_group_dispatch);

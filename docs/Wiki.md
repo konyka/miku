@@ -45,7 +45,7 @@
 | C 代码行数 | ~15K |
 | 构建警告 | 0 |
 
-Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。消息存储在无 Mongo 时使用 8k 内存环，cron `deleteMsg` 与写入同进程；离线推送可配置 `http://` 网关 POST；拆分部署时 `miku-api` 的 `force_logout` 通过 `ws_port+1` 的 `/internal/kick` 踢掉 WS 并在网关进程内 `miku_token_revoke`（body 含 `userID` + `platformID`，`platformID<0` 或 `force_logout_all` 踢/吊销全部端），防止旧 token 重连；建群/入群/邀请成功后经 `/internal/group_member` 同步成员，退群/踢人经 `action=remove` 同步删除，群聊 `PUSH_MSG` 经 foreach 全员扇出（无 512 拷贝上限）；拆分部署下 HTTP `send_msg` 支持 `groupID` 群发并采用网关返回的会话 seq。S3 清理仍待对象存储绑定。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
+Miku IM Server 是对 OpenIM Server 的 C 语言重写，实现了 203 条路由、12 个 WS 操作码、7 个业务服务、5 个网关服务、完整的中间件管道、速率限制、Webhook、增量同步等。消息存储在无 Mongo 时使用 8k 内存环，cron `deleteMsg` 与写入同进程；离线推送可配置 `http://` 网关 POST；拆分部署时 `miku-api` 的 `force_logout` 通过 `ws_port+1` 的 `/internal/kick` 踢掉 WS 并在网关进程内 `miku_token_revoke`（body 含 `userID` + `platformID`，`platformID<0` 或 `force_logout_all` 踢/吊销全部端），防止旧 token 重连；建群/入群/邀请成功后经 `/internal/group_member` 同步成员，退群/踢人经 `action=remove` 同步删除，群聊 `PUSH_MSG` 经 foreach 全员扇出（无 512 拷贝上限）；拆分部署下 HTTP `send_msg` 支持 `groupID` 群发并采用网关返回的会话 seq。无 MinIO 时对象元数据走进程内 `miku_object_store`（路径消毒 + 过期淘汰），`clearS3` 与 Third 共用该环。API 默认进程内嵌入业务服务；独立 RPC 二进制可用于拆分部署。WS 网关使用 epoll 且握手需 token；Webhook 通过原生 socket 出站 POST；`force_logout` 会吊销已签发 token。
 
 ---
 
@@ -421,7 +421,14 @@ LRU + TTL 本地缓存：
 
 #### 4.6 会话缓存（miku_session_cache）
 
-Redis 会话缓存封装。
+进程内哈希表始终记录 token / 在线状态；无 Redis 时不再空成功。`validate_token` 校验值与 TTL，`get_online` 返回平台数组。有 Redis 时本地表与 Redis 双写。
+
+#### 4.6.1 对象存储（miku_object_store）
+
+无 MinIO/S3 时的对象元数据环（4096 槽，FNV 开放寻址，满则 FIFO 淘汰，rwlock）：
+- 名称只允许 `[A-Za-z0-9._/-]`，拒绝 `..`、绝对路径、反斜杠与控制字符
+- `upsert` / `get` / 幂等 `delete` / `purge_expired`（绝对过期或按创建时间老化）
+- Third 服务与 cron `clearS3` 共用同一实例（`miku-dev` 注入）
 
 #### 4.7 序列号管理（miku_seq）
 
@@ -500,13 +507,10 @@ Redis 会话缓存封装。
 
 #### 5.7 Third 服务（miku-rpc-third, 端口 10200）
 
-第三方服务（15 个 RPC 方法）：
-- 文件上传/下载 Token
-- FCM 推送 Token 更新
-- 应用角标设置
-- 日志管理
-- S3 分片上传
-- 信令邀请信息
+第三方服务（20 个 RPC 方法）：
+- 对象路径消毒后写入 `miku_object_store`：`initiateMultipartUpload` / `completeMultipartUpload` / `getObjectInfo` / `deleteObject` / `accessURL`
+- 不安全路径返回 3003；已命名但不存在的对象返回 1004
+- FCM 推送 Token 更新、角标、日志、信令仍为占位实现
 
 ---
 
@@ -567,7 +571,7 @@ API 各自加锁；锁为递归型，因为扇出与上下线通知会回调 `se
 定时任务调度器（最大 256 个任务）：
 - `deleteMsg` — 按保留天数调用 `miku_msg_store_purge_older_than`；**内存 store 与写入同进程**（`miku-msgtransfer` / `miku-dev`），避免跨进程空跑
 - `clearUserMsg` — 调用 `miku_msg_store_clear_user` 清理指定用户消息
-- `clearS3` — 定期清理 S3 过期文件（仍待对象存储绑定）
+- `clearS3` — 调用 `miku_object_store_purge_expired`（绝对过期 + 按保留天数老化）；`miku-dev` 与 Third 共用对象环
 - `miku_cron_tasks_set_msg_store` 绑定存储；`miku-crontask` 独立进程不持有私有内存环
 - 可扩展的任务注册机制
 
@@ -984,13 +988,13 @@ GitHub Actions (`.github/workflows/ci.yml`)：
 | Protocol | 51 | HTTP 解析、响应头 CRLF 过滤、JSON 编解码转义、WebSocket 分帧与对端消失写入、RPC、PB、中间件、203 路由校验 |
 | Storage | 9 | LRU 缓存、服务发现 |
 | Services | 58 | 模型、7 个 RPC 服务、集成测试、认证中间件、好友/群成员/会话并发安全 |
-| New Modules | 69 | IM 消息、消息管道、限流、Webhook、WS ops、消息存储并发与满载淘汰、E2E 等 |
+| New Modules | 76 | IM 消息、对象存储、会话缓存校验、cron S3 清理、限流、Webhook、E2E 等 |
 | Benchmarks | 5 | JSON/HashMap/Cache/Queue 性能基准 |
-| **总计** | **227** | 222 功能 + 5 基准 |
+| **总计** | **243** | 238 功能 + 5 基准 |
 
 ### 运行测试
 ```bash
-make test           # 默认只跑 222 个功能测试
+make test           # 默认只跑功能测试
 timeout 60 ./build/bin/miku_tests
 ```
 

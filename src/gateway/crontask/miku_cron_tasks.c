@@ -16,7 +16,8 @@ struct miku_cron_tasks_s {
     int               history_count;
     int64_t           total_msgs_deleted;
     int64_t           total_s3_files_deleted;
-    miku_msg_store_t *store;
+    miku_msg_store_t     *store;
+    miku_object_store_t  *objects;
 };
 
 miku_cron_tasks_t *miku_cron_tasks_create(void) {
@@ -27,6 +28,14 @@ void miku_cron_tasks_destroy(miku_cron_tasks_t *ct) { free(ct); }
 
 void miku_cron_tasks_set_msg_store(miku_cron_tasks_t *ct, miku_msg_store_t *store) {
     if (ct) ct->store = store;
+}
+
+void miku_cron_tasks_set_object_store(miku_cron_tasks_t *ct, miku_object_store_t *store) {
+    if (ct) ct->objects = store;
+}
+
+int64_t miku_cron_total_s3_deleted(miku_cron_tasks_t *ct) {
+    return ct ? ct->total_s3_files_deleted : 0;
 }
 
 int64_t miku_cron_total_msgs_deleted(miku_cron_tasks_t *ct) {
@@ -77,10 +86,16 @@ int miku_cron_clear_user_msgs(miku_cron_tasks_t *ct, const char *user_id) {
 int miku_cron_clear_s3_files(miku_cron_tasks_t *ct, int64_t expire_days) {
     if (!ct) return -1;
     record_run(ct, "clearS3");
-    /* S3/MinIO cleanup still requires object storage binding. */
-    MK_LOG_INFO("cron: clearS3Files (expire=%ld days) — stub pending S3 binding",
-                (long)expire_days);
-    ct->total_s3_files_deleted += 0;
+    int64_t days = expire_days > 0 ? expire_days : 30;
+    int64_t now = miku_timestamp_ms();
+    int64_t cutoff = now - days * 86400000LL;
+    int removed = 0;
+    if (ct->objects)
+        removed = miku_object_store_purge_expired(ct->objects, now, cutoff);
+    if (removed < 0) removed = 0;
+    ct->total_s3_files_deleted += removed;
+    MK_LOG_INFO("cron: clearS3Files (expire=%ld days, removed=%d)",
+                (long)days, removed);
     return 0;
 }
 

@@ -10,10 +10,10 @@ A complete rewrite of [OpenIM Server](https://github.com/openimsdk/open-im-serve
 |--------|-------|
 | HTTP Routes | 203 |
 | WS Protocol Opcodes | 12 |
-| C Modules | 68 |
+| C Modules | 69 |
 | C Headers | 75 |
 | Binaries | 13 |
-| Functional Tests | 231 |
+| Functional Tests | 238 |
 | Lines of C Code | ~15K |
 | Build Warnings | 0 |
 
@@ -127,10 +127,10 @@ CLI flags override config: `-c <dir>` config dir, `-p <port>` API/WS port, `-w <
 
 ## Project Stats
 
-- **68 modules** across 6 layers
+- **69 modules** across 6 layers
 - **13 binaries** (12 microservices + all-in-one `miku-dev`)
 - **203 API routes** (Auth 5, User 32, Friend 26, Group 35, Msg 30, Conv 21, Third 15, Object 8, Batch 2, Statistics 4, JSSDK 2, Prometheus 11, Config 6, Restart 1, Admin 4, Version 1)
-- **231 functional tests**, all passing (Debug + ASAN/UBSan clean, 25+ consecutive runs, zero flakes)
+- **238 functional tests**, all passing (Debug + ASAN/UBSan clean)
 - **5 opt-in benchmarks** via `MIKU_ENABLE_BENCHMARKS=ON` / `miku_bench` (Release mode)
 
 A full correctness/memory-safety/performance audit with findings and remediation
@@ -153,6 +153,8 @@ benchmarks behind the explicit `miku_bench` target.
 - Per-user rate limiting (mutex-protected sliding window + LRU eviction)
 - Token revoke / force_logout (in-memory blacklist; miku-dev kicks WS sessions via on_kick callback)
 - Per-conversation sequence number management + user read tracking
+- In-process object metadata store (path-safe names, expiry, cron `clearS3` purge) when MinIO/S3 is not bound
+- Session cache local fallback: tokens and online status are stored and validated without Redis
 - Incremental sync (friends/blacks/groups/members/conversations)
 - gzip compression/decompression
 - Prometheus metrics at `/admin/metrics` (public scrape); `/admin/stats` and config/restart require auth
